@@ -1,6 +1,9 @@
 srsRAN Project
 ==============
 
+[![Build Status](https://github.com/srsran/srsRAN_Project/actions/workflows/ccpp.yml/badge.svg?branch=main)](https://github.com/srsran/srsRAN_Project/actions/workflows/ccpp.yml)
+[![CodeQL](https://github.com/srsran/srsRAN_Project/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/srsran/srsRAN_Project/actions/workflows/codeql.yml)
+
 The srsRAN Project is a complete 5G RAN solution, featuring an ORAN-native CU/DU developed by [SRS](http://www.srs.io).
 
 The solution includes a complete L1/2/3 implementation with minimal external dependencies. Portable across processor architectures, the software has been optimized for x86 and ARM. srsRAN follows the 3GPP 5G system architecture implementing the functional splits between distributed unit (DU) and centralized unit (CU). The CU is further disaggregated into control plane (CU-CP) and user-plane (CU-UP).
@@ -97,7 +100,7 @@ Run PHY testvector tests:
 A number of PHY tests are based on MATLAB generated testvectors. By default, those tests are disabled.
 The following steps are required to enable them:
 
-1. Download the [PHY testvector set](https://github.com/srsran/srsRAN_Project/releases/download/release_23_3/phy_testvectors.tar.gz).
+1. Download the [PHY testvector set](https://github.com/srsran/srsRAN_Project/releases/download/release_23_5/phy_testvectors.tar.gz).
 2. Copy the PHY testvectors to its location within srsRAN:
 ```
 tar -xzf phy_testvectors.tar.gz -C /path_to_your_local_repository/srsgnb/
