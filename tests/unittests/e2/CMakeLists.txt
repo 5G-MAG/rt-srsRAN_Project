@@ -18,6 +18,7 @@
 # and at http://www.gnu.org/licenses/.
 #
 
+set_directory_properties(PROPERTIES LABELS "e2ap")
 add_executable(e2_asn1_packer_test common/e2_asn1_packer_test.cpp)
 target_link_libraries(e2_asn1_packer_test
                       srsran_e2
