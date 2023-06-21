@@ -39,6 +39,8 @@ void bearer_context_release_procedure::operator()(coro_context<async_task<void>>
 {
   CORO_BEGIN(ctx);
 
+  logger.debug("ue={}: \"{}\" initialized.", ue_index, name());
+
   // Subscribe to respective publisher to receive BEARER CONTEXT RELEASE COMPLETE message.
   transaction_sink.subscribe_to(ue_ctxt_list[ue_index].bearer_ev_mng.context_release_complete);
 
@@ -76,12 +78,14 @@ void bearer_context_release_procedure::handle_bearer_context_release_complete()
       resp.to_json(js);
       logger.debug("Containerized BearerContextReleaseComplete: {}", js.to_string());
     }
-    if (command.pdu.init_msg().value.bearer_context_release_cmd()->gnb_cu_cp_ue_e1ap_id.value ==
-        resp->gnb_cu_cp_ue_e1ap_id.value) {
+    if (command.pdu.init_msg().value.bearer_context_release_cmd()->gnb_cu_cp_ue_e1ap_id == resp->gnb_cu_cp_ue_e1ap_id) {
       ue_ctxt_list.remove_ue(ue_index);
     }
 
+    logger.debug("ue={}: \"{}\" finalized.", ue_index, name());
+
   } else {
     logger.warning("BearerContextReleaseComplete timeout");
+    logger.error("ue={}: \"{}\" failed.", ue_index, name());
   }
 }

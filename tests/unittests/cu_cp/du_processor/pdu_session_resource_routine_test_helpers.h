@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "../../e1ap/common/test_helpers.h"
 #include "du_processor_routine_manager_test_helpers.h"
 #include "lib/e1ap/cu_cp/e1ap_cu_cp_asn1_helpers.h"
 #include "lib/f1ap/cu_cp/f1ap_asn1_helpers.h"
@@ -50,8 +51,8 @@ protected:
 
     fill_f1ap_ue_context_modification_request(ctx_mod, request);
 
-    ctx_mod->gnb_du_ue_f1ap_id->value = 0;
-    ctx_mod->gnb_cu_ue_f1ap_id->value = 1;
+    ctx_mod->gnb_du_ue_f1ap_id = 0;
+    ctx_mod->gnb_cu_ue_f1ap_id = 1;
 
     byte_buffer   packed_pdu;
     asn1::bit_ref bref(packed_pdu);
@@ -65,9 +66,9 @@ protected:
     e1ap_msg.pdu.init_msg().load_info_obj(ASN1_E1AP_ID_BEARER_CONTEXT_MOD);
 
     auto& bearer_context_mod_request = e1ap_msg.pdu.init_msg().value.bearer_context_mod_request();
-    bearer_context_mod_request->gnb_cu_cp_ue_e1ap_id.value =
+    bearer_context_mod_request->gnb_cu_cp_ue_e1ap_id =
         gnb_cu_cp_ue_e1ap_id_to_uint(generate_random_gnb_cu_cp_ue_e1ap_id());
-    bearer_context_mod_request->gnb_cu_up_ue_e1ap_id.value =
+    bearer_context_mod_request->gnb_cu_up_ue_e1ap_id =
         gnb_cu_up_ue_e1ap_id_to_uint(generate_random_gnb_cu_up_ue_e1ap_id());
 
     fill_asn1_bearer_context_modification_request(bearer_context_mod_request, request);
@@ -84,9 +85,9 @@ protected:
     e1ap_msg.pdu.init_msg().load_info_obj(ASN1_E1AP_ID_BEARER_CONTEXT_SETUP);
 
     auto& bearer_context_setup_request = e1ap_msg.pdu.init_msg().value.bearer_context_setup_request();
-    bearer_context_setup_request->gnb_cu_cp_ue_e1ap_id.value =
+    bearer_context_setup_request->gnb_cu_cp_ue_e1ap_id =
         gnb_cu_cp_ue_e1ap_id_to_uint(generate_random_gnb_cu_cp_ue_e1ap_id());
-    bearer_context_setup_request->gnb_cu_up_ue_e1ap_id.value =
+    bearer_context_setup_request->gnb_cu_up_ue_e1ap_id =
         gnb_cu_up_ue_e1ap_id_to_uint(generate_random_gnb_cu_up_ue_e1ap_id());
 
     fill_asn1_bearer_context_setup_request(bearer_context_setup_request, request);

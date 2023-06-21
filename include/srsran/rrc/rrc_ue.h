@@ -23,9 +23,7 @@
 #pragma once
 
 #include "rrc_cell_context.h"
-#include "srsran/adt/bounded_bitset.h"
 #include "srsran/adt/byte_buffer.h"
-#include "srsran/asn1/rrc_nr/rrc_nr.h"
 #include "srsran/cu_cp/cu_cp_types.h"
 #include "srsran/cu_cp/up_resource_manager.h"
 #include "srsran/rrc/rrc.h"
@@ -167,12 +165,27 @@ public:
 
   /// \brief Notify about a DL DCCH message.
   /// \param[in] dl_dcch_msg The DL DCCH message.
+  virtual void on_new_dl_dcch(srb_id_t srb_id, const asn1::rrc_nr::dl_dcch_msg_s& dl_dcch_msg) = 0;
+
+  /// \brief Notify about a DL DCCH message.
+  /// \param[in] dl_dcch_msg The DL DCCH message.
   /// \param[in] ue_index The old index of the UE.
   virtual void
   on_new_dl_dcch(srb_id_t srb_id, const asn1::rrc_nr::dl_dcch_msg_s& dl_dcch_msg, ue_index_t old_ue_index) = 0;
 
+  /// \brief Refresh AS security keys after horizontal key derivation.
+  /// This includes configuring the PDCP entity security on SRB1 with the new AS keys.
+  virtual void on_new_as_security_context() = 0;
+
   /// \brief Notify about the need to delete a UE.
   virtual void on_ue_delete_request(const cause_t& cause) = 0;
+};
+
+struct rrc_ue_context_release_command {
+  ue_index_t         ue_index = ue_index_t::invalid;
+  cause_t            cause    = cause_t::nulltype;
+  byte_buffer        rrc_release_pdu;
+  optional<srb_id_t> srb_id;
 };
 
 /// Interface to notify about RRC UE Context messages.
@@ -187,7 +200,7 @@ public:
 
   /// \brief Notify about a UE Context Release Command.
   /// \param[in] cmd The UE Context Release Command.
-  virtual void on_ue_context_release_command(const cu_cp_ue_context_release_command& cmd) = 0;
+  virtual void on_ue_context_release_command(const rrc_ue_context_release_command& cmd) = 0;
 
   /// \brief Notify about a required reestablishment context modification.
   /// \param[in] ue_index The index of the UE that needs the context modification.
@@ -262,6 +275,12 @@ public:
   virtual void handle_dl_nas_transport_message(const dl_nas_transport_message& msg) = 0;
 };
 
+struct rrc_ue_release_context {
+  cu_cp_user_location_info_nr user_location_info;
+  byte_buffer                 rrc_release_pdu;
+  srb_id_t                    srb_id = srb_id_t::nulltype;
+};
+
 /// Handle control messages.
 class rrc_ue_control_message_handler
 {
@@ -278,9 +297,9 @@ public:
   virtual async_task<bool>
   handle_rrc_ue_capability_transfer_request(const cu_cp_ue_capability_transfer_request& msg) = 0;
 
-  /// \brief Handle an RRC UE Release.
-  /// \returns The location info of the UE.
-  virtual cu_cp_user_location_info_nr handle_rrc_ue_release() = 0;
+  /// \brief Get the RRC UE release context.
+  /// \returns The release context of the UE.
+  virtual rrc_ue_release_context get_rrc_ue_release_context() = 0;
 };
 
 /// Handler to initialize the security context from NGAP.

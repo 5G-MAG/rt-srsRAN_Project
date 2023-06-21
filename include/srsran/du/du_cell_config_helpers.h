@@ -28,7 +28,7 @@
 #include "srsran/ran/five_qi.h"
 #include "srsran/ran/nr_cgi_helpers.h"
 #include "srsran/ran/pdcch/pdcch_type0_css_coreset_config.h"
-#include "srsran/ran/tdd_ul_dl_config.h"
+#include "srsran/ran/tdd/tdd_ul_dl_config.h"
 #include "srsran/scheduler/config/cell_config_builder_params.h"
 #include "srsran/scheduler/config/scheduler_expert_config.h"
 #include "srsran/scheduler/config/serving_cell_config_factory.h"
@@ -82,9 +82,8 @@ inline du_cell_config make_default_du_cell_config(const cell_config_builder_para
   cfg.nr_cgi.plmn = "00101";
   cfg.nr_cgi.nci  = config_helpers::make_nr_cell_identity(411, 32, 1);
 
-  cfg.dl_carrier       = make_default_carrier_configuration(params);
-  cfg.ul_carrier       = make_default_carrier_configuration(params);
-  cfg.ul_carrier.arfcn = band_helper::get_ul_arfcn_from_dl_arfcn(cfg.dl_carrier.arfcn, params.band);
+  cfg.dl_carrier       = make_default_dl_carrier_configuration(params);
+  cfg.ul_carrier       = make_default_ul_carrier_configuration(params);
   cfg.coreset0_idx     = params.coreset0_index;
   cfg.searchspace0_idx = 0U;
   cfg.dl_cfg_common    = make_default_dl_config_common(params);

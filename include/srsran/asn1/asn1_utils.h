@@ -1417,18 +1417,20 @@ class json_writer
 {
 public:
   json_writer();
-  void        write_fieldname(const std::string& fieldname);
-  void        write_str(const std::string& fieldname, const std::string& value);
+  void        write_fieldname(const char* fieldname);
+  void        write_str(const char* fieldname, const std::string& value);
+  void        write_str(const char* fieldname, const char* value);
+  void        write_str(const char* value);
   void        write_str(const std::string& value);
-  void        write_int(const std::string& fieldname, int64_t value);
+  void        write_int(const char* fieldname, int64_t value);
   void        write_int(int64_t value);
-  void        write_bool(const std::string& fieldname, bool value);
+  void        write_bool(const char* fieldname, bool value);
   void        write_bool(bool value);
-  void        write_null(const std::string& fieldname);
+  void        write_null(const char* fieldname);
   void        write_null();
-  void        start_obj(const std::string& fieldname = "");
+  void        start_obj(const char* fieldname = "");
   void        end_obj();
-  void        start_array(const std::string& fieldname = "");
+  void        start_array(const char* fieldname = "");
   void        end_array();
   std::string to_string() const;
 
@@ -1609,6 +1611,11 @@ struct setup_release_c {
   {
     set(types::setup);
     return c;
+  }
+
+  bool operator==(const setup_release_c<T>& other) const
+  {
+    return type_ == other.type_ and (type_ != types::setup or (c == other.c));
   }
 
 private:
@@ -1808,6 +1815,29 @@ struct protocol_ie_single_container_s : public protocol_ie_field_s<ies_set_param
 template <class ExtensionSetParam>
 struct protocol_ext_field_s : public detail::base_ie_field<detail::ie_field_ext_item<ExtensionSetParam>> {
 };
+
+template <typename IEValue>
+SRSASN_CODE pack_ie_container_item(bit_ref& bref, uint32_t id, crit_e crit, const IEValue& value)
+{
+  HANDLE_CODE(pack_integer(bref, id, (uint32_t)0u, (uint32_t)65535u, false, true));
+  HANDLE_CODE(crit.pack(bref));
+  {
+    varlength_field_pack_guard varlen_scope(bref, true);
+    HANDLE_CODE(value.pack(bref));
+  }
+  return SRSASN_SUCCESS;
+}
+
+template <typename IEValue>
+void ie_container_item_to_json(json_writer& j, uint32_t id, crit_e crit, const char* value_name, const IEValue& value)
+{
+  j.start_obj();
+  j.write_int("id", id);
+  j.write_str("criticality", crit.to_string());
+  j.write_fieldname(value_name);
+  asn1::to_json(j, value);
+  j.end_obj();
+}
 
 namespace detail {
 

@@ -19,6 +19,8 @@
 #
 
 add_library(srsran_ran
+        csi_report/csi_report_unpacking.cpp
+        csi_report/csi_report_unpacking_helpers.cpp
         csi_rs/csi_rs_pattern.cpp
         csi_rs/csi_rs_config_helpers.cpp
         csi_rs/frequency_allocation_type.cpp
@@ -29,10 +31,12 @@ add_library(srsran_ran
         pdcch/pdcch_type0_css_occasions.cpp
         pdsch/dlsch_info.cpp
         pdsch/pdsch_mcs.cpp
+        pdsch/pdsch_antenna_port_mapping.cpp
         prach/prach_configuration.cpp
         prach/prach_cyclic_shifts.cpp
         prach/prach_frequency_mapping.cpp
         prach/prach_preamble_information.cpp
+        prach/prach_helper.cpp
         precoding/precoding_codebooks.cpp
         pusch/pusch_mcs.cpp
         pusch/pusch_uci_beta_offset.cpp

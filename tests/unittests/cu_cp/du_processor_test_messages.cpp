@@ -40,7 +40,7 @@ void srsran::srs_cu_cp::generate_f1_setup_request_base(cu_cp_f1_setup_request& f
 {
   f1ap_message f1setup_msg                                                              = generate_f1_setup_request(0);
   f1setup_msg.pdu.init_msg().value.f1_setup_request()->gnb_du_served_cells_list_present = false;
-  f1setup_msg.pdu.init_msg().value.f1_setup_request()->gnb_du_served_cells_list->clear();
+  f1setup_msg.pdu.init_msg().value.f1_setup_request()->gnb_du_served_cells_list.clear();
   fill_f1_setup_request(f1_setup_request, f1setup_msg.pdu.init_msg().value.f1_setup_request());
 }
 
@@ -48,17 +48,15 @@ void srsran::srs_cu_cp::generate_f1_setup_request_with_too_many_cells(cu_cp_f1_s
 {
   f1ap_message f1setup_msg  = generate_f1_setup_request(0);
   auto&        f1_setup_req = f1setup_msg.pdu.init_msg().value.f1_setup_request();
-  f1_setup_req->gnb_du_served_cells_list->clear();
+  f1_setup_req->gnb_du_served_cells_list.clear();
 
   f1_setup_req->gnb_du_served_cells_list_present = true;
-  f1_setup_req->gnb_du_served_cells_list.id      = ASN1_F1AP_ID_GNB_DU_SERVED_CELLS_LIST;
-  f1_setup_req->gnb_du_served_cells_list.crit    = asn1::crit_opts::reject;
 
   for (int du_cell_idx_int = du_cell_index_to_uint(du_cell_index_t::min); du_cell_idx_int < MAX_NOF_DU_CELLS + 1;
        du_cell_idx_int++) {
-    f1_setup_req->gnb_du_served_cells_list.value.push_back({});
-    f1_setup_req->gnb_du_served_cells_list.value.back().load_info_obj(ASN1_F1AP_ID_GNB_DU_SERVED_CELLS_ITEM);
-    f1_setup_req->gnb_du_served_cells_list.value.back()->gnb_du_served_cells_item() =
+    f1_setup_req->gnb_du_served_cells_list.push_back({});
+    f1_setup_req->gnb_du_served_cells_list.back().load_info_obj(ASN1_F1AP_ID_GNB_DU_SERVED_CELLS_ITEM);
+    f1_setup_req->gnb_du_served_cells_list.back()->gnb_du_served_cells_item() =
         generate_served_cells_item(du_cell_idx_int, du_cell_idx_int);
   }
   fill_f1_setup_request(f1_setup_request, f1setup_msg.pdu.init_msg().value.f1_setup_request());
@@ -80,11 +78,11 @@ ue_creation_message srsran::srs_cu_cp::generate_ue_creation_message(rnti_t c_rnt
   return ue_creation_msg;
 }
 
-cu_cp_ue_context_release_command srsran::srs_cu_cp::generate_ue_context_release_command(ue_index_t ue_index)
+rrc_ue_context_release_command srsran::srs_cu_cp::generate_ue_context_release_command(ue_index_t ue_index)
 {
-  cu_cp_ue_context_release_command ue_context_release_command = {};
-  ue_context_release_command.ue_index                         = ue_index;
-  ue_context_release_command.cause                            = cause_t::radio_network;
+  rrc_ue_context_release_command ue_context_release_command = {};
+  ue_context_release_command.ue_index                       = ue_index;
+  ue_context_release_command.cause                          = cause_t::radio_network;
   return ue_context_release_command;
 }
 
@@ -148,16 +146,17 @@ cu_cp_pdu_session_resource_release_command srsran::srs_cu_cp::generate_pdu_sessi
   return cmd;
 };
 
-cu_cp_pdu_session_resource_modify_request srsran::srs_cu_cp::generate_pdu_session_resource_modification()
+cu_cp_pdu_session_resource_modify_request srsran::srs_cu_cp::generate_pdu_session_resource_modification(unsigned psi,
+                                                                                                        unsigned qfi)
 {
   cu_cp_pdu_session_resource_modify_request request;
   request.ue_index = uint_to_ue_index(0);
 
   cu_cp_pdu_session_res_modify_item_mod_req modify_item;
-  modify_item.pdu_session_id = uint_to_pdu_session_id(1);
+  modify_item.pdu_session_id = uint_to_pdu_session_id(psi);
 
   qos_flow_add_or_mod_item qos_item;
-  qos_item.qos_flow_id = uint_to_qos_flow_id(2);
+  qos_item.qos_flow_id = uint_to_qos_flow_id(qfi);
   {
     non_dyn_5qi_descriptor_t non_dyn_5qi;
     non_dyn_5qi.five_qi                                                                   = uint_to_five_qi(7);
@@ -169,6 +168,29 @@ cu_cp_pdu_session_resource_modify_request srsran::srs_cu_cp::generate_pdu_sessio
 
   cu_cp_pdu_session_res_modify_request_transfer transfer;
   transfer.qos_flow_add_or_modify_request_list.emplace(qos_item.qos_flow_id, qos_item);
+
+  modify_item.transfer = transfer;
+  request.pdu_session_res_modify_items.emplace(modify_item.pdu_session_id, modify_item);
+
+  return request;
+}
+
+cu_cp_pdu_session_resource_modify_request
+srsran::srs_cu_cp::generate_pdu_session_resource_modification_with_qos_flow_removal(qos_flow_id_t flow_id)
+{
+  cu_cp_pdu_session_resource_modify_request request;
+  request.ue_index = uint_to_ue_index(0);
+
+  cu_cp_pdu_session_res_modify_item_mod_req modify_item;
+  modify_item.pdu_session_id = uint_to_pdu_session_id(1);
+
+  cu_cp_pdu_session_res_modify_request_transfer transfer;
+
+  // Add item to remove inexisting QoS flow.
+  qos_flow_with_cause_item release_item;
+  release_item.qos_flow_id = flow_id;
+  release_item.cause       = cause_t::radio_network;
+  transfer.qos_flow_to_release_list.emplace(release_item.qos_flow_id, release_item);
 
   modify_item.transfer = transfer;
   request.pdu_session_res_modify_items.emplace(modify_item.pdu_session_id, modify_item);

@@ -20,6 +20,9 @@
  *
  */
 
+/// \file
+/// \brief Tests that check the setup/teardown, addition/removal of UEs in the DU-high class.
+
 #include "lib/f1ap/common/f1ap_asn1_packer.h"
 #include "test_utils/du_high_test_bench.h"
 #include "tests/unittests/f1ap/du/f1ap_du_test_helpers.h"
@@ -48,8 +51,7 @@ TEST_F(du_high_tester, when_ccch_msg_is_received_then_ue_context_is_created)
   cu_notifier.last_f1ap_msgs.clear();
 
   // Add UE
-  du_obj.get_pdu_handler(to_du_cell_index(0))
-      .handle_rx_data_indication(create_ccch_message(next_slot, to_rnti(0x4601)));
+  du_obj.get_pdu_handler().handle_rx_data_indication(create_ccch_message(next_slot, to_rnti(0x4601)));
 
   this->run_until([this]() { return not cu_notifier.last_f1ap_msgs.empty(); });
   ASSERT_EQ(cu_notifier.last_f1ap_msgs.size(), 1);
@@ -61,10 +63,8 @@ TEST_F(du_high_tester, when_two_concurrent_ccch_msg_are_received_then_two_ue_con
   cu_notifier.last_f1ap_msgs.clear();
 
   // Add two UEs.
-  du_obj.get_pdu_handler(to_du_cell_index(0))
-      .handle_rx_data_indication(create_ccch_message(next_slot, to_rnti(0x4601)));
-  du_obj.get_pdu_handler(to_du_cell_index(1))
-      .handle_rx_data_indication(create_ccch_message(next_slot, to_rnti(0x4602)));
+  du_obj.get_pdu_handler().handle_rx_data_indication(create_ccch_message(next_slot, to_rnti(0x4601)));
+  du_obj.get_pdu_handler().handle_rx_data_indication(create_ccch_message(next_slot, to_rnti(0x4602)));
 
   this->run_until([this]() { return cu_notifier.last_f1ap_msgs.size() >= 2; });
   ASSERT_EQ(cu_notifier.last_f1ap_msgs.size(), 2);
@@ -107,8 +107,8 @@ TEST_F(du_high_tester, when_ue_context_release_received_then_ue_gets_deleted)
   }
   ASSERT_EQ(cu_notifier.last_f1ap_msgs.size(), 1);
   ASSERT_TRUE(is_ue_context_release_complete_valid(cu_notifier.last_f1ap_msgs.back(),
-                                                   (gnb_du_ue_f1ap_id_t)cmd->gnb_du_ue_f1ap_id->value,
-                                                   (gnb_cu_ue_f1ap_id_t)cmd->gnb_cu_ue_f1ap_id->value));
+                                                   (gnb_du_ue_f1ap_id_t)cmd->gnb_du_ue_f1ap_id,
+                                                   (gnb_cu_ue_f1ap_id_t)cmd->gnb_cu_ue_f1ap_id));
 }
 
 TEST_F(du_high_tester, when_du_high_is_stopped_then_ues_are_removed)
