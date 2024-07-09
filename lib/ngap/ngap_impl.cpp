@@ -813,10 +813,11 @@ void ngap_impl::handle_broadcast_session_setup_request(const asn1::ngap::broadca
   response.pdu.successful_outcome().load_info_obj(ASN1_NGAP_ID_BROADCAST_SESSION_SETUP);
   auto& broadcast_session_setup_response = response.pdu.successful_outcome().value.broadcast_session_setup_resp();
 
-  broadcast_session_setup_response->mbs_session_id = request->mbs_session_id;
+  broadcast_session_setup_response->mbs_session_id = msg->mbs_session_id;
 
   logger.info("Sending Broadcast Session Setup Response");
-  ngap_notifier.on_new_message(response);
+  // Send message to the AMF
+  tx_pdu_notifier->on_new_message(response);
 }
 
 void ngap_impl::handle_successful_outcome(const successful_outcome_s& outcome)
