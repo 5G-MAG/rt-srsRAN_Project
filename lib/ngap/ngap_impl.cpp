@@ -800,7 +800,7 @@ void ngap_impl::handle_error_indication(const asn1::ngap::error_ind_s& msg)
   // TODO: handle error indication
 }
 
-void handle_broadcast_session_setup_request(const asn1::ngap::broadcast_session_setup_request_s& msg)
+void ngap_impl::handle_broadcast_session_setup_request(const asn1::ngap::broadcast_session_setup_request_s& msg)
 {
   logger.info("Received Broadcast Session Setup Request");
 
