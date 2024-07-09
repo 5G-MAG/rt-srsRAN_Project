@@ -310,6 +310,9 @@ void ngap_impl::handle_initiating_message(const init_msg_s& msg)
     case ngap_elem_procs_o::init_msg_c::types_opts::error_ind:
       handle_error_indication(msg.value.error_ind());
       break;
+    case ngap_elem_procs_o::init_msg_c::types_opts::broadcast_session_setup_request:
+      handle_broadcast_session_setup_request(msg.value.broadcast_session_setup_request());
+      break;
     default:
       logger.error("Initiating message of type {} is not supported", msg.value.type().to_string());
   }
@@ -795,6 +798,25 @@ void ngap_impl::handle_error_indication(const asn1::ngap::error_ind_s& msg)
   }));
 
   // TODO: handle error indication
+}
+
+void handle_broadcast_session_setup_request(const asn1::ngap::broadcast_session_setup_request_s& msg)
+{
+  logger.info("Received Broadcast Session Setup Request");
+
+  // TODO (borieher): Convert to common type
+  // TODO (borieher): start routine
+
+  // NOTE (borieher): Just a way to test the reception
+  ngap_message response = {};
+  response.pdu.set_successful_outcome();
+  response.pdu.successful_outcome().load_info_obj(ASN1_NGAP_ID_BROADCAST_SESSION_SETUP);
+  auto& broadcast_session_setup_response = response.pdu.successful_outcome().value.broadcast_session_setup_resp();
+
+  broadcast_session_setup_response->mbs_session_id = request->mbs_session_id;
+
+  logger.info("Sending Broadcast Session Setup Response");
+  ngap_notifier.on_new_message(response);
 }
 
 void ngap_impl::handle_successful_outcome(const successful_outcome_s& outcome)
