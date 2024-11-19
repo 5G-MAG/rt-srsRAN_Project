@@ -364,6 +364,8 @@ void mac_cell_processor::assemble_dl_data_request(mac_dl_data_result&    data_re
       data_res.paging_pdus.emplace_back(cw_idx, paging_assembler.encode_paging_pdu(pg));
     }
   }
+
+  // TODO Assemble MBS?
 }
 
 void mac_cell_processor::update_logical_channel_dl_buffer_states(const dl_sched_result& dl_res)

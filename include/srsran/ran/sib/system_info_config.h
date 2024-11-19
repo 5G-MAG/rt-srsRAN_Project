@@ -193,6 +193,25 @@ struct sib19_info {
   std::optional<ta_common_t>                                             ta_info;
 };
 
+// SIB20 info
+struct sib20_info {
+  // This user provided constructor is added here to fix a Clang compilation error related to the use of nested types
+  // with std::optional.
+  sib20_info() {}
+
+  // TODO add SIB20 fields
+};
+
+// SIB21 info
+struct sib21_info {
+  // This user provided constructor is added here to fix a Clang compilation error related to the use of nested types
+  // with std::optional.
+  sib21_info() {}
+
+  // TODO add SIB20 fields
+};
+
+
 /// \brief Variant type that can hold different types of SIBs that go in a SI message.
 using sib_info = std::variant<sib2_info, sib19_info>;
 

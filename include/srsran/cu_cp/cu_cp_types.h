@@ -576,6 +576,13 @@ struct cu_cp_inter_du_handover_response {
   bool success = false;
 };
 
+// Broadcast Session Management Messages
+
+struct cu_cp_broadcast_session_setup_request { // 38.412 Section 9.2.16.1
+  // All IEs are mandatory
+
+};
+
 } // namespace srs_cu_cp
 } // namespace srsran
 

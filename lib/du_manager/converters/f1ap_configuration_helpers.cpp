@@ -492,7 +492,85 @@ asn1::rrc_nr::sib19_r17_s make_asn1_rrc_cell_sib19(const sib19_info& sib19_param
     sib19.ntn_cfg_r17.ta_info_r17.ta_common_drift_variant_r17 = sib19_params.ta_info.value().ta_common_drift_variant;
   }
 
+  /*
+   *  // SIB19-r17 ::= SEQUENCE
+   *  struct sib19_r17_s {
+   *    bool                          ext                         = false;
+   *    bool                          ntn_cfg_r17_present         = false;
+   *    bool                          t_service_r17_present       = false;
+   *    bool                          distance_thresh_r17_present = false;
+   *    ntn_cfg_r17_s                 ntn_cfg_r17;
+   *    uint64_t                      t_service_r17 = 0;
+   *    dyn_octstring                 ref_location_r17;
+   *    uint16_t                      distance_thresh_r17 = 0;
+   *    ntn_neigh_cell_cfg_list_r17_l ntn_neigh_cell_cfg_list_r17;
+   *    dyn_octstring                 late_non_crit_ext;
+   *    // ...
+   *    // group 0
+   *    copy_ptr<ntn_neigh_cell_cfg_list_r17_l> ntn_neigh_cell_cfg_list_ext_v1720;
+   *
+   *    // sequence methods
+   *    SRSASN_CODE pack(bit_ref& bref) const;
+   *    SRSASN_CODE unpack(cbit_ref& bref);
+   *    void        to_json(json_writer& j) const;
+   * };
+   *
+   */
   return sib19;
+}
+
+asn1::rrc_nr::sib20_r17_s make_asn1_rrc_cell_sib20(const sib20_info& sib20_params)
+{
+  using namespace asn1::rrc_nr;
+  sib20_r17_s sib20;
+
+  // TODO see SIB20 fields and add them
+
+  sib20.cfr_cfg_mcch_mtch_r17_present = true;
+  /*
+   * // SIB20-r17 ::= SEQUENCE
+   * struct sib20_r17_s {
+   *   bool                    ext                           = false;
+   *   bool                    cfr_cfg_mcch_mtch_r17_present = false;
+   *   mcch_cfg_r17_s          mcch_cfg_r17;
+   *   cfr_cfg_mcch_mtch_r17_s cfr_cfg_mcch_mtch_r17;
+   *   dyn_octstring           late_non_crit_ext;
+   *   // ...
+   *
+   *   // sequence methods
+   *   SRSASN_CODE pack(bit_ref& bref) const;
+   *   SRSASN_CODE unpack(cbit_ref& bref);
+   *   void        to_json(json_writer& j) const;
+   * };
+   *
+   */
+
+  return sib20;
+}
+
+asn1::rrc_nr::sib21_r17_s make_asn1_rrc_cell_sib21(const sib21_info& sib21_params)
+{
+  using namespace asn1::rrc_nr;
+  sib21_r17_s sib21;
+
+  // TODO see SIB21 fields and add them
+  /*
+   * // SIB21-r17 ::= SEQUENCE
+   * struct sib21_r17_s {
+   *   bool                           ext = false;
+   *   mbs_fsai_list_r17_l            mbs_fsai_intra_freq_r17;
+   *   mbs_fsai_inter_freq_list_r17_l mbs_fsai_inter_freq_list_r17;
+   *   dyn_octstring                  late_non_crit_ext;
+   *   // ...
+   *
+   *   // sequence methods
+   *   SRSASN_CODE pack(bit_ref& bref) const;
+   *   SRSASN_CODE unpack(cbit_ref& bref);
+   *   void        to_json(json_writer& j) const;
+   * };
+   *
+   */
+  return sib21;
 }
 
 byte_buffer srsran::srs_du::make_asn1_rrc_cell_sib1_buffer(const du_cell_config& du_cfg, std::string* js_str)
@@ -532,6 +610,20 @@ static asn1::rrc_nr::sys_info_ies_s::sib_type_and_info_item_c_ make_asn1_rrc_sib
       const auto&  cfg     = std::get<sib19_info>(sib);
       sib19_r17_s& out_sib = ret.set_sib19_v1700();
       out_sib              = make_asn1_rrc_cell_sib19(cfg);
+      break;
+    }
+    // Add SIB20 
+    case sib_type::sib20: {
+      const auto&  cfg     = std::get<sib20_info>(sib); // TODO to implement sib20_info 
+      sib20_r17_s& out_sib = ret.set_sib20_v1700();
+      out_sib              = make_asn1_rrc_cell_sib20(cfg);  // TODO to implement 
+      break;
+    }
+    // Add SIB21
+    case sib_type::sib21: {
+      const auto&  cfg     = std::get<sib21_info>(sib);// TODO to implement sib20_info 
+      sib21_r17_s& out_sib = ret.set_sib21_v1700();
+      out_sib              = make_asn1_rrc_cell_sib21(cfg); // TODO to implement 
       break;
     }
     default:
@@ -671,7 +763,7 @@ void srsran::srs_du::fill_f1_setup_request(f1_setup_request_message&            
   }
 }
 
-byte_buffer srsran::srs_du::make_asn1_rrc_cell_sib19_buffer(const sib19_info& sib19_params, std::string* js_str)
+byte_buffer srsran::srs_du::make_asn1_rrc_cell_sib19_buffer(const sib19_info& sib19_params, std::string* js_str) // Used only at sib_test.cpp
 {
   byte_buffer               buf;
   asn1::bit_ref             bref{buf};
@@ -686,3 +778,5 @@ byte_buffer srsran::srs_du::make_asn1_rrc_cell_sib19_buffer(const sib19_info& si
   }
   return buf;
 }
+
+// TODO Add make buffer for sib20 and sib20?

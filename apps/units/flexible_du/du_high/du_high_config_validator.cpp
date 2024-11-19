@@ -874,6 +874,8 @@ static bool validate_ntn_config(const ntn_config& ntn_cfg)
   return valid;
 }
 
+// TODO validate_mbs_config?
+
 template <typename id_type>
 static bool validate_rlc_am_appconfig(id_type id, const du_high_unit_rlc_am_config& config)
 {

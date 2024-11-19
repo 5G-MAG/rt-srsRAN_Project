@@ -1484,6 +1484,8 @@ void srsran::configure_cli11_with_du_high_config_schema(CLI::App& app, du_high_p
   // NTN section.
   CLI::App* ntn_subcmd = add_subcommand(app, "ntn", "NTN parameters")->configurable();
   configure_cli11_ntn_args(*ntn_subcmd, parsed_cfg.config.ntn_cfg, epoch_time, orbital_coordinates, ecef_coordinates);
+  
+  // TODO configure MBS section?
 
   // Cell section.
   add_option_cell(

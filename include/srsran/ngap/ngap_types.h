@@ -59,5 +59,11 @@ struct ngap_ue_aggr_max_bit_rate {
   uint64_t ue_aggr_max_bit_rate_ul;
 };
 
+struct mbs_session_id_t {
+  uint8_t tmgi;
+  // NID is optional
+};
+
+
 } // namespace srs_cu_cp
 } // namespace srsran
