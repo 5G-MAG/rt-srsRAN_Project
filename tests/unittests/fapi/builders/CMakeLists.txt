@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -91,6 +91,10 @@ gtest_discover_tests(ul_pucch_builder_test)
 add_executable(ul_pusch_builder_test ul_pusch_pdu_test.cpp)
 target_link_libraries(ul_pusch_builder_test srsran_support srslog gtest gtest_main)
 gtest_discover_tests(ul_pusch_builder_test)
+
+add_executable(ul_srs_builder_test ul_srs_pdu_test.cpp)
+target_link_libraries(ul_srs_builder_test srsran_support srslog gtest gtest_main)
+gtest_discover_tests(ul_srs_builder_test)
 
 add_executable(ul_tti_request_builder_test ul_tti_request_test.cpp)
 target_link_libraries(ul_tti_request_builder_test srsran_support srslog gtest gtest_main)

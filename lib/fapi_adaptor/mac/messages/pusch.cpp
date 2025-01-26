@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,9 +22,9 @@
 
 #include "srsran/fapi_adaptor/mac/messages/pusch.h"
 #include "srsran/fapi_adaptor/uci_part2_correspondence_mapper.h"
-#include "srsran/mac/mac_cell_result.h"
 #include "srsran/phy/upper/channel_coding/ldpc/ldpc.h"
 #include "srsran/ran/sch/sch_constants.h"
+#include "srsran/scheduler/result/pusch_info.h"
 
 using namespace srsran;
 using namespace fapi_adaptor;
@@ -99,9 +99,6 @@ void srsran::fapi_adaptor::convert_pusch_mac_to_fapi(fapi::ul_pusch_pdu_builder&
                                      pusch_pdu.transform_precoding,
                                      pusch_pdu.n_id,
                                      pusch_pdu.nof_layers);
-
-  // The low_papr_dmrs field expects transform precoding to be disabled.
-  srsran_assert(!pusch_pdu.transform_precoding, "Transform precoding not yet supported");
 
   const dmrs_information& dmrs_cfg = pusch_pdu.dmrs;
   builder.set_dmrs_parameters(dmrs_cfg.dmrs_symb_pos.to_uint64(),

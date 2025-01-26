@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -104,6 +104,8 @@ private:
     void handle_crc(const mac_crc_indication_message& msg) override;
 
     void handle_uci(const mac_uci_indication_message& msg) override;
+
+    void handle_srs(const mac_srs_indication_message& msg) override;
 
     uci_cell_decoder uci_decoder;
 

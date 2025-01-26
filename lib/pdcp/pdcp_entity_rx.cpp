@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -21,11 +21,10 @@
  */
 
 #include "pdcp_entity_rx.h"
-#include "../support/sdu_window_impl.h"
+#include "../security/security_engine_impl.h"
 #include "srsran/instrumentation/traces/up_traces.h"
-#include "srsran/security/ciphering.h"
-#include "srsran/security/integrity.h"
 #include "srsran/support/bit_encoding.h"
+#include "srsran/support/executors/execution_context_description.h"
 
 using namespace srsran;
 
@@ -36,19 +35,29 @@ pdcp_entity_rx::pdcp_entity_rx(uint32_t                        ue_index,
                                pdcp_rx_upper_control_notifier& upper_cn_,
                                timer_factory                   ue_ul_timer_factory_,
                                task_executor&                  ue_ul_executor_,
-                               task_executor&                  crypto_executor_) :
+                               task_executor&                  crypto_executor_,
+                               uint32_t                        max_nof_crypto_workers_,
+                               pdcp_metrics_aggregator&        metrics_agg_) :
   pdcp_entity_tx_rx_base(rb_id_, cfg_.rb_type, cfg_.rlc_mode, cfg_.sn_size),
   logger("PDCP", {ue_index, rb_id_, "UL"}),
   cfg(cfg_),
-  direction(cfg.direction == pdcp_security_direction::uplink ? security::security_direction::uplink
-                                                             : security::security_direction::downlink),
-  rx_window(create_rx_window(cfg.sn_size)),
+  rx_window(logger, pdcp_window_size(pdcp_sn_size_to_uint(cfg.sn_size))),
   upper_dn(upper_dn_),
   upper_cn(upper_cn_),
   ue_ul_timer_factory(ue_ul_timer_factory_),
   ue_ul_executor(ue_ul_executor_),
-  crypto_executor(crypto_executor_)
+  crypto_executor(crypto_executor_),
+  max_nof_crypto_workers(max_nof_crypto_workers_),
+  metrics_agg(metrics_agg_)
 {
+  if (metrics_agg.get_metrics_period().count()) {
+    metrics_timer = ue_ul_timer_factory.create_timer();
+    metrics_timer.set(std::chrono::milliseconds(metrics_agg.get_metrics_period().count()), [this](timer_id_t tid) {
+      metrics_agg.push_rx_metrics(metrics.get_metrics_and_reset());
+      metrics_timer.run();
+    });
+    metrics_timer.run();
+  }
   // t-Reordering timer
   if (cfg.t_reordering != pdcp_t_reordering::ms0 && cfg.t_reordering != pdcp_t_reordering::infinity) {
     reordering_timer = ue_ul_timer_factory.create_timer();
@@ -62,28 +71,50 @@ pdcp_entity_rx::pdcp_entity_rx(uint32_t                        ue_index,
   }
   logger.log_info("PDCP configured. {}", cfg);
 
-  // TODO: implement usage of crypto_executor
-  (void)ue_ul_executor;
-  (void)crypto_executor;
+  // Populate null security engines
+  sec_engine_pool.reserve(max_nof_crypto_workers);
+  for (uint32_t i = 0; i < max_nof_crypto_workers; i++) {
+    std::unique_ptr<security::security_engine_impl> null_engine;
+    sec_engine_pool.push_back(std::move(null_engine));
+  }
+}
+
+pdcp_entity_rx::~pdcp_entity_rx()
+{
+  stop();
+}
+
+void pdcp_entity_rx::stop()
+{
+  if (not stopped) {
+    stopped = true;
+    reordering_timer.stop();
+    logger.log_debug("Stopped PDCP entity");
+  }
 }
 
 void pdcp_entity_rx::handle_pdu(byte_buffer_chain buf)
 {
+  if (stopped) {
+    logger.log_info("Dropping PDU. Entity is stopped");
+    return;
+  }
+
   trace_point rx_tp = up_tracer.now();
-  metrics_add_pdus(1, buf.length());
+  metrics.add_pdus(1, buf.length());
 
   // Log PDU
   logger.log_debug(buf.begin(), buf.end(), "RX PDU. pdu_len={}", buf.length());
   // Sanity check
-  if (buf.length() == 0) {
-    metrics_add_dropped_pdus(1);
+  if (buf.empty()) {
+    metrics.add_dropped_pdus(1);
     logger.log_error("Dropping empty PDU.");
     return;
   }
 
   auto pdu_copy = buf.deep_copy();
   if (not pdu_copy.has_value()) {
-    metrics_add_dropped_pdus(1);
+    metrics.add_dropped_pdus(1);
     logger.log_error("Dropping PDU: Copy failed. pdu_len={}", buf.length());
     return;
   }
@@ -98,7 +129,7 @@ void pdcp_entity_rx::handle_pdu(byte_buffer_chain buf)
   up_tracer << trace_event{"pdcp_rx_pdu", rx_tp};
 }
 
-void pdcp_entity_rx::reestablish(security::sec_128_as_config sec_cfg_)
+void pdcp_entity_rx::reestablish(security::sec_128_as_config sec_cfg)
 {
   // - process the PDCP Data PDUs that are received from lower layers due to the re-establishment of the lower layers,
   //   as specified in the clause 5.2.2.1;
@@ -141,24 +172,25 @@ void pdcp_entity_rx::reestablish(security::sec_128_as_config sec_cfg_)
   //   procedure;
   // - apply the integrity protection algorithm and key provided by upper layers during the PDCP entity re-
   //   establishment procedure.
-  configure_security(sec_cfg_);
+  configure_security(sec_cfg, integrity_enabled, ciphering_enabled);
 }
 
 void pdcp_entity_rx::handle_data_pdu(byte_buffer pdu)
 {
   // Sanity check
   if (pdu.length() <= hdr_len_bytes) {
-    metrics_add_dropped_pdus(1);
+    metrics.add_dropped_pdus(1);
     logger.log_error(pdu.begin(), pdu.end(), "RX PDU too small. pdu_len={} hdr_len={}", pdu.length(), hdr_len_bytes);
     return;
   }
+  std::chrono::system_clock::time_point time_start = std::chrono::system_clock::now();
   // Log state
   log_state(srslog::basic_levels::debug);
 
   // Unpack header
   pdcp_data_pdu_header hdr = {};
   if (not read_data_pdu_header(hdr, pdu)) {
-    metrics_add_dropped_pdus(1);
+    metrics.add_dropped_pdus(1);
     logger.log_error(
         pdu.begin(), pdu.end(), "Failed to extract SN. pdu_len={} hdr_len={}", pdu.length(), hdr_len_bytes);
     return;
@@ -209,49 +241,75 @@ void pdcp_entity_rx::handle_data_pdu(byte_buffer pdu)
     return;
   }
 
-  /*
-   * TS 38.323, section 5.8: Deciphering
-   *
-   * The data unit that is ciphered is the MAC-I and the
-   * data part of the PDCP Data PDU except the
-   * SDAP header and the SDAP Control PDU if included in the PDCP SDU.
-   */
-  byte_buffer_view sdu_plus_mac = byte_buffer_view{pdu.begin() + hdr_len_bytes, pdu.end()};
-  if (ciphering_enabled == security::ciphering_enabled::on &&
-      sec_cfg.cipher_algo != security::ciphering_algorithm::nea0) {
-    cipher_decrypt(sdu_plus_mac, rcvd_count);
-  }
+  pdcp_rx_sdu_info pdu_info;
+  pdu_info.sdu             = std::move(pdu);
+  pdu_info.count           = rcvd_count;
+  pdu_info.time_of_arrival = time_start;
 
-  /*
-   * Extract MAC-I:
-   * Always extract from SRBs, only extract from DRBs if integrity is enabled
-   */
-  security::sec_mac mac = {};
-  if (is_srb() || (is_drb() && (integrity_enabled == security::integrity_enabled::on))) {
-    extract_mac(pdu, mac);
+  // apply security in crypto executor
+  auto fn = [this, pdu_info = std::move(pdu_info)]() mutable { apply_security(std::move(pdu_info)); };
+  if (not crypto_executor.execute(std::move(fn))) {
+    logger.log_warning("Dropped PDU, crypto executor queue is full. count={}", rcvd_count);
   }
+}
 
-  /*
-   * TS 38.323, section 5.9: Integrity verification
-   *
-   * The data unit that is integrity protected is the PDU header
-   * and the data part of the PDU before ciphering.
-   */
-  if (integrity_enabled == security::integrity_enabled::on) {
-    bool is_valid = integrity_verify(pdu, rcvd_count, mac);
-    if (!is_valid) {
-      logger.log_warning(pdu.begin(), pdu.end(), "Integrity failed, dropping PDU.");
-      metrics_add_integrity_failed_pdus(1);
-      // TODO: Re-enable once the RRC supports notifications from the PDCP
-      // upper_cn.on_integrity_failure();
-      return; // Invalid packet, drop.
+void pdcp_entity_rx::apply_security(pdcp_rx_sdu_info pdu_info)
+{
+  uint32_t rcvd_count = pdu_info.count;
+
+  // Apply deciphering and integrity check
+  security::security_result result = apply_deciphering_and_integrity_check(std::move(pdu_info.sdu), rcvd_count);
+
+  if (!result.buf.has_value()) {
+    auto handle_failure = [this, sec_err = result.buf.error(), count = result.count]() {
+      switch (sec_err) {
+        case srsran::security::security_error::integrity_failure:
+          logger.log_warning("Integrity failed, dropping PDU. count={}", count);
+          metrics.add_integrity_failed_pdus(1);
+          upper_cn.on_integrity_failure();
+          break;
+        case srsran::security::security_error::ciphering_failure:
+          logger.log_warning("Deciphering failed, dropping PDU. count={}", count);
+          upper_cn.on_protocol_failure();
+          break;
+        case srsran::security::security_error::buffer_failure:
+          logger.log_error("Buffer error when decrypting and verifying integrity, dropping PDU. count={}", count);
+          upper_cn.on_protocol_failure();
+          break;
+        case srsran::security::security_error::engine_failure:
+          logger.log_error("Engine error when decrypting and verifying integrity, dropping PDU. count={}", count);
+          upper_cn.on_protocol_failure();
+          break;
+      }
+    };
+    if (not ue_ul_executor.execute(std::move(handle_failure))) {
+      logger.log_warning("Dropped PDU with security error, UE executor queue is full. count={} sec_err={}",
+                         rcvd_count,
+                         result.buf.error());
     }
-    metrics_add_integrity_verified_pdus(1);
-    logger.log_debug(pdu.begin(), pdu.end(), "Integrity passed.");
+    return;
   }
-  // After checking the integrity, we can discard the header.
-  discard_data_header(pdu);
+  logger.log_debug(result.buf.value().begin(), result.buf.value().end(), "Security passed. count={}", rcvd_count);
 
+  // After checking the integrity, we can discard the header.
+  unsigned hdr_size = cfg.sn_size == pdcp_sn_size::size12bits ? 2 : 3;
+  result.buf.value().trim_head(hdr_size);
+
+  pdu_info.sdu = std::move(result.buf.value());
+
+  // apply reordering in UE executor
+  auto fn = [this, pdu_info = std::move(pdu_info)]() mutable {
+    metrics.add_integrity_verified_pdus(1);
+    apply_reordering(std::move(pdu_info));
+  };
+  if (not ue_ul_executor.execute(std::move(fn))) {
+    logger.log_warning("Dropped PDU, UE executor queue is full. count={}", rcvd_count);
+  }
+}
+
+void pdcp_entity_rx::apply_reordering(pdcp_rx_sdu_info pdu_info)
+{
+  uint32_t rcvd_count = pdu_info.count;
   /*
    * Check valid rcvd_count:
    *
@@ -265,21 +323,19 @@ void pdcp_entity_rx::handle_data_pdu(byte_buffer pdu)
   }
 
   // Check if PDU has been received
-  if (rx_window->has_sn(rcvd_count)) {
-    const pdcp_rx_sdu_info& sdu_info = (*rx_window)[rcvd_count];
+  if (rx_window.has_sn(rcvd_count)) {
+    const pdcp_rx_sdu_info& sdu_info = rx_window[rcvd_count];
     if (sdu_info.count == rcvd_count) {
       logger.log_debug("Duplicate PDU dropped. count={}", rcvd_count);
       return; // PDU already present, drop.
-    } else {
-      logger.log_error("Removing old PDU with count={} for new PDU with count={}", sdu_info.count, rcvd_count);
-      rx_window->remove_sn(rcvd_count);
     }
+    logger.log_error("Removing old PDU with count={} for new PDU with count={}", sdu_info.count, rcvd_count);
+    rx_window.remove_sn(rcvd_count);
   }
 
   // Store PDU in Rx window
-  pdcp_rx_sdu_info& sdu_info = rx_window->add_sn(rcvd_count);
-  sdu_info.sdu               = std::move(pdu);
-  sdu_info.count             = rcvd_count;
+  pdcp_rx_sdu_info& sdu_info = rx_window.add_sn(rcvd_count);
+  sdu_info                   = std::move(pdu_info);
 
   // Update RX_NEXT
   if (rcvd_count >= st.rx_next) {
@@ -344,14 +400,15 @@ void pdcp_entity_rx::handle_control_pdu(byte_buffer_chain pdu)
 // Update RX_DELIV after submitting to higher layers
 void pdcp_entity_rx::deliver_all_consecutive_counts()
 {
-  while (st.rx_deliv != st.rx_next && rx_window->has_sn(st.rx_deliv)) {
-    pdcp_rx_sdu_info& sdu_info = (*rx_window)[st.rx_deliv];
+  while (st.rx_deliv != st.rx_next && rx_window.has_sn(st.rx_deliv)) {
+    pdcp_rx_sdu_info& sdu_info = rx_window[st.rx_deliv];
     logger.log_info("RX SDU. count={}", st.rx_deliv);
 
     // Pass PDCP SDU to the upper layers
-    metrics_add_sdus(1, sdu_info.sdu.length());
+    metrics.add_sdus(1, sdu_info.sdu.length());
+    record_reordering_dealy(sdu_info.time_of_arrival);
     upper_dn.on_new_sdu(std::move(sdu_info.sdu));
-    rx_window->remove_sn(st.rx_deliv);
+    rx_window.remove_sn(st.rx_deliv);
 
     // Update RX_DELIV
     st.rx_deliv = st.rx_deliv + 1;
@@ -364,14 +421,15 @@ void pdcp_entity_rx::deliver_all_consecutive_counts()
 void pdcp_entity_rx::deliver_all_sdus()
 {
   for (uint32_t count = st.rx_deliv; count < st.rx_next; count++) {
-    if (rx_window->has_sn(count)) {
-      pdcp_rx_sdu_info& sdu_info = (*rx_window)[count];
+    if (rx_window.has_sn(count)) {
+      pdcp_rx_sdu_info& sdu_info = rx_window[count];
       logger.log_info("RX SDU. count={}", count);
 
       // Pass PDCP SDU to the upper layers
-      metrics_add_sdus(1, sdu_info.sdu.length());
+      metrics.add_sdus(1, sdu_info.sdu.length());
+      record_reordering_dealy(sdu_info.time_of_arrival);
       upper_dn.on_new_sdu(std::move(sdu_info.sdu));
-      rx_window->remove_sn(count);
+      rx_window.remove_sn(count);
     }
   }
 }
@@ -380,8 +438,8 @@ void pdcp_entity_rx::deliver_all_sdus()
 void pdcp_entity_rx::discard_all_sdus()
 {
   while (st.rx_deliv != st.rx_next) {
-    if (rx_window->has_sn(st.rx_deliv)) {
-      rx_window->remove_sn(st.rx_deliv);
+    if (rx_window.has_sn(st.rx_deliv)) {
+      rx_window.remove_sn(st.rx_deliv);
       logger.log_debug("Discarded RX SDU. count={}", st.rx_next);
     }
 
@@ -415,106 +473,130 @@ byte_buffer pdcp_entity_rx::compile_status_report()
   for (uint32_t i = bitmap_begin; i < bitmap_end; i++) {
     // Bit == 0: PDCP SDU with COUNT = (FMC + bit position) modulo 2^32 is missing.
     // Bit == 1: PDCP SDU with COUNT = (FMC + bit position) modulo 2^32 is correctly received.
-    unsigned bit = rx_window->has_sn(i) ? 1 : 0;
+    unsigned bit = rx_window.has_sn(i) ? 1 : 0;
     enc.pack(bit, 1);
   }
 
   return buf;
 }
 
-std::unique_ptr<sdu_window<pdcp_rx_sdu_info>> pdcp_entity_rx::create_rx_window(pdcp_sn_size sn_size_)
+/*
+ * Deciphering and Integrity Protection Helpers
+ */
+security::security_result pdcp_entity_rx::apply_deciphering_and_integrity_check(byte_buffer buf, uint32_t count)
 {
-  std::unique_ptr<sdu_window<pdcp_rx_sdu_info>> rx_window_;
-  switch (sn_size_) {
-    case pdcp_sn_size::size12bits:
-      rx_window_ = std::make_unique<sdu_window_impl<pdcp_rx_sdu_info,
-                                                    pdcp_window_size(pdcp_sn_size_to_uint(pdcp_sn_size::size12bits)),
-                                                    pdcp_bearer_logger>>(logger);
-      break;
-    case pdcp_sn_size::size18bits:
-      rx_window_ = std::make_unique<sdu_window_impl<pdcp_rx_sdu_info,
-                                                    pdcp_window_size(pdcp_sn_size_to_uint(pdcp_sn_size::size18bits)),
-                                                    pdcp_bearer_logger>>(logger);
-      break;
-    default:
-      srsran_assertion_failure("Cannot create rx_window for unsupported sn_size={}.", pdcp_sn_size_to_uint(sn_size_));
+  // obtain the thread-specific ID of the worker
+
+  uint32_t worker_idx = execution_context::get_current_worker_index();
+
+  if (worker_idx >= max_nof_crypto_workers) {
+    srsran_assertion_failure("Worker index exceeds number of crypto workers. worker_idx={} max_nof_crypto_workers={}",
+                             worker_idx,
+                             max_nof_crypto_workers);
+    logger.log_error("Worker index exceeds number of crypto workers. worker_idx={} max_nof_crypto_workers={}",
+                     worker_idx,
+                     max_nof_crypto_workers);
+    return {.buf = make_unexpected(srsran::security::security_error::engine_failure), .count = count};
   }
-  return rx_window_;
+  logger.log_debug("Using sec_engine with worker_idx={}. count={} pdu_len={}", worker_idx, count, buf.length());
+
+  security::security_engine_rx* sec_engine = sec_engine_pool[worker_idx].get();
+  if (sec_engine == nullptr) {
+    // Security is not configured. Pass through for DRBs; trim zero MAC-I for SRBs.
+    if (is_srb()) {
+      if (buf.length() <= security::sec_mac_len) {
+        logger.log_warning("Failed to trim MAC-I from PDU. count={}", count);
+        return {.buf = make_unexpected(srsran::security::security_error::buffer_failure), .count = count};
+      }
+      buf.trim_tail(security::sec_mac_len);
+    }
+    return {.buf = std::move(buf), .count = count};
+  }
+
+  // TS 38.323, section 5.8: Deciphering
+  // The data unit that is ciphered is the MAC-I and the
+  // data part of the PDCP Data PDU except the
+  // SDAP header and the SDAP Control PDU if included in the PDCP SDU.
+
+  // TS 38.323, section 5.9: Integrity verification
+  // The data unit that is integrity protected is the PDU header
+  // and the data part of the PDU before ciphering.
+
+  unsigned                  hdr_size = cfg.sn_size == pdcp_sn_size::size12bits ? 2 : 3;
+  security::security_result result   = sec_engine->decrypt_and_verify_integrity(std::move(buf), hdr_size, count);
+  return result;
 }
 
 /*
- * Security helpers
+ * Security configuration
  */
-bool pdcp_entity_rx::integrity_verify(byte_buffer_view buf, uint32_t count, const security::sec_mac& mac)
+void pdcp_entity_rx::configure_security(security::sec_128_as_config sec_cfg,
+                                        security::integrity_enabled integrity_enabled_,
+                                        security::ciphering_enabled ciphering_enabled_)
 {
-  srsran_assert(sec_cfg.k_128_int.has_value(), "Cannot verify integrity: Integrity key is not configured.");
-  srsran_assert(sec_cfg.integ_algo.has_value(), "Cannot verify integrity: Integrity algorithm is not configured.");
-  security::sec_mac mac_exp  = {};
-  bool              is_valid = true;
-  switch (sec_cfg.integ_algo.value()) {
-    case security::integrity_algorithm::nia0:
-      break;
-    case security::integrity_algorithm::nia1:
-      security_nia1(mac_exp, sec_cfg.k_128_int.value(), count, bearer_id, direction, buf);
-      break;
-    case security::integrity_algorithm::nia2:
-      security_nia2(mac_exp, sec_cfg.k_128_int.value(), count, bearer_id, direction, buf);
-      break;
-    case security::integrity_algorithm::nia3:
-      security_nia3(mac_exp, sec_cfg.k_128_int.value(), count, bearer_id, direction, buf);
-      break;
-    default:
-      break;
+  srsran_assert((is_srb() && sec_cfg.domain == security::sec_domain::rrc) ||
+                    (is_drb() && sec_cfg.domain == security::sec_domain::up),
+                "Invalid sec_domain={} for {} in {}",
+                sec_cfg.domain,
+                rb_type,
+                rb_id);
+  // The 'NULL' integrity protection algorithm (nia0) is used only for SRBs and for the UE in limited service mode,
+  // see TS 33.501 [11] and when used for SRBs, integrity protection is disabled for DRBs. In case the ′NULL'
+  // integrity protection algorithm is used, 'NULL' ciphering algorithm is also used.
+  // Ref: TS 38.331 Sec. 5.3.1.2
+  //
+  // From TS 38.501 Sec. 6.7.3.6: UEs that are in limited service mode (LSM) and that cannot be authenticated (...) may
+  // still be allowed to establish emergency session by sending the emergency registration request message. (...)
+  if ((sec_cfg.integ_algo == security::integrity_algorithm::nia0) &&
+      (is_drb() || (is_srb() && sec_cfg.cipher_algo != security::ciphering_algorithm::nea0))) {
+    logger.log_error("Integrity algorithm NIA0 is only permitted for SRBs configured with NEA0. is_srb={} NIA{} NEA{}",
+                     is_srb(),
+                     sec_cfg.integ_algo,
+                     sec_cfg.cipher_algo);
   }
 
-  if (sec_cfg.integ_algo != security::integrity_algorithm::nia0) {
-    for (uint8_t i = 0; i < 4; i++) {
-      if (mac[i] != mac_exp[i]) {
-        is_valid = false;
-        break;
-      }
+  // Evaluate and store integrity indication
+  if (integrity_enabled_ == security::integrity_enabled::on) {
+    if (!sec_cfg.k_128_int.has_value()) {
+      logger.log_error("Cannot enable integrity protection: Integrity key is not configured.");
+      return;
     }
-    srslog::basic_levels level = is_valid ? srslog::basic_levels::debug : srslog::basic_levels::warning;
-    logger.log(level,
-               buf.begin(),
-               buf.end(),
-               "Integrity check. is_valid={} count={} bearer_id={} dir={}",
-               is_valid,
-               count,
-               bearer_id,
-               direction);
-    logger.log(level, "Integrity check key: {}", sec_cfg.k_128_int);
-    logger.log(level, "MAC expected: {}", mac_exp);
-    logger.log(level, "MAC found: {}", mac);
-    logger.log(level, buf.begin(), buf.end(), "Integrity check input message. len={}", buf.length());
+    if (!sec_cfg.integ_algo.has_value()) {
+      logger.log_error("Cannot enable integrity protection: Integrity algorithm is not configured.");
+      return;
+    }
+  } else {
+    srsran_assert(!is_srb(), "Integrity protection cannot be disabled for SRBs.");
+  }
+  integrity_enabled = integrity_enabled_;
+
+  // Evaluate and store ciphering indication
+  ciphering_enabled = ciphering_enabled_;
+
+  auto direction = cfg.direction == pdcp_security_direction::uplink ? security::security_direction::uplink
+                                                                    : security::security_direction::downlink;
+
+  // Remove previous security engines
+  sec_engine_pool.clear();
+  sec_engine_pool.reserve(max_nof_crypto_workers);
+
+  // Populate new security engines
+  for (uint32_t i = 0; i < max_nof_crypto_workers; i++) {
+    auto sec_engine = std::make_unique<security::security_engine_impl>(
+        sec_cfg, bearer_id, direction, integrity_enabled, ciphering_enabled);
+    sec_engine_pool.push_back(std::move(sec_engine));
   }
 
-  return is_valid;
-}
-
-byte_buffer pdcp_entity_rx::cipher_decrypt(byte_buffer_view& msg, uint32_t count)
-{
-  logger.log_debug("Cipher decrypt. count={} bearer_id={} dir={}", count, bearer_id, direction);
-  logger.log_debug("Cipher decrypt key: {}", sec_cfg.k_128_enc);
-  logger.log_debug(msg.begin(), msg.end(), "Cipher decrypt input msg.");
-
-  byte_buffer ct;
-
-  switch (sec_cfg.cipher_algo) {
-    case security::ciphering_algorithm::nea1:
-      security_nea1(sec_cfg.k_128_enc, count, bearer_id, direction, msg);
-      break;
-    case security::ciphering_algorithm::nea2:
-      security_nea2(sec_cfg.k_128_enc, count, bearer_id, direction, msg);
-      break;
-    case security::ciphering_algorithm::nea3:
-      security_nea3(sec_cfg.k_128_enc, count, bearer_id, direction, msg);
-      break;
-    default:
-      break;
+  logger.log_info("Security configured: NIA{} ({}) NEA{} ({}) domain={}",
+                  sec_cfg.integ_algo,
+                  integrity_enabled,
+                  sec_cfg.cipher_algo,
+                  ciphering_enabled,
+                  sec_cfg.domain);
+  if (sec_cfg.k_128_int.has_value()) {
+    logger.log_info("128 K_int: {}", sec_cfg.k_128_int);
   }
-  logger.log_debug(msg.begin(), msg.end(), "Cipher decrypt output msg.");
-  return ct;
+  logger.log_info("128 K_enc: {}", sec_cfg.k_128_enc);
 }
 
 /*
@@ -522,17 +604,18 @@ byte_buffer pdcp_entity_rx::cipher_decrypt(byte_buffer_view& msg, uint32_t count
  */
 void pdcp_entity_rx::handle_t_reordering_expire()
 {
-  metrics_add_t_reordering_timeouts(1);
+  metrics.add_t_reordering_timeouts(1);
   // Deliver all PDCP SDU(s) with associated COUNT value(s) < RX_REORD
   while (st.rx_deliv != st.rx_reord) {
-    if (rx_window->has_sn(st.rx_deliv)) {
-      pdcp_rx_sdu_info& sdu_info = (*rx_window)[st.rx_deliv];
+    if (rx_window.has_sn(st.rx_deliv)) {
+      pdcp_rx_sdu_info& sdu_info = rx_window[st.rx_deliv];
       logger.log_info("RX SDU. count={}", st.rx_deliv);
 
       // Pass PDCP SDU to the upper layers
-      metrics_add_sdus(1, sdu_info.sdu.length());
+      metrics.add_sdus(1, sdu_info.sdu.length());
+      record_reordering_dealy(sdu_info.time_of_arrival);
       upper_dn.on_new_sdu(std::move(sdu_info.sdu));
-      rx_window->remove_sn(st.rx_deliv);
+      rx_window.remove_sn(st.rx_deliv);
     }
 
     // Update RX_DELIV
@@ -599,19 +682,9 @@ bool pdcp_entity_rx::read_data_pdu_header(pdcp_data_pdu_header& hdr, const byte_
   return true;
 }
 
-void pdcp_entity_rx::discard_data_header(byte_buffer& buf) const
+void pdcp_entity_rx::record_reordering_dealy(std::chrono::system_clock::time_point time_of_arrival)
 {
-  buf.trim_head(hdr_len_bytes);
-}
-
-void pdcp_entity_rx::extract_mac(byte_buffer& buf, security::sec_mac& mac) const
-{
-  if (buf.length() <= security::sec_mac_len) {
-    logger.log_error("PDU too small to extract MAC-I. pdu_len={} mac_len={}", buf.length(), security::sec_mac_len);
-    return;
-  }
-  for (unsigned i = 0; i < security::sec_mac_len; i++) {
-    mac[i] = buf[buf.length() - security::sec_mac_len + i];
-  }
-  buf.trim_tail(security::sec_mac_len);
+  std::chrono::microseconds time_taken =
+      std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now() - time_of_arrival);
+  metrics.add_reordering_delay_us((uint32_t)time_taken.count());
 }

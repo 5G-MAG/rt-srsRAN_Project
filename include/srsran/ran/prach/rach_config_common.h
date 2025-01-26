@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,10 +22,11 @@
 
 #pragma once
 
-#include "restricted_set_config.h"
 #include "srsran/adt/bounded_integer.h"
-#include "srsran/adt/optional.h"
+#include "srsran/ran/prach/restricted_set_config.h"
 #include "srsran/ran/subcarrier_spacing.h"
+#include <chrono>
+#include <optional>
 
 namespace srsran {
 
@@ -57,6 +58,8 @@ struct rach_config_common {
   rach_config_generic rach_cfg_generic;
   /// Total number of prambles used for contention based and contention free RA. Values: (1..64).
   std::optional<unsigned> total_nof_ra_preambles;
+  /// Maximum time for the Contention Resolution. Values: {8, 16, 24, 32, 40, 48, 56, 64}.
+  std::chrono::milliseconds ra_con_res_timer{64};
   /// PRACH Root Sequence Index can be of 2 types, as per \c prach-RootSequenceIndex, \c RACH-ConfigCommon, TS 38.331.
   /// We use \c true for l839, while \c false for l139.
   bool is_prach_root_seq_index_l839;
@@ -68,7 +71,7 @@ struct rach_config_common {
   subcarrier_spacing    msg1_scs;
   restricted_set_config restricted_set;
   /// Enables the transform precoder for Msg3 transmission according to clause 6.1.3 of TS 38.214.
-  bool msg3_transform_precoder;
+  bool msg3_transform_precoder = false;
   /// Indicates the number of SSBs per RACH occasion (L1 parameter 'SSB-per-rach-occasion'). See TS 38.331, \c
   /// ssb-perRACH-OccasionAndCB-PreamblesPerSSB. Values {1/8, 1/4, 1/2, 1, 2, 4, 8, 16}.
   /// Value 1/8 corresponds to one SSB associated with 8 RACH occasions and so on so forth.

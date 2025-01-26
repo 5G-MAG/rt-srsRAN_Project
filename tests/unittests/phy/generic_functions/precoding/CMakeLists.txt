@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -27,6 +27,7 @@ target_link_libraries(
         srsran_channel_precoder
         srsran_ran
         srslog
+        srsvec
         gtest
         gtest_main)
 

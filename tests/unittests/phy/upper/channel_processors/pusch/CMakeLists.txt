@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -30,6 +30,7 @@ target_link_libraries(pusch_processor_validator_test
         srsran_phy_support
         srslog
         srsran_upper_phy_support
+        srsran_transform_precoding
         gtest
         gtest_main)
 add_test(pusch_processor_validator_test pusch_processor_validator_test)
@@ -44,7 +45,7 @@ if (USE_PHY_TESTVECTORS)
 
     if (ENABLE_PUSCH_HWACC)
         set_source_files_properties(pusch_decoder_vectortest.cpp PROPERTIES COMPILE_DEFINITIONS "HWACC_PUSCH_ENABLED")
-        list(APPEND PUSCH_DECODER_LIBRARIES hal_hwacc_pusch)
+        list(APPEND PUSCH_DECODER_LIBRARIES srsran_hal_pusch)
     endif (ENABLE_PUSCH_HWACC)
 
     target_link_libraries(pusch_decoder_test ${PUSCH_DECODER_LIBRARIES})
@@ -58,6 +59,7 @@ if (USE_PHY_TESTVECTORS)
             srsran_phy_support
             srslog
             srsran_upper_phy_support
+            srsran_transform_precoding
             gtest
             gtest_main)
     add_test_vector(pusch_demodulator_vectortest pusch_demodulator_test_data.tar.gz "")
@@ -68,12 +70,13 @@ if (USE_PHY_TESTVECTORS)
             srsran_phy_support
             srslog
             srsran_upper_phy_support
+            srsran_transform_precoding
             gtest
             gtest_main)
 
     if (ENABLE_PUSCH_HWACC)
         set_source_files_properties(pusch_processor_vectortest.cpp PROPERTIES COMPILE_DEFINITIONS "HWACC_PUSCH_ENABLED")
-        list(APPEND PUSCH_PROCESSOR_LIBRARIES hal_hwacc_pusch)
+        list(APPEND PUSCH_PROCESSOR_LIBRARIES srsran_hal_pusch)
     endif (ENABLE_PUSCH_HWACC)
 
     target_link_libraries(pusch_processor_vectortest ${PUSCH_PROCESSOR_LIBRARIES})

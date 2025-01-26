@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,9 +22,9 @@
 
 #pragma once
 
-#include "../../common/f1ap_asn1_utils.h"
 #include "f1ap_du_event_manager.h"
 #include "srsran/f1ap/du/f1ap_du.h"
+#include "srsran/f1ap/f1ap_message_notifier.h"
 #include "srsran/support/async/async_task.h"
 
 namespace srsran {

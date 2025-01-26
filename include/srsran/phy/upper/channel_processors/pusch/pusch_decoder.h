@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -50,7 +50,7 @@ struct pusch_decoder_result;
 /// which is used to write softbits into the decoder.
 ///
 /// The decoder could potentially start the code block processing if a codeword length is provided (see
-/// \ref set_codeword_length) prior \ref pusch_decoder_buffer::on_end_softbits.
+/// \ref set_nof_softbits) prior \ref pusch_decoder_buffer::on_end_softbits.
 class pusch_decoder
 {
 public:

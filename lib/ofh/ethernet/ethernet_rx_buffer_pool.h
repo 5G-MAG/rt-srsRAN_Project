@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -24,9 +24,9 @@
 
 #include "ethernet_rx_buffer_impl.h"
 #include "srsran/adt/expected.h"
+#include "srsran/adt/mpmc_queue.h"
 #include "srsran/adt/span.h"
-#include "srsran/adt/spsc_queue.h"
-#include "srsran/support/math_utils.h"
+#include "srsran/support/math/math_utils.h"
 #include "srsran/support/srsran_assert.h"
 #include "srsran/support/units.h"
 #include <vector>
@@ -41,7 +41,7 @@ class ethernet_rx_buffer_pool
   static inline constexpr units::bytes ETH_BUFFER_POOL_SIZE{4096000};
 
   using rx_buffer_id_list =
-      concurrent_queue<unsigned, concurrent_queue_policy::lockfree_spsc, concurrent_queue_wait_policy::non_blocking>;
+      concurrent_queue<unsigned, concurrent_queue_policy::lockfree_mpmc, concurrent_queue_wait_policy::non_blocking>;
 
   unsigned number_of_buffers;
 
@@ -70,7 +70,6 @@ public:
     if (!buffer_id.has_value()) {
       return make_unexpected(default_error_t{});
     }
-
     return {{*this, buffer_id.value()}};
   }
 

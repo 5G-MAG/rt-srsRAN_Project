@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -25,7 +25,6 @@
 #include "../support/prach_context_repository.h"
 #include "../support/uplink_context_repository.h"
 #include "ofh_data_flow_cplane_scheduling_commands.h"
-#include "srsran/adt/optional.h"
 #include "srsran/ofh/ethernet/ethernet_frame_pool.h"
 #include "srsran/ofh/transmitter/ofh_uplink_request_handler.h"
 #include "srsran/ran/tdd/tdd_ul_dl_config.h"
@@ -72,7 +71,7 @@ public:
   void handle_prach_occasion(const prach_buffer_context& context, prach_buffer& buffer) override;
 
   // See interface for documentation.
-  void handle_new_uplink_slot(const resource_grid_context& context, resource_grid& grid) override;
+  void handle_new_uplink_slot(const resource_grid_context& context, const shared_resource_grid& grid) override;
 
 private:
   srslog::basic_logger&                                 logger;

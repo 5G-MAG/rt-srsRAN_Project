@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -134,7 +134,7 @@ static const std::array<ssb_gscn_raster, nof_gscn_raster_fr1> ssb_gscn_raster_ta
 
 // Helper that validates the GSCN of bands with irregular or special rasters.
 static error_type<std::string>
-validate_irregular_gscn_rasters(unsigned gscn, nr_band band, subcarrier_spacing ssb_scs, bs_channel_bandwidth_fr1 bw)
+validate_irregular_gscn_rasters(unsigned gscn, nr_band band, subcarrier_spacing ssb_scs, bs_channel_bandwidth bw)
 {
   bool is_gscn_valid = false;
 
@@ -156,7 +156,7 @@ validate_irregular_gscn_rasters(unsigned gscn, nr_band band, subcarrier_spacing 
     const unsigned n79_large_bw_gscn_first  = 8480U;
     const unsigned n79_large_bw_gscn_step   = 16U;
     const unsigned n79_large_bw_gscn_last   = 8880U;
-    if (bw < bs_channel_bandwidth_fr1::MHz40) {
+    if (bw < bs_channel_bandwidth::MHz40) {
       is_gscn_valid = gscn >= n79_narrow_bw_gscn_first and gscn <= n79_narrow_bw_gscn_last;
     } else {
       is_gscn_valid = gscn >= n79_large_bw_gscn_first and gscn <= n79_large_bw_gscn_last and
@@ -167,7 +167,7 @@ validate_irregular_gscn_rasters(unsigned gscn, nr_band band, subcarrier_spacing 
     const unsigned n90_narrow_bw_gscn_last  = 6718U;
     const unsigned n90_large_bw_gscn_first  = 6246U;
     const unsigned n90_large_bw_gscn_last   = 6717U;
-    if (bw < bs_channel_bandwidth_fr1::MHz10) {
+    if (bw < bs_channel_bandwidth::MHz10) {
       is_gscn_valid = gscn >= n90_narrow_bw_gscn_first and gscn <= n90_narrow_bw_gscn_last;
     } else {
       is_gscn_valid = gscn >= n90_large_bw_gscn_first and gscn <= n90_large_bw_gscn_last;
@@ -178,15 +178,17 @@ validate_irregular_gscn_rasters(unsigned gscn, nr_band band, subcarrier_spacing 
     is_gscn_valid = std::find(gscn_band_n102.begin(), gscn_band_n102.end(), gscn) != gscn_band_n102.end();
   }
 
-  return is_gscn_valid
-             ? error_type<std::string>{}
-             : make_unexpected(fmt::format("GSCN {} is not valid for band {} with SSB SCS {}", gscn, band, ssb_scs));
+  return is_gscn_valid ? error_type<std::string>{}
+                       : make_unexpected(fmt::format("GSCN {} is not valid for band {} with SSB SCS {}",
+                                                     gscn,
+                                                     fmt::underlying(band),
+                                                     fmt::underlying(ssb_scs)));
 }
 
-error_type<std::string> srsran::band_helper::is_gscn_valid_given_band(unsigned                 gscn,
-                                                                      nr_band                  band,
-                                                                      subcarrier_spacing       ssb_scs,
-                                                                      bs_channel_bandwidth_fr1 bw)
+error_type<std::string> srsran::band_helper::is_gscn_valid_given_band(unsigned             gscn,
+                                                                      nr_band              band,
+                                                                      subcarrier_spacing   ssb_scs,
+                                                                      bs_channel_bandwidth bw)
 {
   // Search for the GSCN in the table of regular rasters, first.
   for (const ssb_gscn_raster& raster : ssb_gscn_raster_table_fr1) {
@@ -213,8 +215,10 @@ span<const unsigned> srsran::band_helper::get_gscn_special_raster_iterator(nr_ba
                                ssb_scs == subcarrier_spacing::kHz15) or
                               band == nr_band::n46 or band == nr_band::n96 or band == nr_band::n102;
 
-  srsran_assert(
-      are_input_args_valid, "This function cannot be used for band {} with SCS {}", band, scs_to_khz(ssb_scs));
+  srsran_assert(are_input_args_valid,
+                "This function cannot be used for band {} with SCS {}",
+                fmt::underlying(band),
+                scs_to_khz(ssb_scs));
 
   switch (band) {
     case nr_band::n34:

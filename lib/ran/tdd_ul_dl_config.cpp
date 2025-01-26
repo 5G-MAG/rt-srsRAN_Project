@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -78,6 +78,12 @@ bool srsran::is_tdd_full_dl_slot(const tdd_ul_dl_config_common& cfg, unsigned sl
 bool srsran::is_tdd_full_ul_slot(const tdd_ul_dl_config_common& cfg, unsigned slot_index)
 {
   return nof_active_symbols(cfg, slot_index, cyclic_prefix::NORMAL, false) == NOF_OFDM_SYM_PER_SLOT_NORMAL_CP;
+}
+
+bool srsran::is_tdd_partial_ul_slot(const tdd_ul_dl_config_common& cfg, unsigned slot_index)
+{
+  const unsigned nof_symbols = nof_active_symbols(cfg, slot_index, cyclic_prefix::NORMAL, false);
+  return nof_symbols != 0U and nof_symbols != NOF_OFDM_SYM_PER_SLOT_NORMAL_CP;
 }
 
 ofdm_symbol_range

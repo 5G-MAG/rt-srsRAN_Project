@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -34,10 +34,10 @@
 
 namespace srsran {
 
-// Number of bits in one byte.
+/// Number of bits in one byte.
 static constexpr unsigned BITS_PER_BYTE = 8;
 
-// Maximum TBS that implies a 16-bit CRC.
+/// Maximum TBS that implies a 16-bit CRC.
 constexpr unsigned MAX_BITS_CRC16 = 3824;
 
 /// Implementation of the PUSCH decoder.

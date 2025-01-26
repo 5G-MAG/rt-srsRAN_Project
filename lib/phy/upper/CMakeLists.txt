@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -41,12 +41,12 @@ target_link_libraries(srsran_uplink_processor srsran_channel_processors)
 add_library(srsran_upper_phy upper_phy_factories.cpp upper_phy_impl.cpp upper_phy_factories.cpp
                              upper_phy_rx_symbol_handler_impl.cpp upper_phy_rx_results_notifier_wrapper.cpp
                              upper_phy_error_handler_impl.cpp)
-target_link_libraries(srsran_upper_phy
-        srsran_instrumentation
+target_link_libraries(srsran_upper_phy srsran_instrumentation
         srsran_downlink_processor
         srsran_uplink_processor
         srsran_phy_support
         srsran_generic_funcs
+        srsran_transform_precoding
         srsran_channel_equalizer)
 
 add_library(log_likelihood_ratio log_likelihood_ratio.cpp)

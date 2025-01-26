@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -29,6 +29,7 @@
 #include "srsran/phy/lower/processors/downlink/pdxch/pdxch_processor_notifier.h"
 #include "srsran/phy/lower/processors/downlink/pdxch/pdxch_processor_request_handler.h"
 #include "srsran/phy/support/resource_grid_context.h"
+#include "srsran/phy/support/shared_resource_grid.h"
 #include "srsran/srslog/srslog.h"
 #include <random>
 #include <vector>
@@ -118,7 +119,7 @@ private:
 class pdxch_processor_request_handler_spy : public pdxch_processor_request_handler
 {
 public:
-  void handle_request(const resource_grid_reader& grid, const resource_grid_context& context) override
+  void handle_request(const shared_resource_grid& grid, const resource_grid_context& context) override
   {
     // TBD.
   }

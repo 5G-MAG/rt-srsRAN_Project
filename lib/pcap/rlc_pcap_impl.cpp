@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -38,7 +38,7 @@ constexpr uint8_t     PCAP_RLC_NR_BEARER_ID_TAG   = 0x05;
 // Other constants
 constexpr uint16_t UDP_DLT = 149;
 
-int nr_pcap_pack_rlc_context_to_buffer(const pcap_rlc_pdu_context& context, uint8_t* buffer, unsigned int length);
+int nr_pcap_pack_rlc_context_to_buffer(const pcap_rlc_pdu_context& context, uint8_t* buffer, unsigned length);
 
 rlc_pcap_impl::rlc_pcap_impl(const std::string& filename_,
                              bool               capture_srb,
@@ -54,6 +54,11 @@ rlc_pcap_impl::rlc_pcap_impl(const std::string& filename_,
 rlc_pcap_impl::~rlc_pcap_impl()
 {
   close();
+}
+
+void rlc_pcap_impl::flush()
+{
+  writer.flush();
 }
 
 void rlc_pcap_impl::close()
@@ -134,7 +139,7 @@ void rlc_pcap_impl::push_pdu(const pcap_rlc_pdu_context& context, const byte_buf
 }
 
 /// Helper function to serialize RLC NR context
-int nr_pcap_pack_rlc_context_to_buffer(const pcap_rlc_pdu_context& context, uint8_t* buffer, unsigned int length)
+int nr_pcap_pack_rlc_context_to_buffer(const pcap_rlc_pdu_context& context, uint8_t* buffer, unsigned length)
 {
   int      offset = {};
   uint16_t tmp16  = {};

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,10 +22,10 @@
 
 #pragma once
 
-#include "srsran/adt/optional.h"
 #include "srsran/ran/pdsch/pdsch_mcs.h"
 #include "srsran/ran/pusch/pusch_mcs.h"
 #include "srsran/ran/sch/sch_mcs.h"
+#include <optional>
 
 namespace srsran {
 
@@ -45,9 +45,11 @@ std::optional<sch_mcs_index> map_cqi_to_mcs(unsigned cqi, pdsch_mcs_table mcs_ta
 sch_mcs_index map_snr_to_mcs_ul(double snr, pusch_mcs_table mcs_table);
 
 /// \brief Retrieves the maximum MCS value for a given MCS table.
-inline sch_mcs_index get_max_mcs_ul(pusch_mcs_table mcs_table)
+///
+/// The MCS value ranges are given in TS 38.214 Section 6.1.4.2.
+inline sch_mcs_index get_max_mcs_ul(pusch_mcs_table mcs_table, bool transform_precoding)
 {
-  return mcs_table == pusch_mcs_table::qam256 ? 27 : 28;
+  return ((mcs_table == pusch_mcs_table::qam256) or transform_precoding) ? 27 : 28;
 }
 
 } // namespace srsran

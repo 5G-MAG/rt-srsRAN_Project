@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -26,6 +26,7 @@
 #include "srsran/ofh/ofh_error_notifier.h"
 #include "srsran/phy/support/resource_grid_context.h"
 #include "srsran/phy/support/resource_grid_reader.h"
+#include "srsran/phy/support/shared_resource_grid.h"
 
 using namespace srsran;
 using namespace ofh;
@@ -56,6 +57,7 @@ downlink_handler_broadcast_impl::downlink_handler_broadcast_impl(
   data_flow_uplane(std::move(dependencies.data_flow_uplane)),
   window_checker(
       *dependencies.logger,
+      config.sector,
       calculate_nof_symbols_before_ota(config.cp, config.scs, config.dl_processing_time, config.tx_timing_params),
       get_nsymb_per_slot(config.cp),
       to_numerology_value(config.scs)),
@@ -68,19 +70,21 @@ downlink_handler_broadcast_impl::downlink_handler_broadcast_impl(
 }
 
 void downlink_handler_broadcast_impl::handle_dl_data(const resource_grid_context& context,
-                                                     const resource_grid_reader&  grid)
+                                                     const shared_resource_grid&  grid)
 {
-  trace_point tp = ofh_tracer.now();
+  const resource_grid_reader& reader = grid.get_reader();
+  trace_point                 tp     = ofh_tracer.now();
 
   // Clear any stale buffers associated with the context slot.
-  frame_pool->clear_downlink_slot(context.slot, logger);
+  frame_pool->clear_downlink_slot(context.slot, context.sector, logger);
 
   if (window_checker.is_late(context.slot)) {
     err_notifier.get().on_late_downlink_message({context.slot, sector_id});
-    logger.warning(
-        "Dropped late downlink resource grid in slot '{}' and sector#{}. No OFH data will be transmitted for this slot",
-        context.slot,
-        context.sector);
+    logger.warning("Sector#{}: dropped late downlink resource grid in slot '{}' and sector#{}. No OFH data will be "
+                   "transmitted for this slot",
+                   sector_id,
+                   context.slot,
+                   context.sector);
     ofh_tracer << trace_event("ofh_handle_dl_late", tp);
 
     return;
@@ -92,7 +96,7 @@ void downlink_handler_broadcast_impl::handle_dl_data(const resource_grid_context
   cplane_context.direction    = data_direction::downlink;
   cplane_context.symbol_range = tdd_config
                                     ? get_active_tdd_dl_symbols(tdd_config.value(), context.slot.slot_index(), cp)
-                                    : ofdm_symbol_range(0, grid.get_nof_symbols());
+                                    : ofdm_symbol_range(0, reader.get_nof_symbols());
 
   data_flow_uplane_resource_grid_context uplane_context;
   uplane_context.slot         = context.slot;

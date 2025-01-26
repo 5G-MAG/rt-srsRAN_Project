@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -41,7 +41,7 @@ struct dummy_f1u_cu_up_rx_notifier final : public f1u_cu_up_gateway_bearer_rx_no
   srslog::basic_logger& logger = srslog::fetch_basic_logger("CU-F1-U", false);
 };
 
-struct dummy_f1u_du_gateway_bearer_rx_notifier final : srsran::srs_du::f1u_du_gateway_bearer_rx_notifier {
+struct dummy_f1u_du_gateway_bearer_rx_notifier final : srs_du::f1u_du_gateway_bearer_rx_notifier {
   void on_new_pdu(nru_dl_message msg) override
   {
     logger.info(msg.t_pdu.begin(), msg.t_pdu.end(), "DU received SDU. sdu_len={}", msg.t_pdu.length());
@@ -235,7 +235,7 @@ TEST_F(f1u_connector_test, ul_dl_flow)
   dummy_f1u_cu_up_rx_notifier cu_rx;
 
   std::unique_ptr<srs_cu_up::f1u_tx_pdu_notifier> cu_bearer =
-      cu_gw->create_cu_bearer(0, drb_id_t::drb1, f1u_cu_up_cfg, ul_tnl, cu_rx, ue_worker);
+      cu_gw->create_cu_bearer(0, drb_id_t::drb1, f1u_cu_up_cfg, ul_tnl.gtp_teid, cu_rx, ue_worker);
 
   // Create DU TX notifier adapter and RX handler
   dummy_f1u_du_gateway_bearer_rx_notifier      du_rx;
@@ -267,7 +267,7 @@ TEST_F(f1u_connector_test, destroy_bearer_cu_up)
   dummy_f1u_cu_up_rx_notifier cu_rx;
 
   std::unique_ptr<srs_cu_up::f1u_tx_pdu_notifier> cu_bearer =
-      cu_gw->create_cu_bearer(0, drb_id_t::drb1, f1u_cu_up_cfg, ul_tnl, cu_rx, ue_worker);
+      cu_gw->create_cu_bearer(0, drb_id_t::drb1, f1u_cu_up_cfg, ul_tnl.gtp_teid, cu_rx, ue_worker);
 
   // Create DU TX notifier adapter and RX handler
   dummy_f1u_du_gateway_bearer_rx_notifier      du_rx;
@@ -306,7 +306,7 @@ TEST_F(f1u_connector_test, disconnect_bearer_cu_up)
   dummy_f1u_cu_up_rx_notifier cu_rx;
 
   std::unique_ptr<srs_cu_up::f1u_tx_pdu_notifier> cu_bearer =
-      cu_gw->create_cu_bearer(0, drb_id_t::drb1, f1u_cu_up_cfg, ul_tnl, cu_rx, ue_worker);
+      cu_gw->create_cu_bearer(0, drb_id_t::drb1, f1u_cu_up_cfg, ul_tnl.gtp_teid, cu_rx, ue_worker);
 
   // Create DU TX notifier adapter and RX handler
   dummy_f1u_du_gateway_bearer_rx_notifier      du_rx;
@@ -348,7 +348,7 @@ TEST_F(f1u_connector_test, destroy_bearer_du)
   // Create CU TX notifier adapter
   dummy_f1u_cu_up_rx_notifier                     cu_rx;
   std::unique_ptr<srs_cu_up::f1u_tx_pdu_notifier> cu_bearer =
-      cu_gw->create_cu_bearer(0, drb_id_t::drb1, f1u_cu_up_cfg, ul_tnl, cu_rx, ue_worker);
+      cu_gw->create_cu_bearer(0, drb_id_t::drb1, f1u_cu_up_cfg, ul_tnl.gtp_teid, cu_rx, ue_worker);
 
   // Create DU TX notifier adapter and RX handler
   dummy_f1u_du_gateway_bearer_rx_notifier      du_rx;
@@ -386,7 +386,7 @@ TEST_F(f1u_connector_test, disconnect_bearer_du)
   // Create CU TX notifier adapter
   dummy_f1u_cu_up_rx_notifier                     cu_rx;
   std::unique_ptr<srs_cu_up::f1u_tx_pdu_notifier> cu_bearer =
-      cu_gw->create_cu_bearer(0, drb_id_t::drb1, f1u_cu_up_cfg, ul_tnl, cu_rx, ue_worker);
+      cu_gw->create_cu_bearer(0, drb_id_t::drb1, f1u_cu_up_cfg, ul_tnl.gtp_teid, cu_rx, ue_worker);
 
   // Create DU TX notifier adapter and RX handler
   dummy_f1u_du_gateway_bearer_rx_notifier      du_rx;
@@ -429,7 +429,7 @@ TEST_F(f1u_connector_test, update_du_f1u)
   // Create CU TX notifier adapter
   dummy_f1u_cu_up_rx_notifier                     cu_rx;
   std::unique_ptr<srs_cu_up::f1u_tx_pdu_notifier> cu_bearer =
-      cu_gw->create_cu_bearer(0, drb_id_t::drb1, f1u_cu_up_cfg, ul_tnl, cu_rx, ue_worker);
+      cu_gw->create_cu_bearer(0, drb_id_t::drb1, f1u_cu_up_cfg, ul_tnl.gtp_teid, cu_rx, ue_worker);
 
   // Create DU TX notifier adapter and RX handler
   dummy_f1u_du_gateway_bearer_rx_notifier      du_rx1;

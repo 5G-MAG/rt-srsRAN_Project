@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -24,7 +24,7 @@
 #include "pseudo_random_generator_fast_advance.h"
 #include "pseudo_random_generator_initializers.h"
 #include "pseudo_random_generator_sequence.h"
-#include "srsran/support/math_utils.h"
+#include "srsran/support/math/math_utils.h"
 #include "srsran/support/srsran_assert.h"
 
 #if __SSE3__
@@ -43,8 +43,8 @@ using namespace srsran;
 /// x_1(n + N_{\textup{C}}) \oplus x_2(n + N_{\textup{C}})\f$.
 static constexpr unsigned pseudo_random_generator_Nc = 1600;
 
-/// Maximum number of steps that can be the state advanced using the pseudo-random generator fast advance.
-static constexpr unsigned pseudo_random_state_fast_advance_max_steps = 1U << 15U;
+/// Maximum number of steps that the state can be advanced using the pseudo-random generator fast advance.
+static constexpr unsigned pseudo_random_state_fast_advance_max_steps = 1U << 21U;
 
 /// Sequence \f$x_1(n)\f$ initializer object.
 static const pseudo_random_initializer_x1 x1_init(pseudo_random_generator_Nc);

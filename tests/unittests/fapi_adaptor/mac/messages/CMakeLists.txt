@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -43,3 +43,7 @@ gtest_discover_tests(mac_fapi_pucch_adaptor_test)
 add_executable(mac_fapi_pusch_adaptor_test ul_pusch_pdu_test.cpp)
 target_link_libraries(mac_fapi_pusch_adaptor_test srsran_mac_fapi_adaptors srsran_support srsran_fapi_uci_part2_tools gtest gtest_main srsran_mac_translator_helpers)
 gtest_discover_tests(mac_fapi_pusch_adaptor_test)
+
+add_executable(mac_fapi_srs_adaptor_test ul_srs_pdu_test.cpp)
+target_link_libraries(mac_fapi_srs_adaptor_test srsran_mac_fapi_adaptors srsran_support gtest gtest_main srsran_mac_translator_helpers)
+gtest_discover_tests(mac_fapi_srs_adaptor_test)

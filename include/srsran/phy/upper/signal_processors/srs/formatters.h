@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -27,7 +27,7 @@
 #include "srsran/ran/srs/srs_channel_matrix.h"
 #include "srsran/ran/srs/srs_channel_matrix_formatters.h"
 #include "srsran/ran/srs/srs_resource_formatter.h"
-#include "srsran/support/format_utils.h"
+#include <limits>
 
 namespace fmt {
 
@@ -41,14 +41,13 @@ struct formatter<srsran::srs_estimator_configuration> {
   formatter() = default;
 
   template <typename ParseContext>
-  auto parse(ParseContext& ctx) -> decltype(ctx.begin())
+  auto parse(ParseContext& ctx)
   {
     return helper.parse(ctx);
   }
 
   template <typename FormatContext>
-  auto format(const srsran::srs_estimator_configuration& config, FormatContext& ctx)
-      -> decltype(std::declval<FormatContext>().out())
+  auto format(const srsran::srs_estimator_configuration& config, FormatContext& ctx) const
   {
     helper.format_if_verbose(ctx, "slot={}", config.slot);
     helper.format_always(ctx, "{}", config.resource);
@@ -68,18 +67,33 @@ struct formatter<srsran::srs_estimator_result> {
   formatter() = default;
 
   template <typename ParseContext>
-  auto parse(ParseContext& ctx) -> decltype(ctx.begin())
+  auto parse(ParseContext& ctx)
   {
     return helper.parse(ctx);
   }
 
   template <typename FormatContext>
-  auto format(const srsran::srs_estimator_result& config, FormatContext& ctx)
-      -> decltype(std::declval<FormatContext>().out())
+  auto format(const srsran::srs_estimator_result& config, FormatContext& ctx) const
   {
     helper.format_always(ctx, "t_align={:.1}us", config.time_alignment.time_alignment * 1e6);
-    helper.format_always(ctx, "noise_var={}", config.noise_variance);
-    helper.format_if_verbose(ctx, "H={}", config.channel_matrix);
+    helper.format_always(ctx, "epre={:.3e}dB", config.epre_dB.value_or(std::numeric_limits<float>::quiet_NaN()));
+    helper.format_always(
+        ctx, "noise_var={:.3e}", config.noise_variance.value_or(std::numeric_limits<float>::quiet_NaN()));
+
+    // Get matrix Frobenius norm.
+    float frobenius_norm = config.channel_matrix.frobenius_norm();
+
+    if (std::isnormal(frobenius_norm)) {
+      // Normalize matrix.
+      srsran::srs_channel_matrix norm_matrix = config.channel_matrix;
+      norm_matrix *= 1.0F / frobenius_norm;
+
+      // Print norm and matrix.
+      helper.format_if_verbose(ctx, "H={:.3e} * {}", frobenius_norm, norm_matrix);
+    } else {
+      // Do not print anything if there are no coefficients.
+      helper.format_if_verbose(ctx, "H=[]");
+    }
 
     return ctx.out();
   }

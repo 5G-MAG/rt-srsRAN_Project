@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -47,6 +47,7 @@ public:
   bool is_valid(const ssb_processor::pdu_t& pdu) const override { return true; }
 };
 
+/// SSB processor implementation.
 class ssb_processor_impl : public ssb_processor
 {
 private:

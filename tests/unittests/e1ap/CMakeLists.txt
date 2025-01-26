@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -25,3 +25,4 @@ include_directories(../../..)
 add_subdirectory(common)
 add_subdirectory(cu_cp)
 add_subdirectory(cu_up)
+add_subdirectory(gateways)

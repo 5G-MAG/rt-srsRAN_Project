@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -47,6 +47,7 @@
  *    inherit or if a notifier that the PDCP will keep as a member.
  *
  */
+
 namespace srsran {
 
 /// This interface represents the data entry point of the receiving side of a PDCP entity.
@@ -111,11 +112,11 @@ public:
   pdcp_rx_upper_control_interface& operator=(const pdcp_rx_upper_control_interface&&) = delete;
 
   /// Handle the incoming security config.
-  virtual void configure_security(security::sec_128_as_config sec_cfg)                  = 0;
-  virtual void set_integrity_protection(security::integrity_enabled integrity_enabled_) = 0;
-  virtual void set_ciphering(security::ciphering_enabled ciphering_enabled_)            = 0;
+  virtual void configure_security(security::sec_128_as_config sec_cfg,
+                                  security::integrity_enabled integrity_enabled_,
+                                  security::ciphering_enabled ciphering_enabled_) = 0;
 
   /// Trigger re-establishment
-  virtual void reestablish(security::sec_128_as_config sec_cfg_) = 0;
+  virtual void reestablish(security::sec_128_as_config sec_cfg) = 0;
 };
 } // namespace srsran

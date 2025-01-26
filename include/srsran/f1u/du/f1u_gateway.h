@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -26,7 +26,7 @@
 #include "srsran/f1u/du/f1u_config.h"
 #include "srsran/f1u/du/f1u_tx_pdu_notifier.h"
 #include "srsran/ran/gnb_du_id.h"
-#include "srsran/ran/lcid.h"
+#include "srsran/ran/rb_id.h"
 #include "srsran/ran/up_transport_layer_info.h"
 #include "srsran/support/timers.h"
 
@@ -70,7 +70,7 @@ public:
                                                                   timer_factory                              timers,
                                                                   task_executor& ue_executor) = 0;
 
-  virtual expected<std::string> get_du_bind_address(gnb_du_id_t gnb_du_id) = 0;
+  virtual expected<std::string> get_du_bind_address(gnb_du_id_t gnb_du_id) const = 0;
 };
 
 /// This class will be used to provide the interfaces to
@@ -85,7 +85,7 @@ public:
   f1u_du_udp_gateway(f1u_du_udp_gateway&&)                 = default;
   f1u_du_udp_gateway& operator=(f1u_du_udp_gateway&&)      = default;
 
-  virtual std::optional<uint16_t> get_bind_port() = 0;
+  virtual std::optional<uint16_t> get_bind_port() const = 0;
 };
 
 } // namespace srsran::srs_du

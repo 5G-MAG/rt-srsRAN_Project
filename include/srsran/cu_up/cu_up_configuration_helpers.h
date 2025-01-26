@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,7 +23,7 @@
 #pragma once
 
 #include "srsran/cu_up/cu_up_types.h"
-#include "srsran/ran/five_qi.h"
+#include "srsran/ran/qos/five_qi.h"
 #include <map>
 
 namespace srsran {
@@ -31,7 +31,7 @@ namespace config_helpers {
 
 /// Generates default QoS configuration used by gNB CU-UP.
 inline std::map<five_qi_t, srs_cu_up::cu_up_qos_config>
-make_default_cu_up_qos_config_list(bool warn_on_drop, timer_duration metrics_period)
+make_default_cu_up_qos_config_list(bool warn_on_drop, timer_duration metrics_period, bool test_mode)
 {
   std::map<five_qi_t, srs_cu_up::cu_up_qos_config> qos_list = {};
   {
@@ -40,8 +40,8 @@ make_default_cu_up_qos_config_list(bool warn_on_drop, timer_duration metrics_per
     cfg.pdcp_custom_cfg = pdcp_custom_config{}; // defaults are configured as member-initialization within the struct
     cfg.pdcp_custom_cfg.metrics_period  = metrics_period;
     cfg.pdcp_custom_cfg.tx.warn_on_drop = warn_on_drop;
-
-    qos_list[uint_to_five_qi(1)] = cfg;
+    cfg.pdcp_custom_cfg.tx.test_mode    = test_mode;
+    qos_list[uint_to_five_qi(1)]        = cfg;
   }
   {
     // 5QI=2
@@ -49,8 +49,8 @@ make_default_cu_up_qos_config_list(bool warn_on_drop, timer_duration metrics_per
     cfg.pdcp_custom_cfg = pdcp_custom_config{}; // defaults are configured as member-initialization within the struct
     cfg.pdcp_custom_cfg.metrics_period  = metrics_period;
     cfg.pdcp_custom_cfg.tx.warn_on_drop = warn_on_drop;
-
-    qos_list[uint_to_five_qi(2)] = cfg;
+    cfg.pdcp_custom_cfg.tx.test_mode    = test_mode;
+    qos_list[uint_to_five_qi(2)]        = cfg;
   }
   {
     // 5QI=5
@@ -58,8 +58,8 @@ make_default_cu_up_qos_config_list(bool warn_on_drop, timer_duration metrics_per
     cfg.pdcp_custom_cfg = pdcp_custom_config{}; // defaults are configured as member-initialization within the struct
     cfg.pdcp_custom_cfg.metrics_period  = metrics_period;
     cfg.pdcp_custom_cfg.tx.warn_on_drop = warn_on_drop;
-
-    qos_list[uint_to_five_qi(5)] = cfg;
+    cfg.pdcp_custom_cfg.tx.test_mode    = test_mode;
+    qos_list[uint_to_five_qi(5)]        = cfg;
   }
   {
     // 5QI=7
@@ -67,10 +67,9 @@ make_default_cu_up_qos_config_list(bool warn_on_drop, timer_duration metrics_per
     cfg.pdcp_custom_cfg = pdcp_custom_config{}; // defaults are configured as member-initialization within the struct
     cfg.pdcp_custom_cfg.metrics_period  = metrics_period;
     cfg.pdcp_custom_cfg.tx.warn_on_drop = warn_on_drop;
-
-    cfg.f1u_cfg.warn_on_drop = warn_on_drop;
-
-    qos_list[uint_to_five_qi(7)] = cfg;
+    cfg.pdcp_custom_cfg.tx.test_mode    = test_mode;
+    cfg.f1u_cfg.warn_on_drop            = warn_on_drop;
+    qos_list[uint_to_five_qi(7)]        = cfg;
   }
   {
     // 5QI=9
@@ -78,10 +77,9 @@ make_default_cu_up_qos_config_list(bool warn_on_drop, timer_duration metrics_per
     cfg.pdcp_custom_cfg = pdcp_custom_config{}; // defaults are configured as member-initialization within the struct
     cfg.pdcp_custom_cfg.metrics_period  = metrics_period;
     cfg.pdcp_custom_cfg.tx.warn_on_drop = warn_on_drop;
-
-    cfg.f1u_cfg.warn_on_drop = warn_on_drop;
-
-    qos_list[uint_to_five_qi(9)] = cfg;
+    cfg.pdcp_custom_cfg.tx.test_mode    = test_mode;
+    cfg.f1u_cfg.warn_on_drop            = warn_on_drop;
+    qos_list[uint_to_five_qi(9)]        = cfg;
   }
   return qos_list;
 }

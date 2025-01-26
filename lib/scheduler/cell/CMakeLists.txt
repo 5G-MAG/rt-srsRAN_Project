@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -22,4 +22,5 @@ add_library(sched_cell OBJECT
         vrb_alloc.cpp
         resource_block_group.cpp
         resource_grid.cpp
-        scheduler_prb.cpp)
+        scheduler_prb.cpp
+        cell_harq_manager.cpp)

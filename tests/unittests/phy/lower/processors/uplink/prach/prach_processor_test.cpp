@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -146,7 +146,8 @@ protected:
     notifier_spy.clear_notifications();
   }
 
-  static constexpr unsigned unused_integer = UINT32_MAX;
+  static constexpr unsigned unused_integer = UINT16_MAX;
+  static constexpr unsigned unused_byte    = UINT8_MAX;
   static constexpr unsigned max_nof_ports  = 1;
 
   std::shared_ptr<ofdm_prach_demodulator_factory_spy> ofdm_prach_factory_spy;
@@ -225,9 +226,9 @@ TEST_P(PrachProcessorFixture, SectorUnmatch)
   context.pusch_scs             = pusch_scs;
   context.root_sequence_index   = unused_integer;
   context.restricted_set        = restricted_set_config::UNRESTRICTED;
-  context.zero_correlation_zone = unused_integer;
-  context.start_preamble_index  = unused_integer;
-  context.nof_preamble_indices  = unused_integer;
+  context.zero_correlation_zone = unused_byte;
+  context.start_preamble_index  = unused_byte;
+  context.nof_preamble_indices  = unused_byte;
 
   prach_buffer_spy buffer;
 
@@ -275,9 +276,9 @@ TEST_P(PrachProcessorFixture, DetectLate)
   context.pusch_scs             = pusch_scs;
   context.root_sequence_index   = unused_integer;
   context.restricted_set        = restricted_set_config::UNRESTRICTED;
-  context.zero_correlation_zone = unused_integer;
-  context.start_preamble_index  = unused_integer;
-  context.nof_preamble_indices  = unused_integer;
+  context.zero_correlation_zone = unused_byte;
+  context.start_preamble_index  = unused_byte;
+  context.nof_preamble_indices  = unused_byte;
 
   // Do request.
   prach_buffer_spy buffer;
@@ -336,9 +337,9 @@ TEST_P(PrachProcessorFixture, DetectSectorUnmatchLate)
   context.pusch_scs             = pusch_scs;
   context.root_sequence_index   = unused_integer;
   context.restricted_set        = restricted_set_config::UNRESTRICTED;
-  context.zero_correlation_zone = unused_integer;
-  context.start_preamble_index  = unused_integer;
-  context.nof_preamble_indices  = unused_integer;
+  context.zero_correlation_zone = unused_byte;
+  context.start_preamble_index  = unused_byte;
+  context.nof_preamble_indices  = unused_byte;
 
   prach_buffer_spy buffer;
 
@@ -398,9 +399,9 @@ TEST_P(PrachProcessorFixture, RequestOverflow)
     context.pusch_scs             = pusch_scs;
     context.root_sequence_index   = unused_integer;
     context.restricted_set        = restricted_set_config::UNRESTRICTED;
-    context.zero_correlation_zone = unused_integer;
-    context.start_preamble_index  = unused_integer;
-    context.nof_preamble_indices  = unused_integer;
+    context.zero_correlation_zone = unused_byte;
+    context.start_preamble_index  = unused_byte;
+    context.nof_preamble_indices  = unused_byte;
 
     prach_buffer_spy buffer;
 
@@ -427,9 +428,9 @@ TEST_P(PrachProcessorFixture, RequestOverflow)
     context.pusch_scs             = pusch_scs;
     context.root_sequence_index   = unused_integer;
     context.restricted_set        = restricted_set_config::UNRESTRICTED;
-    context.zero_correlation_zone = unused_integer;
-    context.start_preamble_index  = unused_integer;
-    context.nof_preamble_indices  = unused_integer;
+    context.zero_correlation_zone = unused_byte;
+    context.start_preamble_index  = unused_byte;
+    context.nof_preamble_indices  = unused_byte;
 
     prach_buffer_spy buffer;
 
@@ -467,9 +468,9 @@ TEST_P(PrachProcessorFixture, SingleBasebandSymbols)
   context.pusch_scs             = pusch_scs;
   context.root_sequence_index   = unused_integer;
   context.restricted_set        = restricted_set_config::UNRESTRICTED;
-  context.zero_correlation_zone = unused_integer;
-  context.start_preamble_index  = unused_integer;
-  context.nof_preamble_indices  = unused_integer;
+  context.zero_correlation_zone = unused_byte;
+  context.start_preamble_index  = unused_byte;
+  context.nof_preamble_indices  = unused_byte;
 
   // Calculate PRACH window size.
   unsigned prach_window_length =
@@ -518,10 +519,10 @@ TEST_P(PrachProcessorFixture, SingleBasebandSymbols)
   const auto demodulate_entry = ofdm_prach_factory_spy->get_total_demodulate_entries().back();
   ASSERT_EQ(demodulate_entry.buffer, &buffer);
   ASSERT_EQ(demodulate_entry.input.size(), prach_window_length);
+  ASSERT_EQ(demodulate_entry.config.slot, context.slot);
   ASSERT_EQ(demodulate_entry.config.format, context.format);
   ASSERT_EQ(demodulate_entry.config.rb_offset, context.rb_offset);
   ASSERT_EQ(demodulate_entry.config.nof_prb_ul_grid, context.nof_prb_ul_grid);
-  ASSERT_EQ(demodulate_entry.config.pusch_scs, context.pusch_scs);
   ASSERT_EQ(span<const cf_t>(demodulate_entry.input),
             samples.get_reader().get_channel_buffer(context.ports.front()).first(prach_window_length));
 
@@ -558,9 +559,9 @@ TEST_P(PrachProcessorFixture, ThreeBasebandSymbols)
   context.pusch_scs             = pusch_scs;
   context.root_sequence_index   = unused_integer;
   context.restricted_set        = restricted_set_config::UNRESTRICTED;
-  context.zero_correlation_zone = unused_integer;
-  context.start_preamble_index  = unused_integer;
-  context.nof_preamble_indices  = unused_integer;
+  context.zero_correlation_zone = unused_byte;
+  context.start_preamble_index  = unused_byte;
+  context.nof_preamble_indices  = unused_byte;
 
   // Calculate PRACH window size.
   unsigned prach_window_length =
@@ -657,10 +658,10 @@ TEST_P(PrachProcessorFixture, ThreeBasebandSymbols)
   const auto demodulate_entry = ofdm_prach_factory_spy->get_total_demodulate_entries().back();
   ASSERT_EQ(demodulate_entry.buffer, &buffer);
   ASSERT_EQ(demodulate_entry.input.size(), prach_window_length);
+  ASSERT_EQ(demodulate_entry.config.slot, context.slot);
   ASSERT_EQ(demodulate_entry.config.format, context.format);
   ASSERT_EQ(demodulate_entry.config.rb_offset, context.rb_offset);
   ASSERT_EQ(demodulate_entry.config.nof_prb_ul_grid, context.nof_prb_ul_grid);
-  ASSERT_EQ(demodulate_entry.config.pusch_scs, context.pusch_scs);
   ASSERT_EQ(span<const cf_t>(demodulate_entry.input),
             samples.get_reader().get_channel_buffer(context.ports.front()).first(prach_window_length));
 

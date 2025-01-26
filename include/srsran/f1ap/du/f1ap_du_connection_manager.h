@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -28,7 +28,9 @@
 #include "srsran/ran/gnb_du_id.h"
 #include "srsran/ran/nr_cgi.h"
 #include "srsran/ran/pci.h"
+#include "srsran/ran/s_nssai.h"
 #include "srsran/ran/subcarrier_spacing.h"
+#include "srsran/ran/tac.h"
 #include "srsran/support/async/async_task.h"
 #include <optional>
 
@@ -39,7 +41,7 @@ namespace srs_du {
 struct f1_cell_setup_params {
   nr_cell_global_id_t                  nr_cgi;
   pci_t                                pci;
-  uint32_t                             tac;
+  tac_t                                tac;
   duplex_mode                          duplx_mode;
   subcarrier_spacing                   scs_common;
   carrier_configuration                dl_carrier;
@@ -47,6 +49,7 @@ struct f1_cell_setup_params {
   byte_buffer                          packed_meas_time_cfg;
   byte_buffer                          packed_mib;
   byte_buffer                          packed_sib1;
+  std::vector<s_nssai_t>               slices;
 };
 
 /// \brief Message that initiates a F1 Setup procedure.

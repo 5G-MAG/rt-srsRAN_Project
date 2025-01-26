@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include "srsran/du_high/rnti_value_table.h"
+#include "rnti_value_table.h"
 #include "srsran/ran/du_types.h"
 #include "srsran/ran/rnti.h"
 

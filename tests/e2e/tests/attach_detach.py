@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -22,6 +22,7 @@
 Attach / Detach Tests
 """
 import logging
+from time import sleep
 from typing import Optional, Sequence, Tuple, Union
 
 from pytest import mark
@@ -38,6 +39,38 @@ from .steps.stub import iperf_start, iperf_wait_until_finish, start_network, sto
 
 HIGH_BITRATE = int(15e6)
 BITRATE_THRESHOLD: float = 0.1
+
+
+@mark.zmq
+@mark.smoke
+def test_smoke(
+    retina_manager: RetinaTestManager,
+    retina_data: RetinaTestData,
+    ue_4: Tuple[UEStub, ...],
+    fivegc: FiveGCStub,
+    gnb: GNBStub,
+):
+    """
+    Smoke ZMQ Attach / Detach
+    """
+    _attach_and_detach_multi_ues(
+        retina_manager=retina_manager,
+        retina_data=retina_data,
+        ue_array=ue_4,
+        gnb=gnb,
+        fivegc=fivegc,
+        band=41,
+        common_scs=30,
+        bandwidth=50,
+        sample_rate=None,
+        bitrate=HIGH_BITRATE,
+        protocol=IPerfProto.UDP,
+        direction=IPerfDir.BIDIRECTIONAL,
+        global_timing_advance=0,
+        time_alignment_calibration=0,
+        ue_stop_timeout=15,
+        always_download_artifacts=False,
+    )
 
 
 @mark.parametrize(
@@ -64,11 +97,11 @@ BITRATE_THRESHOLD: float = 0.1
 )
 @mark.zmq
 @mark.flaky(reruns=3, only_rerun=["failed to start", "IPerf Data Invalid"])
-# pylint: disable=too-many-arguments
+# pylint: disable=too-many-arguments,too-many-positional-arguments
 def test_zmq(
     retina_manager: RetinaTestManager,
     retina_data: RetinaTestData,
-    ue_4: Tuple[UEStub, ...],
+    ue_8: Tuple[UEStub, ...],
     fivegc: FiveGCStub,
     gnb: GNBStub,
     band: int,
@@ -84,20 +117,21 @@ def test_zmq(
     _attach_and_detach_multi_ues(
         retina_manager=retina_manager,
         retina_data=retina_data,
-        ue_array=ue_4,
+        ue_array=ue_8,
         gnb=gnb,
         fivegc=fivegc,
         band=band,
         common_scs=common_scs,
         bandwidth=bandwidth,
         sample_rate=None,  # default from testbed
-        iperf_duration=30,
         bitrate=HIGH_BITRATE,
         protocol=protocol,
         direction=direction,
         global_timing_advance=0,
         time_alignment_calibration=0,
-        always_download_artifacts=False,
+        always_download_artifacts=True,
+        ue_stop_timeout=45,
+        ue_settle_time=45,
     )
 
 
@@ -117,7 +151,7 @@ def test_zmq(
     ),
 )
 @mark.rf
-# pylint: disable=too-many-arguments
+# pylint: disable=too-many-arguments,too-many-positional-arguments
 def test_rf_udp(
     retina_manager: RetinaTestManager,
     retina_data: RetinaTestData,
@@ -144,7 +178,6 @@ def test_rf_udp(
         common_scs=common_scs,
         bandwidth=bandwidth,
         sample_rate=None,  # default from testbed
-        iperf_duration=120,
         protocol=IPerfProto.UDP,
         bitrate=HIGH_BITRATE,
         direction=direction,
@@ -155,7 +188,7 @@ def test_rf_udp(
     )
 
 
-# pylint: disable=too-many-arguments,too-many-locals
+# pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
 def _attach_and_detach_multi_ues(
     retina_manager: RetinaTestManager,
     retina_data: RetinaTestData,
@@ -166,7 +199,6 @@ def _attach_and_detach_multi_ues(
     common_scs: int,
     bandwidth: int,
     sample_rate: Optional[int],
-    iperf_duration: int,
     bitrate: int,
     protocol: IPerfProto,
     direction: IPerfDir,
@@ -176,6 +208,7 @@ def _attach_and_detach_multi_ues(
     warning_as_errors: bool = True,
     reattach_count: int = 1,
     ue_stop_timeout=30,
+    ue_settle_time=0,
 ):
     logging.info("Attach / Detach Test")
 
@@ -200,6 +233,8 @@ def _attach_and_detach_multi_ues(
     ue_array_to_iperf = ue_array[::2]
     ue_array_to_attach = ue_array[1::2]
 
+    iperf_duration = reattach_count * ((ue_stop_timeout * len(ue_array_to_attach)) + ue_settle_time)
+
     # Starting iperf in half of the UEs
     iperf_array = []
     for ue_stub in ue_array_to_iperf:
@@ -221,6 +256,7 @@ def _attach_and_detach_multi_ues(
     # Stop and attach half of the UEs while the others are connecting and doing iperf
     for _ in range(reattach_count):
         ue_stop(ue_array_to_attach, retina_data, ue_stop_timeout=ue_stop_timeout)
+        sleep(ue_settle_time)
         ue_attach_info_dict = ue_start_and_attach(ue_array_to_attach, gnb, fivegc)
     # final stop will be triggered by teardown
 

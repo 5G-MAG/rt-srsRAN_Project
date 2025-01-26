@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -35,6 +35,7 @@
 
 namespace srsran {
 
+/// Radio transmit channel over ZeroMQ socket.
 class radio_zmq_tx_channel
 {
 private:

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,7 +23,7 @@
 #include "srsran/support/cpu_architecture_info.h"
 #include "srsran/adt/interval.h"
 #include "srsran/srslog/srslog.h"
-#include "srsran/support/format_utils.h"
+#include "srsran/support/format/fmt_to_c_str.h"
 #include "srsran/support/sysinfo.h"
 #include <dirent.h>
 #include <fstream>
@@ -55,14 +55,8 @@ static interval<unsigned, true> parse_cpu_range(const std::string& value)
     auto parse_result = parse_one_cpu(str);
     range.push_back(parse_result);
   }
-  return interval<unsigned, true>(range[0], range[1]);
+  return {range[0], range[1]};
 }
-
-// Obtain CPU description at the start of the application. This value is affected by commands or tools like taskset,
-// which limit the number of cores available to the application. However, frameworks (e.g. DPDK) that affect the
-// affinities of the main thread in the main() function will not affect this value.
-const cpu_architecture_info::cpu_description cpu_architecture_info::cpu_desc =
-    cpu_architecture_info::discover_cpu_architecture();
 
 cpu_architecture_info::cpu_description cpu_architecture_info::discover_cpu_architecture()
 {
@@ -73,7 +67,7 @@ cpu_architecture_info::cpu_description cpu_architecture_info::discover_cpu_archi
   }
 
   cpu_description cpuinfo;
-  cpu_set_t&      cpuset = cpuinfo.cpuset;
+  ::cpu_set_t&    cpuset = cpuinfo.cpuset;
 
   // Discover host CPU architecture.
   CPU_ZERO(&cpuset);
@@ -120,7 +114,7 @@ cpu_architecture_info::cpu_description cpu_architecture_info::discover_cpu_archi
 
   // Parse /sys/devices/system/cpu/cpu*/topology/thread_siblings_list to get the lists of logical cores belonging to
   // the same physical core.
-  auto sort_function = [](std::string a, std::string b) {
+  auto sort_function = [](const std::string& a, const std::string& b) {
     auto get_first_cpu = [](const std::string& line) {
       std::string        str;
       std::istringstream iss(line);
@@ -220,9 +214,9 @@ static std::string print_cpus_list(const bounded_bitset<1024>& cpus_mask)
     return "[]";
   }
   fmt::memory_buffer fmt_format_buf;
-  fmt::format_to(fmt_format_buf, "[");
+  fmt::format_to(std::back_inserter(fmt_format_buf), "[");
   for (unsigned idx = 0, e = cpu_ids.size(); idx != e; ++idx) {
-    fmt::format_to(fmt_format_buf, "{}{}", cpu_ids[idx], (idx == cpu_ids.size() - 1) ? "]" : ",");
+    fmt::format_to(std::back_inserter(fmt_format_buf), "{}{}", cpu_ids[idx], (idx == cpu_ids.size() - 1) ? "]" : ",");
   }
   return to_string(fmt_format_buf);
 }
@@ -230,7 +224,7 @@ static std::string print_cpus_list(const bounded_bitset<1024>& cpus_mask)
 void cpu_architecture_info::print_cpu_info(srslog::basic_logger& logger) const
 {
   fmt::memory_buffer fmt_buf;
-  fmt::format_to(fmt_buf,
+  fmt::format_to(std::back_inserter(fmt_buf),
                  "{} {}, {} NUMA {}.\n",
                  cpu_desc.nof_cpus,
                  (cpu_desc.nof_cpus > 1) ? "CPUs" : "CPU",
@@ -245,12 +239,13 @@ void cpu_architecture_info::print_cpu_info(srslog::basic_logger& logger) const
   fmt::format_to(fmt_buf, "\n}}\n");
 #endif
 
-  fmt::format_to(fmt_buf, "CPUs per each physical CPU core:\n{{");
+  fmt::format_to(std::back_inserter(fmt_buf), "CPUs per each physical CPU core:\n{{");
   for (unsigned core_id = 0, e = cpu_desc.logical_cpu_lists.size(); core_id != e; ++core_id) {
-    fmt::format_to(fmt_buf, "\n   {}: {}", core_id, print_cpus_list(cpu_desc.logical_cpu_lists[core_id]));
+    fmt::format_to(
+        std::back_inserter(fmt_buf), "\n   {}: {}", core_id, print_cpus_list(cpu_desc.logical_cpu_lists[core_id]));
   }
-  fmt::format_to(fmt_buf, "\n}}\n");
-  fmt::format_to(fmt_buf,
+  fmt::format_to(std::back_inserter(fmt_buf), "\n}}\n");
+  fmt::format_to(std::back_inserter(fmt_buf),
                  "{} CPUs available to the application: {}",
                  cpu_desc.nof_available_cpus,
                  print_cpus_list(cpu_desc.allowed_cpus));

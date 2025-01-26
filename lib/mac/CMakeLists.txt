@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -38,6 +38,7 @@ set(SOURCES mac_factory.cpp
             mac_ul/mac_ul_sch_pdu.cpp
             mac_ul/ul_bsr.cpp
             mac_ul/pdu_rx_handler.cpp
+            mac_ul/mac_ul_processor.cpp
             mac_ul/mac_ul_ue_manager.cpp
             mac_sched/srsran_scheduler_adapter.cpp
             mac_sched/uci_cell_decoder.cpp)

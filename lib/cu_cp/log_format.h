@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,9 +23,9 @@
 #pragma once
 
 #include "srsran/cu_cp/cu_cp_types.h"
-#include "srsran/ran/lcid.h"
+#include "srsran/ran/logical_channel/lcid.h"
 #include "srsran/ran/rnti.h"
-#include "srsran/support/format_utils.h"
+#include "srsran/support/format/format_utils.h"
 #include "fmt/format.h"
 
 namespace srsran {
@@ -199,13 +199,13 @@ namespace fmt {
 template <>
 struct formatter<srsran::srs_cu_cp::ue_event_prefix> {
   template <typename ParseContext>
-  auto parse(ParseContext& ctx) -> decltype(ctx.begin())
+  auto parse(ParseContext& ctx)
   {
     return ctx.begin();
   }
+
   template <typename FormatContext>
-  auto format(const srsran::srs_cu_cp::ue_event_prefix& ue_prefix, FormatContext& ctx)
-      -> decltype(std::declval<FormatContext>().out())
+  auto format(const srsran::srs_cu_cp::ue_event_prefix& ue_prefix, FormatContext& ctx) const
   {
     using namespace srsran;
     auto ret = format_to(ctx.out(), "{:<4}", ue_prefix.direction);

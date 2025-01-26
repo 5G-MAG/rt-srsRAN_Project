@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -69,6 +69,12 @@ public:
   // See radio_unit interface for documentation.
   ru_uplink_plane_handler& get_uplink_plane_handler() override { return *this; }
 
+  // See ru_controller interface for documentation.
+  bool set_tx_cfo(unsigned port_id, float cfo_Hz) override { return false; }
+
+  // See ru_controller interface for documentation.
+  bool set_rx_cfo(unsigned port_id, float cfo_Hz) override { return false; }
+
 private:
   /// Possible internal states.
   enum class state : uint8_t { idle = 0, running, wait_stop, stopped };
@@ -91,7 +97,7 @@ private:
   void print_metrics() override;
 
   // See ru_downlink_plane_handler for documentation.
-  void handle_dl_data(const resource_grid_context& context, const resource_grid_reader& grid) override
+  void handle_dl_data(const resource_grid_context& context, const shared_resource_grid& grid) override
   {
     interval<unsigned> sector_range(0, sectors.size());
     srsran_assert(sector_range.contains(context.sector),
@@ -113,7 +119,7 @@ private:
   }
 
   // See ru_uplink_plane_handler for documentation.
-  void handle_new_uplink_slot(const resource_grid_context& context, resource_grid& grid) override
+  void handle_new_uplink_slot(const resource_grid_context& context, const shared_resource_grid& grid) override
   {
     interval<unsigned> sector_range(0, sectors.size());
     srsran_assert(sector_range.contains(context.sector),

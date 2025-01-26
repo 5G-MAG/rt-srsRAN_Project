@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,8 +22,8 @@
 
 #pragma once
 
-#include "ngap_types.h"
 #include "srsran/cu_cp/cu_cp_types.h"
+#include "srsran/ngap/ngap_types.h"
 #include "srsran/ran/crit_diagnostics.h"
 #include <variant>
 
@@ -38,19 +38,8 @@ struct ngap_broadcast_plmn_item {
 };
 
 struct ngap_supported_ta_item {
-  uint32_t                              tac;
+  tac_t                                 tac;
   std::vector<ngap_broadcast_plmn_item> broadcast_plmn_list;
-};
-
-struct ngap_ng_setup_request {
-  unsigned                            max_setup_retries = 1;
-  cu_cp_global_gnb_id                 global_ran_node_id;
-  std::string                         ran_node_name;
-  std::vector<ngap_supported_ta_item> supported_ta_list;
-  uint16_t                            default_paging_drx;
-  // TODO: Add optional ue_retention_info;
-  // TODO: Add optional nb_iot_default_paging_drx
-  // TODO: Add optional extended_ran_node_name
 };
 
 struct ngap_served_guami_item {

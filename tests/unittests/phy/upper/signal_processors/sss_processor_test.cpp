@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -117,7 +117,7 @@ int main()
     sss_args.ssb_first_subcarrier    = dist_ssb_first_subcarrier(rgen);
     sss_args.ssb_first_symbol        = dist_ssb_first_symbol(rgen);
     sss_args.amplitude               = 1.0F;
-    sss_args.ports                   = {dist_port(rgen)};
+    sss_args.ports.emplace_back(dist_port(rgen));
 
     test_case(*sss, sss_args);
   }

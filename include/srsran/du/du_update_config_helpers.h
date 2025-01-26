@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -28,6 +28,21 @@
 namespace srsran {
 namespace config_helpers {
 
+/// \brief Compute the largest (internal) BWP PRB interval without PUCCH resources.
+///
+/// This function assumes that the PUCCH resources are located in 2 separate blocks, at both external sides of the BWP,
+/// i.e., 1 block on the left side (where indices is 0, 1, 2, ...) and 1 block on the right side (where indices are ...,
+/// N_BWP_RBs -3, N_BWP_RBs-2, N_BWP_RBs-1) of the BWP. The function computes the largest interval of PRBs that are not
+/// used by the PUCCH resources. The starting PRB of the interval is the first PRB that is not used by the PUCCH
+/// resources on the left side of the BWP, while and the ending PRB is the first PRB that is used by the PUCCH resources
+/// on the right side of the BWP.
+///
+/// \param user_params parameters passed by the user for the generation the PUCCH resource list.
+/// \param bwp_size size of the BWP in RBs.
+/// \return The largest (internal) BWP PRB interval without PUCCH resources.
+prb_interval find_largest_prb_interval_without_pucch(const srs_du::pucch_builder_params& user_params,
+                                                     unsigned                            bwp_size);
+
 /// \brief Compute the PRACH frequency start as a function of the PUCCH guardbands.
 ///
 /// This function computes the PRACH frequency start so as it won't collide with the PUCCH resources. As per TS 38.331,
@@ -36,7 +51,8 @@ namespace config_helpers {
 /// \param user_params parameters passed by the user for the generation the PUCCH resource list.
 /// \param bwp_size size of the BWP in RBs.
 /// \return PRACH frequency start.
-unsigned compute_prach_frequency_start(const pucch_builder_params& user_params, unsigned bwp_size, bool is_long_prach);
+unsigned
+compute_prach_frequency_start(const srs_du::pucch_builder_params& user_params, unsigned bwp_size, bool is_long_prach);
 
 /// \brief Compute the number of PUCCH resources that are used for SR and CSI.
 ///
@@ -46,10 +62,12 @@ unsigned compute_prach_frequency_start(const pucch_builder_params& user_params, 
 /// \param max_pucch_grants_per_slot maximum number of PUCCH grants that can be allocated per slot in the cell.
 /// \param sr_period_msec SR period in milliseconds.
 /// \param csi_period_msec CSI period in milliseconds.
-void compute_nof_sr_csi_pucch_res(pucch_builder_params&   user_params,
-                                  unsigned                max_pucch_grants_per_slot,
-                                  float                   sr_period_msec,
-                                  std::optional<unsigned> csi_period_msec);
+void compute_nof_sr_csi_pucch_res(srs_du::pucch_builder_params& user_params,
+                                  unsigned                      max_pucch_grants_per_slot,
+                                  float                         sr_period_msec,
+                                  std::optional<unsigned>       csi_period_msec);
+
+bounded_integer<unsigned, 1, 14> compute_max_nof_pucch_symbols(const srs_du::srs_builder_params& user_srs_params);
 
 } // namespace config_helpers
 } // namespace srsran

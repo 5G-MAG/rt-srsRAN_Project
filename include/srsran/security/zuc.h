@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -26,7 +26,7 @@ namespace srsran {
 namespace security {
 
 typedef unsigned char u8;
-typedef unsigned int  u32;
+typedef unsigned      u32;
 
 /* the state registers of LFSR */
 typedef struct {

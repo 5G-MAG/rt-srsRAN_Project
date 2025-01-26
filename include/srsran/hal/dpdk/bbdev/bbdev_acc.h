@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -59,7 +59,7 @@ struct bbdev_acc_configuration {
   unsigned nof_mbuf = 256;
 };
 
-/// Abstracted interfacing to bbdev-based hardware-accelerators.
+/// Wireless Baseband Device (bbdev) interface.
 class bbdev_acc
 {
 public:
@@ -112,13 +112,13 @@ public:
   /// \return SRS logger.
   srslog::basic_logger& get_logger() { return logger; }
 
-  /// Reserves a free queue to be used by a specific hardware-accelerated channel processor function.
+  /// \brief Reserves a free queue to be used by a specific hardware-accelerated channel processor function.
   /// \param[in] op_type Type of bbdev op.
-  /// \return ID of the reserved queue.
+  /// \return The identifier of the reserved queue if successful, otherwise a negative integer.
   int reserve_queue(::rte_bbdev_op_type op_type);
 
-  /// Frees a queue used by a specific hardware-accelerated channel processor function.
-  /// \param[in] queue_id ID of the queue to be freed.
+  /// \brief Frees a queue used by a specific hardware-accelerated channel processor function.
+  /// \param[in] queue_id Identifier of the queue to be freed.
   void free_queue(::rte_bbdev_op_type op_type, unsigned queue_id);
 
   /// Returns a unique ID for an instance of an LDPC encoder using the bbdev-based accelerator.

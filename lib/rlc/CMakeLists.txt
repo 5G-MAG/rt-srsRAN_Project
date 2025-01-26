@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -27,6 +27,7 @@ set(SOURCES
   rlc_rx_am_entity.cpp
   rlc_rx_tm_entity.cpp
   rlc_rx_um_entity.cpp
+  rlc_metrics_aggregator.cpp
 )
 
 add_library(srsran_rlc STATIC ${SOURCES})

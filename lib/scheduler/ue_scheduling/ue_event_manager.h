@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,19 +23,33 @@
 #pragma once
 
 #include "../config/sched_config_manager.h"
-#include "../policy/scheduler_policy.h"
-#include "../support/slot_event_list.h"
-#include "ue.h"
+#include "../slicing/slice_scheduler.h"
+#include "../ue_context/ue.h"
 #include "ue_fallback_scheduler.h"
+#include "srsran/adt/concurrent_queue.h"
+#include "srsran/adt/mpmc_queue.h"
 #include "srsran/adt/unique_function.h"
 #include "srsran/ran/du_types.h"
-#include "srsran/ran/uci/uci_constants.h"
 
 namespace srsran {
 
-class scheduler_metrics_handler;
+class cell_metrics_handler;
 class scheduler_event_logger;
 class uci_scheduler_impl;
+class cell_harq_manager;
+class srs_scheduler;
+class pdu_indication_pool;
+
+struct cell_creation_event {
+  cell_resource_allocator& cell_res_grid;
+  cell_harq_manager&       cell_harqs;
+  ue_fallback_scheduler&   fallback_sched;
+  uci_scheduler_impl&      uci_sched;
+  slice_scheduler&         slice_sched;
+  srs_scheduler&           srs_sched;
+  cell_metrics_handler&    metrics;
+  scheduler_event_logger&  ev_logger;
+};
 
 /// \brief Class used to manage events that arrive to the scheduler and are directed at UEs.
 /// This class acts as a facade for several of the ue_scheduler subcomponents, managing the asynchronous configuration
@@ -45,13 +59,10 @@ class ue_event_manager final : public sched_ue_configuration_handler,
                                public scheduler_dl_buffer_state_indication_handler
 {
 public:
-  ue_event_manager(ue_repository& ue_db, scheduler_metrics_handler& metrics_handler);
-  ~ue_event_manager();
+  ue_event_manager(ue_repository& ue_db);
+  ~ue_event_manager() override;
 
-  void add_cell(cell_resource_allocator& cell_res_grid,
-                ue_fallback_scheduler&   fallback_sched,
-                uci_scheduler_impl&      uci_sched,
-                scheduler_event_logger&  ev_logger);
+  void add_cell(const cell_creation_event& cell_ev);
 
   /// UE Add/Mod/Remove interface.
   void handle_ue_creation(ue_config_update_event ev) override;
@@ -63,6 +74,7 @@ public:
   void handle_ul_bsr_indication(const ul_bsr_indication_message& bsr) override;
   void handle_crc_indication(const ul_crc_indication& crc) override;
   void handle_uci_indication(const uci_indication& uci) override;
+  void handle_srs_indication(const srs_indication& srs) override;
   void handle_dl_mac_ce_indication(const dl_mac_ce_indication& ce) override;
   void handle_ul_phr_indication(const ul_phr_indication_message& phr_ind) override;
 
@@ -79,8 +91,10 @@ private:
   class ue_dl_buffer_occupancy_manager;
 
   struct common_event_t {
-    du_ue_index_t           ue_index = MAX_NOF_DU_UES;
-    unique_function<void()> callback;
+    using callback_type = unique_function<void(), 64, true>;
+
+    du_ue_index_t ue_index = MAX_NOF_DU_UES;
+    callback_type callback;
 
     template <typename Callable>
     common_event_t(du_ue_index_t ue_index_, Callable&& c) : ue_index(ue_index_), callback(std::forward<Callable>(c))
@@ -88,10 +102,12 @@ private:
     }
   };
   struct cell_event_t {
-    du_ue_index_t                   ue_index = MAX_NOF_DU_UES;
-    unique_function<void(ue_cell&)> callback;
-    const char*                     event_name;
-    bool                            warn_if_ignored;
+    using callback_type = unique_function<void(ue_cell&), 32, true>;
+
+    du_ue_index_t ue_index = MAX_NOF_DU_UES;
+    callback_type callback;
+    const char*   event_name;
+    bool          warn_if_ignored;
 
     template <typename Callable>
     cell_event_t(du_ue_index_t ue_index_, Callable&& c, const char* event_name_, bool log_warn_if_event_ignored) :
@@ -102,6 +118,13 @@ private:
     {
     }
   };
+
+  using common_event_queue = concurrent_queue<common_event_t,
+                                              concurrent_queue_policy::lockfree_mpmc,
+                                              concurrent_queue_wait_policy::non_blocking>;
+  using cell_event_queue   = concurrent_queue<cell_event_t,
+                                            concurrent_queue_policy::lockfree_mpmc,
+                                            concurrent_queue_wait_policy::non_blocking>;
 
   void process_common(slot_point sl, du_cell_index_t cell_index);
   void process_cell_specific(du_cell_index_t cell_index);
@@ -117,33 +140,34 @@ private:
                        std::optional<float>                   pucch_snr);
   void handle_csi(ue_cell& ue_cc, const csi_report_data& csi_rep);
 
-  ue_repository&             ue_db;
-  scheduler_metrics_handler& metrics_handler;
-  srslog::basic_logger&      logger;
-
   /// List of added and configured cells.
   struct du_cell {
-    const cell_configuration* cfg = nullptr;
-
-    cell_resource_allocator* res_grid = nullptr;
-
-    // Reference to fallback scheduler.
-    ue_fallback_scheduler* fallback_sched = nullptr;
-
-    // Reference to the CSI and SR UCI scheduler.
-    uci_scheduler_impl* uci_sched = nullptr;
-
-    scheduler_event_logger* ev_logger = nullptr;
+    const cell_configuration* cfg            = nullptr;
+    cell_resource_allocator*  res_grid       = nullptr;
+    cell_harq_manager*        cell_harqs     = nullptr;
+    ue_fallback_scheduler*    fallback_sched = nullptr;
+    uci_scheduler_impl*       uci_sched      = nullptr;
+    slice_scheduler*          slice_sched    = nullptr;
+    srs_scheduler*            srs_sched      = nullptr;
+    cell_metrics_handler*     metrics        = nullptr;
+    scheduler_event_logger*   ev_logger      = nullptr;
   };
+
+  ue_repository&        ue_db;
+  srslog::basic_logger& logger;
+
+  std::unique_ptr<pdu_indication_pool> ind_pdu_pool;
+
   std::array<du_cell, MAX_NOF_DU_CELLS> du_cells{};
 
   /// Pending Events list per cell.
-  std::array<slot_event_list<cell_event_t>, MAX_NOF_DU_CELLS> cell_specific_events;
+  static_vector<cell_event_queue, MAX_NOF_DU_CELLS> cell_specific_events;
 
   /// Pending Events list common to all cells. We use this list for events that require synchronization across
   /// UE carriers when CA is enabled (e.g. SR, BSR, reconfig).
-  slot_event_list<common_event_t> common_events;
-  slot_point                      last_sl;
+  common_event_queue common_events;
+
+  slot_point last_sl;
 
   std::unique_ptr<ue_dl_buffer_occupancy_manager> dl_bo_mng;
 };

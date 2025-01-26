@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,6 +23,7 @@
 #include "../../support/resource_grid_test_doubles.h"
 #include "dmrs_pusch_estimator_test_data.h"
 #include "srsran/phy/support/support_factories.h"
+#include "srsran/phy/upper/channel_processors/pusch/pusch_processor_phy_capabilities.h"
 #include "srsran/phy/upper/signal_processors/signal_processor_factories.h"
 #include "srsran/srsvec/zero.h"
 #include "fmt/ostream.h"
@@ -35,19 +36,17 @@ namespace srsran {
 std::ostream& operator<<(std::ostream& os, dmrs_pusch_estimator::configuration config)
 {
   fmt::print(os,
-             "slot={}; type={}; scrambling_id={}; n_scid={}; scaling={:.3f}; cp={}; dmrs_pos={}; f_alloc={}; "
-             "t_alloc={}:{}; tx_layers={}; rx_ports={};",
+             "slot={}; type={}; scaling={:.3f}; cp={}; dmrs_pos={}; f_alloc={}; "
+             "t_alloc={}:{}; tx_layers={}; rx_ports=[{}];",
              config.slot,
-             config.type == dmrs_type::TYPE1 ? "1" : "2",
-             config.scrambling_id,
-             config.n_scid,
+             config.get_dmrs_type() == dmrs_type::TYPE1 ? "1" : "2",
              config.scaling,
              config.c_prefix.to_string(),
              config.symbols_mask,
              config.rb_mask,
              config.first_symbol,
              config.nof_symbols,
-             config.nof_tx_layers,
+             config.get_nof_tx_layers(),
              span<const uint8_t>(config.rx_ports));
   return os;
 }
@@ -70,6 +69,13 @@ std::ostream& operator<<(std::ostream& os, test_case_t test_case)
 
 } // namespace srsran
 
+template <>
+struct fmt::formatter<srsran::test_label> : ostream_formatter {
+};
+template <>
+struct fmt::formatter<srsran::dmrs_pusch_estimator::configuration> : ostream_formatter {
+};
+
 namespace {
 
 class DmrsPuschEstimatorFixture : public ::testing::TestWithParam<test_case_t>
@@ -78,6 +84,11 @@ protected:
   std::unique_ptr<dmrs_pusch_estimator> estimator;
   resource_grid_reader_spy              grid;
 
+  // Default constructor - initializes the resource grid with the maximum size possible.
+  DmrsPuschEstimatorFixture() : ::testing::TestWithParam<ParamType>(), grid(MAX_PORTS, MAX_NSYMB_PER_SLOT, MAX_NOF_PRBS)
+  {
+  }
+
   void SetUp() override
   {
     test_case_t test_case = GetParam();
@@ -85,6 +96,11 @@ protected:
     // Create PRG.
     std::shared_ptr<pseudo_random_generator_factory> prg_factory = create_pseudo_random_generator_sw_factory();
     ASSERT_TRUE(prg_factory);
+
+    // Create low-PAPR sequence generator.
+    std::shared_ptr<low_papr_sequence_generator_factory> low_papr_sequence_gen_factory_factory =
+        create_low_papr_sequence_generator_sw_factory();
+    ASSERT_TRUE(low_papr_sequence_gen_factory_factory);
 
     std::shared_ptr<dft_processor_factory> dft_factory = create_dft_processor_factory_fftw_slow();
     if (!dft_factory) {
@@ -102,8 +118,8 @@ protected:
     ASSERT_TRUE(port_estimator_factory);
 
     // Create estimator factory.
-    std::shared_ptr<dmrs_pusch_estimator_factory> estimator_factory =
-        create_dmrs_pusch_estimator_factory_sw(prg_factory, port_estimator_factory);
+    std::shared_ptr<dmrs_pusch_estimator_factory> estimator_factory = create_dmrs_pusch_estimator_factory_sw(
+        prg_factory, low_papr_sequence_gen_factory_factory, port_estimator_factory);
     ASSERT_TRUE(estimator_factory);
 
     // Create actual channel estimator.
@@ -134,12 +150,13 @@ TEST_P(DmrsPuschEstimatorFixture, Creation)
   }
 
   // The current estimator does not support Type2 DM-RS.
-  // As well, the MIMO case must be double-checked.
-  if ((config.type == dmrs_type::TYPE2) || (config.nof_tx_layers > 1)) {
+  // As well, the MIMO case only works with at most two layers.
+  if ((config.get_dmrs_type() == dmrs_type::TYPE2) ||
+      (config.get_nof_tx_layers() > get_pusch_processor_phy_capabilities().max_nof_layers)) {
     GTEST_SKIP() << "Configuration not supported yet, skipping.";
   }
 
-  ASSERT_EQ(config.rx_ports.size(), config.nof_tx_layers)
+  ASSERT_EQ(config.rx_ports.size(), config.get_nof_tx_layers())
       << "This simulation assumes an equal number of Rx ports and Tx layers.";
 
   // Prepare channel estimate (just to be sure, reset all entries).
@@ -147,7 +164,7 @@ TEST_P(DmrsPuschEstimatorFixture, Creation)
   ch_estimate_dims.nof_prb       = config.rb_mask.size();
   ch_estimate_dims.nof_symbols   = config.nof_symbols + config.first_symbol;
   ch_estimate_dims.nof_rx_ports  = config.rx_ports.size();
-  ch_estimate_dims.nof_tx_layers = config.nof_tx_layers;
+  ch_estimate_dims.nof_tx_layers = config.get_nof_tx_layers();
 
   channel_estimate ch_est(ch_estimate_dims);
 
@@ -166,7 +183,7 @@ TEST_P(DmrsPuschEstimatorFixture, Creation)
   ASSERT_EQ(ch_estimate_dims.nof_prb, config.rb_mask.size()) << "Wrong number of PRBs.";
   ASSERT_EQ(ch_estimate_dims.nof_symbols, config.nof_symbols + config.first_symbol) << "Wrong number of symbols.";
   ASSERT_EQ(ch_estimate_dims.nof_rx_ports, config.rx_ports.size()) << "Wrong number of Rx ports.";
-  ASSERT_EQ(ch_estimate_dims.nof_tx_layers, config.nof_tx_layers) << "Wrong number of Tx layers.";
+  ASSERT_EQ(ch_estimate_dims.nof_tx_layers, config.get_nof_tx_layers()) << "Wrong number of Tx layers.";
 
   for (unsigned i_port = 0; i_port != ch_estimate_dims.nof_rx_ports; ++i_port) {
     for (unsigned i_layer = 0; i_layer != ch_estimate_dims.nof_tx_layers; ++i_layer) {
@@ -208,11 +225,12 @@ static bool are_estimates_ok(span<const resource_grid_reader_spy::expected_entry
   for (const auto& this_expected : expected) {
     unsigned i_symbol = this_expected.symbol;
     unsigned i_sc     = this_expected.subcarrier;
+    unsigned i_layer  = this_expected.port;
     cf_t     value    = this_expected.value;
 
     if (i_symbol != old_symbol) {
       old_symbol      = i_symbol;
-      computed_symbol = computed.get_symbol_ch_estimate(i_symbol, 0, 0);
+      computed_symbol = computed.get_symbol_ch_estimate(i_symbol, 0, i_layer);
     }
 
     if (std::abs(to_cf(computed_symbol[i_sc]) - value) > tolerance * std::abs(value)) {
@@ -232,16 +250,18 @@ TEST_P(DmrsPuschEstimatorFixture, Average)
   }
 
   // The current estimator does not support Type2 DM-RS.
-  // As well, the MIMO case must be double-checked.
-  if ((config.type == dmrs_type::TYPE2) || (config.nof_tx_layers > 1)) {
+  // As well, the MIMO case only works with at most two layers.
+  if ((config.get_dmrs_type() == dmrs_type::TYPE2) ||
+      (config.get_nof_tx_layers() > get_pusch_processor_phy_capabilities().max_nof_layers)) {
     GTEST_SKIP() << "Configuration not supported yet, skipping.";
   }
 
   unsigned nof_allocated_res = config.rb_mask.count() * NRE * config.nof_symbols;
+  unsigned nof_layers        = config.get_nof_tx_layers();
 
   // Read expected channel estimates.
   std::vector<resource_grid_reader_spy::expected_entry_t> expected_estimates = GetParam().ch_estimates.read();
-  ASSERT_EQ(expected_estimates.size(), nof_allocated_res) << fmt::format(
+  ASSERT_EQ(expected_estimates.size(), nof_allocated_res * nof_layers) << fmt::format(
       "Number of channel estimates mismatch: configured {}, provided {}", nof_allocated_res, expected_estimates.size());
 
   channel_estimate ch_est;
@@ -249,16 +269,26 @@ TEST_P(DmrsPuschEstimatorFixture, Average)
   // Estimate.
   estimator->estimate(ch_est, grid, config);
 
+  unsigned nof_rx_ports = config.rx_ports.size();
+
   // First, assert the channel estimate gets the proper dimensions.
   channel_estimate::channel_estimate_dimensions ch_estimate_dims = ch_est.size();
   ASSERT_EQ(ch_estimate_dims.nof_prb, config.rb_mask.size()) << "Wrong number of PRBs.";
   ASSERT_EQ(ch_estimate_dims.nof_symbols, config.nof_symbols + config.first_symbol) << "Wrong number of symbols.";
-  ASSERT_EQ(ch_estimate_dims.nof_rx_ports, config.rx_ports.size()) << "Wrong number of Rx ports.";
-  ASSERT_EQ(ch_estimate_dims.nof_tx_layers, config.nof_tx_layers) << "Wrong number of Tx layers.";
+  ASSERT_EQ(ch_estimate_dims.nof_rx_ports, nof_rx_ports) << "Wrong number of Rx ports.";
+  ASSERT_EQ(ch_estimate_dims.nof_tx_layers, config.get_nof_tx_layers()) << "Wrong number of Tx layers.";
 
   // Assert that the channel estimates are correct.
   ASSERT_TRUE(are_estimates_ok(expected_estimates, ch_est));
-  ASSERT_NEAR(ch_est.get_rsrp(0, 0), GetParam().est_rsrp, tolerance);
+
+  // Assert port-dependent estimates.
+  for (unsigned i_port = 0; i_port != nof_rx_ports; ++i_port) {
+    ASSERT_NEAR(ch_est.get_noise_variance(i_port), GetParam().est_noise_var, tolerance)
+        << "Wrong noise variance estimation.";
+    for (unsigned i_layer = 0; i_layer != nof_layers; ++i_layer) {
+      ASSERT_NEAR(ch_est.get_rsrp(i_port, i_layer), GetParam().est_rsrp, tolerance) << "Wrong RSRP estimation.";
+    }
+  }
 }
 
 // Creates test suite with all the test cases.

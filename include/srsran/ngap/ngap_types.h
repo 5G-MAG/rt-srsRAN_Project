@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,7 +22,6 @@
 
 #pragma once
 
-#include "srsran/adt/optional.h"
 #include "srsran/ran/plmn_identity.h"
 #include <limits>
 
@@ -31,7 +30,7 @@ namespace srs_cu_cp {
 
 /// \brief AMF_UE_ID (non ASN1 type of AMF_UE_NGAP_ID) used to identify the UE in the AMF.
 /// \remark See TS 38.413 Section 9.3.3.1: AMF_UE_NGAP_ID valid values: (0..2^40-1)
-constexpr static uint64_t MAX_NOF_AMF_UES = ((uint64_t)1 << 40);
+static constexpr uint64_t MAX_NOF_AMF_UES = ((uint64_t)1 << 40);
 enum class amf_ue_id_t : uint64_t { min = 0, max = MAX_NOF_AMF_UES - 1, invalid = 0x1ffffffffff };
 
 /// Convert AMF_UE_ID type to integer.

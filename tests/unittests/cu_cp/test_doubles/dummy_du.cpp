@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,7 +23,7 @@
 #include "dummy_du.h"
 #include "srsran/adt/concurrent_queue.h"
 #include "srsran/cu_cp/cu_cp_f1c_handler.h"
-#include "srsran/f1ap/common/f1ap_message.h"
+#include "srsran/f1ap/f1ap_message.h"
 #include "srsran/support/error_handling.h"
 
 using namespace srsran;

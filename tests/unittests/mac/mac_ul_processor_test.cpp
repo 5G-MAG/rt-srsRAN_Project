@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -216,7 +216,8 @@ private:
   rnti_manager                rnti_mng;
   dummy_sched_ce_info_handler sched_ce_handler;
   null_mac_pcap               pcap;
-  mac_ul_config               cfg{task_exec, ul_exec_mapper, du_mng_notifier, sched_ce_handler, rnti_mng, pcap};
+  timer_manager               timers;
+  mac_ul_config               cfg{task_exec, ul_exec_mapper, du_mng_notifier, sched_ce_handler, rnti_mng, pcap, timers};
   // This is the RNTI of the UE that appears in the mac_rx_pdu created by send_rx_indication_msg()
   du_cell_index_t        cell_idx;
   mac_ul_processor       mac_ul{cfg};
@@ -531,7 +532,7 @@ TEST(mac_ul_processor, verify_single_entry_phr)
   phr_ind.cell_index = cell_idx;
   phr_ind.ue_index   = ue1_idx;
   phr_ind.rnti       = ue1_rnti;
-  phr_ind.phr.set_se_phr({.serv_cell_id = to_du_cell_index(0),
+  phr_ind.phr.set_se_phr({.serv_cell_id = to_ue_cell_index(0),
                           .ph_type      = srsran::ph_field_type_t::type1,
                           .ph           = ph_db_range(6, 7),
                           .p_cmax       = p_cmax_dbm_range(17, 18)});

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,8 +22,8 @@
 
 #pragma once
 
-#include "../common/e1ap_types.h"
 #include "srsran/cu_up/cu_up_types.h"
+#include "srsran/e1ap/common/e1ap_types.h"
 
 namespace srsran {
 namespace srs_cu_up {

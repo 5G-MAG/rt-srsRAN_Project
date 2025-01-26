@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -20,7 +20,7 @@
  *
  */
 
-#include "lib/scheduler/ue_scheduling/ul_logical_channel_manager.h"
+#include "lib/scheduler/ue_context/ul_logical_channel_manager.h"
 #include <gtest/gtest.h>
 #include <random>
 
@@ -50,7 +50,7 @@ ul_bsr_indication_message make_sbsr(lcg_id_t lcgid, unsigned bsr)
 unsigned add_header_bytes(lcg_id_t lcgid, unsigned payload_bytes)
 {
   // Estimate of the number of bytes required for the upper layer header.
-  constexpr static unsigned RLC_HEADER_SIZE_ESTIMATE = 3U;
+  static constexpr unsigned RLC_HEADER_SIZE_ESTIMATE = 3U;
   // In case of no payload or LCG-ID == 0, there is no need to account for upper layer header.
   if (payload_bytes == 0) {
     return 0;

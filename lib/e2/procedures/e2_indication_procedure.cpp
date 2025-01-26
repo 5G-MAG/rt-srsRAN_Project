@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,7 +22,6 @@
 
 #include "e2_indication_procedure.h"
 #include "srsran/asn1/e2ap/e2ap.h"
-
 #include "srsran/support/async/async_timer.h"
 
 using namespace srsran;
@@ -40,13 +39,16 @@ void e2_indication_procedure::operator()(coro_context<eager_async_task<void>>& c
 {
   CORO_BEGIN(ctx);
   while (running) {
-    if (!ev_mng.sub_del_reqs.count(subscription.request_id.ric_requestor_id)) {
-      logger.error("No subscription delete request found for RIC instance ID {}",
-                   subscription.request_id.ric_requestor_id);
+    if (!ev_mng.sub_del_reqs.count(
+            {subscription.request_id.ric_requestor_id, subscription.request_id.ric_instance_id})) {
+      logger.error("No subscription delete request found for RIC request ID (Requestor ID={}, Instance ID={})",
+                   subscription.request_id.ric_requestor_id,
+                   subscription.request_id.ric_instance_id);
       break;
     }
-    transaction_sink.subscribe_to(*ev_mng.sub_del_reqs[subscription.request_id.ric_requestor_id].get(),
-                                  (std::chrono::milliseconds)subscription.report_period);
+    transaction_sink.subscribe_to(
+        *ev_mng.sub_del_reqs[{subscription.request_id.ric_requestor_id, subscription.request_id.ric_instance_id}].get(),
+        (std::chrono::milliseconds)subscription.report_period);
     CORO_AWAIT(transaction_sink);
     if (!transaction_sink.timeout_expired()) {
       logger.info("Subscription deleted");

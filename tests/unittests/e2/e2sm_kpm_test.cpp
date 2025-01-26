@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -49,7 +49,7 @@ protected:
     srslog::fetch_basic_logger("TEST").set_level(srslog::basic_levels::debug);
     srslog::init();
 
-    cfg                  = srsran::config_helpers::make_default_e2ap_config();
+    cfg                  = config_helpers::make_default_e2ap_config();
     cfg.e2sm_kpm_enabled = true;
 
     gw   = std::make_unique<dummy_network_gateway_data_handler>();
@@ -59,13 +59,13 @@ protected:
     } else {
       packer = std::make_unique<srsran::e2ap_asn1_packer>(*gw, *e2, *pcap);
     }
-    e2_client             = std::make_unique<dummy_e2_connection_client>(*packer);
+    e2_client             = std::make_unique<dummy_e2_connection_client>();
     du_metrics            = std::make_unique<dummy_e2_du_metrics>();
     f1ap_ue_id_mapper     = std::make_unique<dummy_f1ap_ue_id_translator>();
     factory               = timer_factory{timers, task_worker};
     rc_param_configurator = std::make_unique<dummy_du_configurator>();
-    e2                    = create_e2_entity(
-        cfg, e2_client.get(), *du_metrics, *f1ap_ue_id_mapper, *rc_param_configurator, factory, task_worker);
+    e2agent               = create_e2_du_agent(
+        cfg, *e2_client, &(*du_metrics), &(*f1ap_ue_id_mapper), &(*rc_param_configurator), factory, task_worker);
   }
 
   void TearDown() override
@@ -88,7 +88,7 @@ protected:
     srslog::fetch_basic_logger("TEST").set_level(srslog::basic_levels::debug);
     srslog::init();
 
-    cfg                  = srsran::config_helpers::make_default_e2ap_config();
+    cfg                  = config_helpers::make_default_e2ap_config();
     cfg.e2sm_kpm_enabled = true;
 
     du_metrics       = std::make_unique<dummy_e2_du_metrics>();
@@ -170,13 +170,15 @@ std::vector<uint32_t> get_reported_ues(const std::vector<std::vector<uint32_t>>&
 // E2 Setup Request is needed for Wireshark to correctly decode the subsequent Subscription Requests
 TEST_P(e2_entity_test_with_pcap, e2sm_kpm_generates_ran_func_desc)
 {
-  dummy_e2_pdu_notifier* dummy_msg_notifier = e2_client->get_e2_msg_notifier();
   // We need this test to generate E2 Setup Request, so Wireshark can decode the following RIC indication messages.
   test_logger.info("Launch e2 setup request procedure with task worker...");
-  e2->start();
+  e2agent->start();
+
+  // Save E2 Setup Request
+  packer->handle_message(e2_client->last_tx_e2_pdu);
 
   // Need to send setup response, so the transaction can be completed.
-  unsigned   transaction_id    = get_transaction_id(dummy_msg_notifier->last_e2_msg.pdu).value();
+  unsigned   transaction_id    = get_transaction_id(e2_client->last_tx_e2_pdu.pdu).value();
   e2_message e2_setup_response = generate_e2_setup_response(transaction_id);
   e2_setup_response.pdu.successful_outcome()
       .value.e2setup_resp()
@@ -184,13 +186,14 @@ TEST_P(e2_entity_test_with_pcap, e2sm_kpm_generates_ran_func_desc)
       ->ran_function_id_item()
       .ran_function_id = e2sm_kpm_asn1_packer::ran_func_id;
   test_logger.info("Injecting E2SetupResponse");
-  e2->handle_message(e2_setup_response);
+  e2agent->get_e2_interface().handle_message(e2_setup_response);
+  e2agent->stop();
 }
 
 TEST_P(e2sm_kpm_indication, e2sm_kpm_generates_ric_indication_style1)
 {
   // Measurement values in 5 time slot.
-  std::vector<float>    meas_real_values = {0.15625, 0.15625, 0.15625, 0.15625, 0.15625};
+  std::vector<float>    meas_real_values = {0.15625, 1.0, 4.0, 4.00001, 1234.1234};
   std::vector<uint32_t> meas_int_values  = {1, 2, 3, 4, 5};
   uint32_t              nof_meas_data    = meas_real_values.size();
   uint32_t              nof_metrics      = 2;
@@ -359,8 +362,9 @@ TEST_P(e2sm_kpm_indication, e2sm_kpm_generates_ric_indication_style2)
       TESTASSERT_EQ(meas_values[i],
                     ric_ind_msg.ind_msg_formats.ind_msg_format1().meas_data[i].meas_record[0].integer());
     } else {
-      TESTASSERT_EQ(meas_record_item_c::types_opts::no_value,
-                    ric_ind_msg.ind_msg_formats.ind_msg_format1().meas_data[i].meas_record[0].type());
+      TESTASSERT_EQ(
+          fmt::underlying(meas_record_item_c::types_opts::no_value),
+          fmt::underlying(ric_ind_msg.ind_msg_formats.ind_msg_format1().meas_data[i].meas_record[0].type().value));
     }
   }
 
@@ -515,8 +519,9 @@ TEST_P(e2sm_kpm_indication, e2sm_kpm_generates_ric_indication_style3)
         TESTASSERT_EQ(meas_values[i][ue_idx],
                       ric_ind_msg.ind_msg_formats.ind_msg_format2().meas_data[i].meas_record[j].integer());
       } else {
-        TESTASSERT_EQ(meas_record_item_c::types_opts::no_value,
-                      ric_ind_msg.ind_msg_formats.ind_msg_format2().meas_data[i].meas_record[j].type());
+        TESTASSERT_EQ(
+            fmt::underlying(meas_record_item_c::types_opts::no_value),
+            fmt::underlying(ric_ind_msg.ind_msg_formats.ind_msg_format2().meas_data[i].meas_record[j].type().value));
       }
     }
   }
@@ -660,7 +665,8 @@ TEST_P(e2sm_kpm_indication, e2sm_kpm_generates_ric_indication_style4)
       if (cond_presence[i][ue_idx]) {
         TESTASSERT_EQ(meas_values[i][ue_idx], meas_record[0].integer());
       } else {
-        TESTASSERT_EQ(meas_record_item_c::types_opts::no_value, meas_record[0].type());
+        TESTASSERT_EQ(fmt::underlying(meas_record_item_c::types_opts::no_value),
+                      fmt::underlying(meas_record[0].type().value));
       }
     }
   }
@@ -785,7 +791,8 @@ TEST_P(e2sm_kpm_indication, e2sm_kpm_generates_ric_indication_style5)
       if (cond_presence[i][ue_idx]) {
         TESTASSERT_EQ(meas_values[i][ue_idx], meas_record[0].integer());
       } else {
-        TESTASSERT_EQ(meas_record_item_c::types_opts::no_value, meas_record[0].type());
+        TESTASSERT_EQ(fmt::underlying(meas_record_item_c::types_opts::no_value),
+                      fmt::underlying(meas_record[0].type().value));
       }
     }
   }

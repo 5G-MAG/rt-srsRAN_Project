@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -35,12 +35,12 @@ void cplane_message_builder_dynamic_compression_impl::serialize_compression_head
   if (direction == data_direction::downlink) {
     static constexpr uint8_t reserved = 0;
     serializer.write(reserved);
-
     return;
   }
 
   uint8_t value = 0;
-  value |= uint8_t(compr.data_width) << 4;
+  // Note that an IQ bitwidth of 16 bits translates to a value of 0.
+  value |= uint8_t(compr.data_width == 16 ? 0 : compr.data_width) << 4;
   value |= uint8_t(to_value(compr.type));
 
   serializer.write(value);

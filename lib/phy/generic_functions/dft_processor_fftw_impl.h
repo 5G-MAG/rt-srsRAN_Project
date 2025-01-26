@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,7 +23,6 @@
 #pragma once
 
 #include "srsran/phy/generic_functions/dft_processor.h"
-#include "srsran/srsvec/aligned_vec.h"
 #include <cstring>
 #include <fftw3.h>
 #include <memory>
@@ -101,9 +100,9 @@ private:
   /// Stores the DFT direction.
   direction dir;
   /// DFT input buffer ownership.
-  srsvec::aligned_vec<cf_t> input;
+  std::vector<cf_t> input;
   /// DFT output buffer ownership.
-  srsvec::aligned_vec<cf_t> output;
+  std::vector<cf_t> output;
   /// FFTW actual plan.
   fftwf_plan plan;
 
@@ -122,7 +121,7 @@ public:
   direction get_direction() const override { return dir; }
 
   // See interface for documentation.
-  unsigned int get_size() const override { return input.size(); }
+  unsigned get_size() const override { return input.size(); }
 
   // See interface for documentation.
   span<cf_t> get_input() override { return input; }

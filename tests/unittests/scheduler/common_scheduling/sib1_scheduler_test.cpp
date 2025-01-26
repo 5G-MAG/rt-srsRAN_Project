@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -24,9 +24,12 @@
 #include "lib/scheduler/common_scheduling/ssb_scheduler.h"
 #include "lib/scheduler/logging/scheduler_result_logger.h"
 #include "lib/scheduler/support/ssb_helpers.h"
-#include "tests/unittests/scheduler/test_utils/config_generators.h"
+#include "tests/test_doubles/scheduler/scheduler_config_helper.h"
 #include "tests/unittests/scheduler/test_utils/scheduler_test_suite.h"
+#include "srsran/ran/duplex_mode.h"
 #include "srsran/ran/pdcch/pdcch_type0_css_coreset_config.h"
+#include "srsran/scheduler/config/scheduler_expert_config_factory.h"
+#include "srsran/scheduler/config/serving_cell_config_factory.h"
 #include "srsran/support/srsran_test.h"
 #include <gtest/gtest.h>
 
@@ -41,7 +44,8 @@ public:
                                               search_space_id               ss_id,
                                               aggregation_level             aggr_lvl) override
   {
-    TESTASSERT_EQ(ss_id, slot_alloc.cfg.dl_cfg_common.init_dl_bwp.pdcch_common.sib1_search_space_id);
+    TESTASSERT_EQ(fmt::underlying(ss_id),
+                  fmt::underlying(slot_alloc.cfg.dl_cfg_common.init_dl_bwp.pdcch_common.sib1_search_space_id));
     slot_alloc.result.dl.dl_pdcchs.emplace_back();
     slot_alloc.result.dl.dl_pdcchs.back().ctx.rnti    = rnti;
     slot_alloc.result.dl.dl_pdcchs.back().ctx.bwp_cfg = &slot_alloc.cfg.dl_cfg_common.init_dl_bwp.generic_params;
@@ -182,20 +186,20 @@ struct sib_test_bench {
   {
     cell_config_builder_params cell_cfg{};
     if (duplx_mode == srsran::duplex_mode::FDD) {
-      cell_cfg.dl_arfcn = init_bwp_scs == subcarrier_spacing::kHz15 ? 536020 : 176300;
-      cell_cfg.band     = band_helper::get_band_from_dl_arfcn(cell_cfg.dl_arfcn);
+      cell_cfg.dl_f_ref_arfcn = init_bwp_scs == subcarrier_spacing::kHz15 ? 536020 : 176300;
+      cell_cfg.band           = band_helper::get_band_from_dl_arfcn(cell_cfg.dl_f_ref_arfcn);
     } else {
       // Random ARFCN that must be in FR1 and > 3GHz.
-      cell_cfg.dl_arfcn = init_bwp_scs == subcarrier_spacing::kHz15 ? 286400 : 465000;
-      cell_cfg.band     = init_bwp_scs == subcarrier_spacing::kHz15 ? nr_band::n50 : nr_band::n40;
+      cell_cfg.dl_f_ref_arfcn = init_bwp_scs == subcarrier_spacing::kHz15 ? 286400 : 465000;
+      cell_cfg.band           = init_bwp_scs == subcarrier_spacing::kHz15 ? nr_band::n50 : nr_band::n40;
     }
     cell_cfg.scs_common          = init_bwp_scs;
-    cell_cfg.channel_bw_mhz      = static_cast<bs_channel_bandwidth_fr1>(carrier_bw_mhz);
+    cell_cfg.channel_bw_mhz      = static_cast<bs_channel_bandwidth>(carrier_bw_mhz);
     cell_cfg.coreset0_index      = (pdcch_config_sib1 >> 4U) & 0b00001111U;
     cell_cfg.search_space0_index = pdcch_config_sib1 & 0b00001111U;
 
     sched_cell_configuration_request_message msg =
-        test_helpers::make_default_sched_cell_configuration_request(cell_cfg);
+        sched_config_helper::make_default_sched_cell_configuration_request(cell_cfg);
 
     msg.ssb_config.ssb_bitmap = static_cast<uint64_t>(ssb_bitmap) << static_cast<uint64_t>(56U);
     msg.ssb_config.ssb_period = ssb_period;
@@ -220,10 +224,10 @@ struct sib_test_bench {
                                                                                   uint16_t           carrier_bw_mhz)
   {
     cell_config_builder_params cell_cfg{};
-    cell_cfg.dl_arfcn       = freq_arfcn;
+    cell_cfg.dl_f_ref_arfcn = freq_arfcn;
     cell_cfg.scs_common     = init_bwp_scs;
-    cell_cfg.band           = band_helper::get_band_from_dl_arfcn(cell_cfg.dl_arfcn);
-    cell_cfg.channel_bw_mhz = static_cast<bs_channel_bandwidth_fr1>(carrier_bw_mhz);
+    cell_cfg.band           = band_helper::get_band_from_dl_arfcn(cell_cfg.dl_f_ref_arfcn);
+    cell_cfg.channel_bw_mhz = static_cast<bs_channel_bandwidth>(carrier_bw_mhz);
 
     const unsigned nof_crbs = band_helper::get_n_rbs_from_bw(
         cell_cfg.channel_bw_mhz,
@@ -231,7 +235,7 @@ struct sib_test_bench {
         cell_cfg.band.has_value() ? band_helper::get_freq_range(cell_cfg.band.value()) : frequency_range::FR1);
 
     std::optional<band_helper::ssb_coreset0_freq_location> ssb_freq_loc =
-        band_helper::get_ssb_coreset0_freq_location(cell_cfg.dl_arfcn,
+        band_helper::get_ssb_coreset0_freq_location(cell_cfg.dl_f_ref_arfcn,
                                                     *cell_cfg.band,
                                                     nof_crbs,
                                                     cell_cfg.scs_common,
@@ -244,7 +248,7 @@ struct sib_test_bench {
     cell_cfg.coreset0_index    = ssb_freq_loc->coreset0_idx;
 
     sched_cell_configuration_request_message msg =
-        test_helpers::make_default_sched_cell_configuration_request(cell_cfg);
+        sched_config_helper::make_default_sched_cell_configuration_request(cell_cfg);
     msg.dl_cfg_common.freq_info_dl.offset_to_point_a = offset_to_point_A;
     msg.ssb_config.ssb_bitmap                        = static_cast<uint64_t>(ssb_bitmap) << static_cast<uint64_t>(56U);
     msg.ssb_config.ssb_period                        = ssb_periodicity::ms10;
@@ -277,7 +281,7 @@ struct sib_test_bench {
   {
     // Test SIB_information message
     const sib_information& test_sib1 = res_grid[0].result.dl.bc.sibs.back();
-    TESTASSERT_EQ(sib_information::si_indicator_type::sib1, test_sib1.si_indicator);
+    TESTASSERT_EQ(fmt::underlying(sib_information::si_indicator_type::sib1), fmt::underlying(test_sib1.si_indicator));
     TESTASSERT_EQ(rnti_t::SI_RNTI, test_sib1.pdsch_cfg.rnti);
 
     // Test PDCCH_grant and DCI
@@ -286,7 +290,7 @@ struct sib_test_bench {
                      res_grid[0].result.dl.dl_pdcchs.end(),
                      [](const auto& pdcch_) { return pdcch_.ctx.rnti == rnti_t::SI_RNTI; });
     TESTASSERT(pdcch != nullptr);
-    TESTASSERT_EQ(dci_dl_rnti_config_type::si_f1_0, pdcch->dci.type);
+    TESTASSERT_EQ(fmt::underlying(dci_dl_rnti_config_type::si_f1_0), fmt::underlying(pdcch->dci.type));
     TESTASSERT_EQ(si_cfg.sib1_mcs_index, pdcch->dci.si_f1_0.modulation_coding_scheme);
     TESTASSERT_EQ(0, pdcch->dci.si_f1_0.redundancy_version);
   }
@@ -479,7 +483,7 @@ void test_sib_1_pdsch_collisions(unsigned freq_arfcn, subcarrier_spacing scs, ui
   srsran_assert(carrier_bw_mhz >= min_channel_bandwidth_to_MHz(min_ch_bw), "Invalid carrier BW");
 
   const auto nof_rbs_bpw =
-      band_helper::get_n_rbs_from_bw(static_cast<bs_channel_bandwidth_fr1>(carrier_bw_mhz),
+      band_helper::get_n_rbs_from_bw(static_cast<bs_channel_bandwidth>(carrier_bw_mhz),
                                      scs,
                                      band_helper::get_freq_range(band_helper::get_band_from_dl_arfcn(freq_arfcn)));
 

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -37,7 +37,7 @@ class rrc_ue_event_manager
 {
 public:
   /// Transaction Response Container, which gets indexed by transaction_id.
-  constexpr static size_t                   MAX_NOF_TRANSACTIONS = 4; // Two bit RRC transaction id
+  static constexpr size_t                   MAX_NOF_TRANSACTIONS = 4; // Two bit RRC transaction id
   protocol_transaction_manager<rrc_outcome> transactions;
 
   explicit rrc_ue_event_manager(timer_factory timers) : transactions(MAX_NOF_TRANSACTIONS, timers) {}

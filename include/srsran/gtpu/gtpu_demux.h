@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -31,6 +31,7 @@ namespace srsran {
 
 struct gtpu_demux_cfg_t {
   bool warn_on_drop;
+  bool test_mode = false;
 };
 
 /// The GTP-U demux component will only be relevant for the reception and de-multiplexing

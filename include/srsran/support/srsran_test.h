@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,24 +23,26 @@
 #pragma once
 
 #include "srsran_assert.h"
+#include "fmt/format.h"
 
 namespace srsran {
 
 namespace detail {
 
-/// Helper function to format TESTASSERT_EQ
+/// Helper function to format TESTASSERT_EQ.
 template <typename T, typename U>
 [[gnu::noinline]] inline std::string
 assert_eq_format_helper(T expected_val, U actual_val, bool eq_cmp, const std::string& msg) noexcept
 {
   fmt::memory_buffer fmtbuf;
   if (eq_cmp) {
-    fmt::format_to(fmtbuf, "Actual value '{}' differs from expected '{}'", actual_val, expected_val);
+    fmt::format_to(
+        std::back_inserter(fmtbuf), "Actual value '{}' differs from expected '{}'", actual_val, expected_val);
   } else {
-    fmt::format_to(fmtbuf, "Value '{}' should not be equal to '{}'", actual_val, expected_val);
+    fmt::format_to(std::back_inserter(fmtbuf), "Value '{}' should not be equal to '{}'", actual_val, expected_val);
   }
   if (not msg.empty()) {
-    fmt::format_to(fmtbuf, ". {}", msg);
+    fmt::format_to(std::back_inserter(fmtbuf), ". {}", msg);
   }
   return fmt::to_string(fmtbuf);
 }

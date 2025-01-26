@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -23,5 +23,14 @@ set_directory_properties(PROPERTIES LABELS "du_high|tsan")
 include_directories(../../..)
 
 add_executable(du_high_benchmark du_high_benchmark.cpp)
-target_link_libraries(du_high_benchmark srsran_du_high f1ap_du_test_helpers sched_test_doubles srsran_pcap gtest)
+target_link_libraries(du_high_benchmark
+  srsran_du_high
+  f1ap_du_test_helpers
+  pdcp_test_doubles
+  sched_test_doubles
+  mac_test_doubles
+  du_test_doubles
+  srsran_pcap
+  gtest
+)
 add_test(du_high_benchmark du_high_benchmark)

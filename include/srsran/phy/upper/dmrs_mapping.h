@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -122,6 +122,7 @@ public:
     return dmrs_pattern;
   }
 
+  /// Returns a string with the DM-RS type.
   const char* to_string() const
   {
     switch (value) {

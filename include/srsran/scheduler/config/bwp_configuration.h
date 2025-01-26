@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,8 +22,6 @@
 
 #pragma once
 
-#include "srsran/adt/optional.h"
-#include "srsran/adt/slotted_array.h"
 #include "srsran/ran/band_helper.h"
 #include "srsran/ran/cyclic_prefix.h"
 #include "srsran/ran/frame_types.h"
@@ -36,8 +34,8 @@
 #include "srsran/ran/resource_allocation/ofdm_symbol_range.h"
 #include "srsran/ran/resource_block.h"
 #include "srsran/scheduler/config/dmrs.h"
-#include "srsran/scheduler/vrb_alloc.h"
-#include <bitset>
+#include "srsran/scheduler/result/vrb_alloc.h"
+#include <optional>
 
 namespace srsran {
 
@@ -194,7 +192,8 @@ struct freq_band_indicator {
 /// \brief This class provides basic parameters of a downlink carrier and transmission.
 /// \remark See TS 38.331, "FrequencyInfoDL" and "FrequencyInfoDL-SIB".
 struct frequency_info_dl {
-  /// Absolute frequency (as ARFCN) of the SSB.
+  /// \brief Absolute frequency of the SSB as ARFCN. This is the ARFCN of the SS_ref (or SSB central frequency).
+  /// SS_ref is defined is per TS 38.104, Section 5.4.3.1 and 5.4.3.2.
   unsigned absolute_frequency_ssb;
   /// Absolute frequency (in ARFCN) of the reference resource block (common RB0).
   unsigned absolute_freq_point_a;

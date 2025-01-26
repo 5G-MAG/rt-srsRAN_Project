@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -47,20 +47,24 @@ create_data_flow_cplane_sched(const transmitter_config&                         
 
   config.ru_nof_prbs =
       get_max_Nprb(bs_channel_bandwidth_to_MHz(tx_config.ru_working_bw), tx_config.scs, srsran::frequency_range::FR1);
-  config.vlan_params.eth_type        = ether::ECPRI_ETH_TYPE;
-  config.vlan_params.tci             = tx_config.tci_cp;
-  config.vlan_params.mac_dst_address = tx_config.mac_dst_address;
-  config.vlan_params.mac_src_address = tx_config.mac_src_address;
-  config.dl_compr_params             = tx_config.dl_compr_params;
-  config.ul_compr_params             = tx_config.ul_compr_params;
-  config.prach_compr_params          = tx_config.prach_compr_params;
-  config.cp                          = tx_config.cp;
+  config.sector             = tx_config.sector;
+  config.dl_compr_params    = tx_config.dl_compr_params;
+  config.ul_compr_params    = tx_config.ul_compr_params;
+  config.prach_compr_params = tx_config.prach_compr_params;
+  config.cp                 = tx_config.cp;
+
+  ether::vlan_frame_params ether_params;
+  ether_params.eth_type        = ether::ECPRI_ETH_TYPE;
+  ether_params.tci             = tx_config.tci_cp;
+  ether_params.mac_dst_address = tx_config.mac_dst_address;
+  ether_params.mac_src_address = tx_config.mac_src_address;
 
   data_flow_cplane_scheduling_commands_impl_dependencies dependencies;
   dependencies.logger                 = &logger;
   dependencies.ul_cplane_context_repo = std::move(ul_cplane_context_repo);
   dependencies.frame_pool             = std::move(frame_pool);
-  dependencies.eth_builder            = ether::create_vlan_frame_builder();
+  dependencies.eth_builder            = (tx_config.tci_cp.has_value()) ? ether::create_vlan_frame_builder(ether_params)
+                                                                       : ether::create_frame_builder(ether_params);
   dependencies.ecpri_builder          = ecpri::create_ecpri_packet_builder();
   dependencies.cp_builder             = (static_compr_header_enabled)
                                             ? ofh::create_ofh_control_plane_static_compression_message_builder()
@@ -77,18 +81,22 @@ create_data_flow_uplane_data(const transmitter_config&              tx_config,
   data_flow_uplane_downlink_data_impl_config config;
   config.ru_nof_prbs =
       get_max_Nprb(bs_channel_bandwidth_to_MHz(tx_config.ru_working_bw), tx_config.scs, srsran::frequency_range::FR1);
-  config.dl_eaxc                     = tx_config.dl_eaxc;
-  config.vlan_params.eth_type        = ether::ECPRI_ETH_TYPE;
-  config.vlan_params.tci             = tx_config.tci_up;
-  config.vlan_params.mac_dst_address = tx_config.mac_dst_address;
-  config.vlan_params.mac_src_address = tx_config.mac_src_address;
-  config.compr_params                = tx_config.dl_compr_params;
-  config.cp                          = tx_config.cp;
+  config.sector       = tx_config.sector;
+  config.dl_eaxc      = tx_config.dl_eaxc;
+  config.compr_params = tx_config.dl_compr_params;
+  config.cp           = tx_config.cp;
+
+  ether::vlan_frame_params ether_params;
+  ether_params.eth_type        = ether::ECPRI_ETH_TYPE;
+  ether_params.tci             = tx_config.tci_up;
+  ether_params.mac_dst_address = tx_config.mac_dst_address;
+  ether_params.mac_src_address = tx_config.mac_src_address;
 
   data_flow_uplane_downlink_data_impl_dependencies dependencies;
   dependencies.logger        = &logger;
   dependencies.frame_pool    = std::move(frame_pool);
-  dependencies.eth_builder   = ether::create_vlan_frame_builder();
+  dependencies.eth_builder   = (tx_config.tci_up.has_value()) ? ether::create_vlan_frame_builder(ether_params)
+                                                              : ether::create_frame_builder(ether_params);
   dependencies.ecpri_builder = ecpri::create_ecpri_packet_builder();
 
   const unsigned nof_prbs =
@@ -120,9 +128,10 @@ create_downlink_manager(const transmitter_config&                         tx_con
   auto data_flow_cplane = std::make_unique<data_flow_cplane_downlink_task_dispatcher>(
       create_data_flow_cplane_sched(
           tx_config, tx_config.is_downlink_static_compr_hdr_enabled, logger, frame_pool, std::move(ul_cp_context_repo)),
-      executor);
+      executor,
+      tx_config.sector);
   auto data_flow_uplane = std::make_unique<data_flow_uplane_downlink_task_dispatcher>(
-      create_data_flow_uplane_data(tx_config, logger, frame_pool), executor);
+      create_data_flow_uplane_data(tx_config, logger, frame_pool), executor, tx_config.sector);
 
   if (tx_config.downlink_broadcast) {
     downlink_handler_broadcast_impl_config dl_config;
@@ -190,7 +199,9 @@ create_uplink_request_handler(const transmitter_config&                         
 static std::shared_ptr<ether::eth_frame_pool> create_eth_frame_pool(const transmitter_config& tx_config,
                                                                     srslog::basic_logger&     logger)
 {
-  auto eth_builder   = ether::create_vlan_frame_builder();
+  ether::vlan_frame_params ether_params;
+  auto eth_builder   = (tx_config.tci_up || tx_config.tci_cp) ? ether::create_vlan_frame_builder(ether_params)
+                                                              : ether::create_frame_builder(ether_params);
   auto ecpri_builder = ecpri::create_ecpri_packet_builder();
 
   std::array<std::unique_ptr<ofh::iq_compressor>, ofh::NOF_COMPRESSION_TYPES_SUPPORTED> compressors;
@@ -244,7 +255,8 @@ resolve_transmitter_dependencies(const transmitter_config&                      
                                     std::move(prach_context_repo),
                                     std::move(ul_slot_context_repo),
                                     std::move(ul_cp_context_repo)),
-      downlink_executor);
+      downlink_executor,
+      tx_config.sector);
 
   dependencies.eth_gateway = std::move(eth_gateway);
 

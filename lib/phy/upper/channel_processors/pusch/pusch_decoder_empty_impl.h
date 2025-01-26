@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -71,7 +71,7 @@ private:
                   const configuration&    cfg);
 
     // See interface for documentation.
-    span<log_likelihood_ratio> get_next_block_view(unsigned int block_size) override;
+    span<log_likelihood_ratio> get_next_block_view(unsigned block_size) override;
 
     // See interface for documentation.
     void on_new_softbits(span<const log_likelihood_ratio> softbits) override;

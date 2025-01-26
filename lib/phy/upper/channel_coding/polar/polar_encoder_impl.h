@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -20,13 +20,15 @@
  *
  */
 
+/// \file
+/// \brief Polar encoder - Declaration of implementation class.
 #pragma once
 
 #include "srsran/phy/upper/channel_coding/polar/polar_encoder.h"
-#include "srsran/srsvec/aligned_vec.h"
 
 namespace srsran {
 
+/// Polar encoder implementation.
 class polar_encoder_impl : public polar_encoder
 {
 public:

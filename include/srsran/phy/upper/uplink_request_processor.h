@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -27,6 +27,7 @@ namespace srsran {
 struct prach_buffer_context;
 class resource_grid;
 struct resource_grid_context;
+class shared_resource_grid;
 
 /// \brief Interface of the uplink request processor.
 ///
@@ -50,7 +51,7 @@ public:
   ///
   /// \param[in] context Resource grid context.
   /// \param[in] grid    Grid in which to store the captured data.
-  virtual void process_uplink_slot_request(const resource_grid_context& context, resource_grid& grid) = 0;
+  virtual void process_uplink_slot_request(const resource_grid_context& context, const shared_resource_grid& grid) = 0;
 };
 
 } // namespace srsran

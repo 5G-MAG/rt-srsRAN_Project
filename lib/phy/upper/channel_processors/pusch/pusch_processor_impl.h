@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -43,7 +43,7 @@ class pusch_processor_impl : public pusch_processor
 {
 public:
   /// The current maximum supported number of layers.
-  static constexpr unsigned max_nof_layers = 2;
+  static constexpr unsigned max_nof_layers = 4;
 
   /// Groups the PUSCH processor dependencies that can be reused locally by the same processing thread.
   class concurrent_dependencies
@@ -130,9 +130,6 @@ public:
                const pdu_t&                     pdu) override;
 
 private:
-  /// Asserts the PDU. It triggers an assertion upon an invalid value or combination of values.
-  void assert_pdu(const pusch_processor::pdu_t& pdu, const channel_estimate& ch_estimate) const;
-
   /// Thread local dependencies pool.
   std::shared_ptr<concurrent_dependencies_pool_type> thread_local_dependencies_pool;
   /// UL-SCH transport block decoder.

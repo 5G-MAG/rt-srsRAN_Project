@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -29,7 +29,7 @@
 namespace srsran {
 namespace srs_cu_cp {
 
-/// \brief Perform sanity check on incoming resource setup/modifcation/release requests.
+/// \brief Perform sanity check on incoming resource setup/modification/release requests.
 bool is_valid(const slotted_id_vector<pdu_session_id_t, cu_cp_pdu_session_res_setup_item>& setup_items,
               const up_context&                                                            context,
               const up_resource_manager_cfg&                                               cfg,
@@ -74,6 +74,7 @@ up_config_update calculate_update(const cu_cp_pdu_session_resource_release_comma
 drb_id_t allocate_drb_id(const up_pdu_session_context_update& new_session_context,
                          const up_context&                    context,
                          const up_config_update&              config_update,
+                         uint8_t                              max_nof_drbs_per_ue,
                          const srslog::basic_logger&          logger);
 
 // \brief Returns valid RRC PDCP config for a given FiveQI

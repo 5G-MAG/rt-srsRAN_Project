@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -38,7 +38,7 @@ public:
   }
 
   // See interface for documentation.
-  void on_rx_symbol(const lower_phy_rx_symbol_context& context, const resource_grid_reader& grid) override
+  void on_rx_symbol(const lower_phy_rx_symbol_context& context, const shared_resource_grid& grid) override
   {
     ru_uplink_rx_symbol_context upper_context;
     upper_context.slot      = context.slot;

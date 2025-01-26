@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -27,7 +27,7 @@ using namespace srsran;
 using namespace srsran::srs_cu_cp;
 
 bool srsran::srs_cu_cp::handle_context_setup_response(
-    cu_cp_inter_du_handover_response&         response_msg,
+    cu_cp_intra_cu_handover_response&         response_msg,
     e1ap_bearer_context_modification_request& bearer_context_modification_request,
     const f1ap_ue_context_setup_response&     target_ue_context_setup_response,
     up_config_update&                         next_config,
@@ -68,18 +68,20 @@ bool srsran::srs_cu_cp::handle_context_setup_response(
       e1ap_mod_item.pdu_session_id = pdu_session.first;
 
       for (const auto& drb_item : pdu_session.second.drb_to_add) {
-        srsran_assert(target_ue_context_setup_response.drbs_setup_list.contains(drb_item.first),
+        auto drb_it = std::find_if(target_ue_context_setup_response.drbs_setup_list.begin(),
+                                   target_ue_context_setup_response.drbs_setup_list.end(),
+                                   [&drb_item](const auto& drb) { return drb.drb_id == drb_item.first; });
+        srsran_assert(drb_it != target_ue_context_setup_response.drbs_setup_list.end(),
                       "Couldn't find {} in UE context setup response",
                       drb_item.first);
-
-        const auto& context_setup_drb_item = target_ue_context_setup_response.drbs_setup_list[drb_item.first];
+        const auto& context_setup_drb_item = *drb_it;
 
         e1ap_drb_to_modify_item_ng_ran e1ap_drb_item;
         e1ap_drb_item.drb_id = drb_item.first;
 
-        for (const auto& dl_up_param : context_setup_drb_item.dl_up_tnl_info_to_be_setup_list) {
+        for (const auto& dl_up_tnl_info : context_setup_drb_item.dluptnl_info_list) {
           e1ap_up_params_item e1ap_dl_up_param;
-          e1ap_dl_up_param.up_tnl_info   = dl_up_param.dl_up_tnl_info;
+          e1ap_dl_up_param.up_tnl_info   = dl_up_tnl_info;
           e1ap_dl_up_param.cell_group_id = 0; // TODO: Remove hardcoded value
 
           e1ap_drb_item.dl_up_params.push_back(e1ap_dl_up_param);
@@ -103,7 +105,7 @@ bool srsran::srs_cu_cp::handle_context_setup_response(
 }
 
 bool srsran::srs_cu_cp::handle_bearer_context_modification_response(
-    cu_cp_inter_du_handover_response&                response_msg,
+    cu_cp_intra_cu_handover_response&                response_msg,
     f1ap_ue_context_modification_request&            source_ue_context_mod_request,
     const e1ap_bearer_context_modification_response& bearer_context_modification_response,
     up_config_update&                                next_config,

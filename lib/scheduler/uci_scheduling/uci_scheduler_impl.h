@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,7 +22,6 @@
 
 #pragma once
 
-#include "../cell/resource_grid_util.h"
 #include "../ue_scheduling/ue_repository.h"
 #include "uci_scheduler.h"
 
@@ -37,8 +36,6 @@ class uci_scheduler_impl final : public uci_scheduler
 {
 public:
   explicit uci_scheduler_impl(const cell_configuration& cell_cfg_, uci_allocator& uci_alloc_, ue_repository& ues_);
-
-  ~uci_scheduler_impl() override;
 
   void run_slot(cell_resource_allocator& res_alloc) override;
 
@@ -62,6 +59,8 @@ private:
   void schedule_slot_ucis(cell_slot_resource_allocator& slot_alloc);
   // Helper that schedules the SR and CSI for UEs that were recently updated.
   void schedule_updated_ues_ucis(cell_resource_allocator& res_alloc);
+
+  void add_ue_to_grid(const ue_cell_configuration& ue_cfg, bool is_reconf);
 
   void add_resource(rnti_t crnti, unsigned offset, unsigned period, bool is_sr);
   void rem_resource(rnti_t crnti, unsigned offset, unsigned period, bool is_sr);

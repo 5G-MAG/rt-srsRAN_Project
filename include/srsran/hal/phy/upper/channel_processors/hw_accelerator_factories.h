@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -29,7 +29,8 @@
 namespace srsran {
 namespace hal {
 
-struct hw_accelerator_pdsch_enc_configuration {
+/// Configuration parameters of the bbdev-based PDSCH encoder hardware-accelerator factory.
+struct bbdev_hwacc_pdsch_enc_factory_configuration {
   /// Accelerator type.
   std::string acc_type;
   /// Interfacing to a bbdev-based hardware-accelerator.
@@ -43,12 +44,11 @@ struct hw_accelerator_pdsch_enc_configuration {
   bool dedicated_queue;
 };
 
-/// Returns an instance of a PDSCH encoder hardware accelerator factory on success,
-/// otherwise returns nullptr.
-/// \param[in] accelerator_config Hardware-accelerator configuration.
-/// \return Pointer to PDSCH encoding HW accelerator.
+/// \brief Creates a bbdev-based PDSCH encoder hardware accelerator factory.
+/// \param[in] cfg    Configuration parameters of the bbdev-based PDSCH encoder hardware accelerator.
+/// \return A valid PDSCH encoder hardware accelerator factory on success, otherwise \c nullptr.
 std::shared_ptr<hw_accelerator_pdsch_enc_factory>
-create_hw_accelerator_pdsch_enc_factory(const hw_accelerator_pdsch_enc_configuration& accelerator_config);
+create_bbdev_pdsch_enc_acc_factory(const bbdev_hwacc_pdsch_enc_factory_configuration& accelerator_config);
 
 } // namespace hal
 } // namespace srsran

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -20,7 +20,11 @@
  *
  */
 
+#include "lib/scheduler/config/cell_configuration.h"
 #include "lib/scheduler/logging/scheduler_metrics_handler.h"
+#include "tests/test_doubles/scheduler/scheduler_config_helper.h"
+#include "srsran/scheduler/config/scheduler_expert_config_factory.h"
+#include "srsran/scheduler/result/sched_result.h"
 #include "srsran/support/test_utils.h"
 #include <gtest/gtest.h>
 
@@ -39,9 +43,12 @@ class scheduler_metrics_handler_tester : public ::testing::Test
 protected:
   scheduler_metrics_handler_tester(
       std::chrono::milliseconds period = std::chrono::milliseconds{test_rgen::uniform_int<unsigned>(2, 100)}) :
-    report_period(period), metrics(period, metrics_notif)
+    report_period(period),
+    cell_cfg(config_helpers::make_default_scheduler_expert_config(),
+             sched_config_helper::make_default_sched_cell_configuration_request()),
+    metrics(period, metrics_notif, cell_cfg)
   {
-    metrics.handle_ue_creation(test_ue_index, to_rnti(0x4601), pci_t{0}, nof_prbs);
+    metrics.handle_ue_creation(test_ue_index, to_rnti(0x4601), pci_t{0});
   }
 
   void run_slot(const sched_result& sched_res, std::chrono::microseconds latency = std::chrono::microseconds{0})
@@ -55,6 +62,8 @@ protected:
   {
     metrics_notif.last_report = {};
     sched_result sched_res;
+    sched_res.dl.nof_dl_symbols = 14;
+    sched_res.ul.nof_ul_symbols = 14;
     while (metrics_notif.last_report.ue_metrics.empty()) {
       run_slot(sched_res);
     }
@@ -62,12 +71,12 @@ protected:
 
   std::chrono::milliseconds          report_period;
   test_scheduler_ue_metrics_notifier metrics_notif;
-  scheduler_metrics_handler          metrics;
+  cell_configuration                 cell_cfg;
+  cell_metrics_handler               metrics;
   du_ue_index_t test_ue_index = to_du_ue_index(test_rgen::uniform_int<unsigned>(0, MAX_NOF_DU_UES - 1));
 
   slot_point next_sl_tx{0, test_rgen::uniform_int<unsigned>(0, 10239)};
   unsigned   slot_count = 0;
-  unsigned   nof_prbs   = 100;
 };
 
 TEST_F(scheduler_metrics_handler_tester, metrics_sent_with_defined_periodicity)
@@ -142,11 +151,11 @@ TEST_F(scheduler_metrics_handler_tester, compute_nof_ul_oks_and_noks)
   crc_pdu.ue_index       = test_ue_index;
   crc_pdu.tb_crc_success = true;
   for (unsigned i = 0; i != nof_acks; ++i) {
-    metrics.handle_crc_indication(crc_pdu, units::bytes{1});
+    metrics.handle_crc_indication(next_sl_tx - 1, crc_pdu, units::bytes{1});
   }
   crc_pdu.tb_crc_success = false;
   for (unsigned i = 0; i != nof_nacks; ++i) {
-    metrics.handle_crc_indication(crc_pdu, units::bytes{1});
+    metrics.handle_crc_indication(next_sl_tx - 1, crc_pdu, units::bytes{1});
   }
 
   this->get_next_metric();
@@ -168,7 +177,9 @@ TEST_F(scheduler_metrics_handler_tester, compute_mcs)
   sch_mcs_index dl_mcs{test_rgen::uniform_int<uint8_t>(1, 28)};
   sch_mcs_index ul_mcs{test_rgen::uniform_int<uint8_t>(1, 28)};
 
-  sched_result  res;
+  sched_result res;
+  res.dl.nof_dl_symbols = 14;
+  res.ul.nof_ul_symbols = 14;
   dl_msg_alloc& dl_msg  = res.dl.ue_grants.emplace_back();
   dl_msg.pdsch_cfg.rnti = to_rnti(0x4601);
   auto&          cw     = dl_msg.pdsch_cfg.codewords.emplace_back();
@@ -204,7 +215,7 @@ TEST_F(scheduler_metrics_handler_tester, compute_bitrate)
   crc_pdu.rnti           = to_rnti(0x4601);
   crc_pdu.ue_index       = test_ue_index;
   crc_pdu.tb_crc_success = true;
-  metrics.handle_crc_indication(crc_pdu, ul_tbs);
+  metrics.handle_crc_indication(next_sl_tx - 1, crc_pdu, ul_tbs);
 
   this->get_next_metric();
   scheduler_ue_metrics ue_metrics = metrics_notif.last_report.ue_metrics[0];
@@ -225,7 +236,7 @@ TEST_F(scheduler_metrics_handler_tester, compute_bitrate)
   crc_pdu.rnti           = to_rnti(0x4601);
   crc_pdu.ue_index       = test_ue_index;
   crc_pdu.tb_crc_success = false;
-  metrics.handle_crc_indication(crc_pdu, ul_tbs);
+  metrics.handle_crc_indication(next_sl_tx - 1, crc_pdu, ul_tbs);
 
   this->get_next_metric();
   ue_metrics = metrics_notif.last_report.ue_metrics[0];
@@ -241,6 +252,9 @@ TEST_F(scheduler_metrics_handler_tester, compute_latency_metric)
   samples.resize(report_period.count());
 
   sched_result sched_res;
+  sched_res.dl.nof_dl_symbols = 14;
+  sched_res.ul.nof_ul_symbols = 14;
+
   for (unsigned i = 0; i != samples.size(); ++i) {
     ASSERT_TRUE(metrics_notif.last_report.ue_metrics.empty());
     this->run_slot(sched_res, samples[i]);

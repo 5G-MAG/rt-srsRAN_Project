@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -25,13 +25,14 @@
 #include "lib/scheduler/scheduler_impl.h"
 #include "lib/scheduler/ue_scheduling/ue_cell_grid_allocator.h"
 #include "lib/scheduler/ue_scheduling/ue_fallback_scheduler.h"
-#include "tests/unittests/scheduler/test_utils/config_generators.h"
+#include "tests/test_doubles/scheduler/scheduler_config_helper.h"
 #include "tests/unittests/scheduler/test_utils/scheduler_test_suite.h"
 #include "srsran/ran/duplex_mode.h"
 #include "srsran/ran/pcch/pcch_configuration.h"
+#include "srsran/scheduler/config/scheduler_expert_config_factory.h"
+#include "srsran/scheduler/config/serving_cell_config_factory.h"
 #include <gtest/gtest.h>
 #include <random>
-#include <unordered_map>
 
 using namespace srsran;
 
@@ -57,7 +58,7 @@ struct paging_sched_test_bench {
 
   explicit paging_sched_test_bench(const scheduler_expert_config&                  expert_cfg_,
                                    const sched_cell_configuration_request_message& cell_req =
-                                       test_helpers::make_default_sched_cell_configuration_request()) :
+                                       sched_config_helper::make_default_sched_cell_configuration_request()) :
     expert_cfg{expert_cfg_},
     cell_cfg{expert_cfg, cell_req},
     res_grid{cell_cfg},
@@ -93,7 +94,7 @@ public:
 
   void setup_sched(const scheduler_expert_config&                  expert_cfg,
                    const sched_cell_configuration_request_message& msg =
-                       test_helpers::make_default_sched_cell_configuration_request())
+                       sched_config_helper::make_default_sched_cell_configuration_request())
   {
     current_slot = slot_point{to_numerology_value(msg.scs_common), 0};
 
@@ -128,7 +129,7 @@ public:
 
     bench->res_grid.slot_indication(current_slot);
     bench->pdcch_sch.slot_indication(current_slot);
-    bench->pg_sch.schedule_paging(bench->res_grid);
+    bench->pg_sch.run_slot(bench->res_grid);
 
     // Log scheduling results.
     sched_res_logger.on_scheduler_result(bench->res_grid[0].result);
@@ -146,19 +147,19 @@ public:
   }
 
   sched_cell_configuration_request_message
-  create_custom_cell_config_request(duplex_mode              duplx_mode,
-                                    subcarrier_spacing       scs        = srsran::subcarrier_spacing::kHz30,
-                                    bs_channel_bandwidth_fr1 carrier_bw = srsran::bs_channel_bandwidth_fr1::MHz20) const
+  create_custom_cell_config_request(duplex_mode          duplx_mode,
+                                    subcarrier_spacing   scs        = srsran::subcarrier_spacing::kHz30,
+                                    bs_channel_bandwidth carrier_bw = srsran::bs_channel_bandwidth::MHz20) const
   {
     cell_config_builder_params cell_cfg{};
     if (duplx_mode == duplex_mode::TDD) {
       // Band 40.
-      cell_cfg.dl_arfcn       = 465000;
+      cell_cfg.dl_f_ref_arfcn = 465000;
       cell_cfg.scs_common     = scs;
-      cell_cfg.band           = band_helper::get_band_from_dl_arfcn(cell_cfg.dl_arfcn);
+      cell_cfg.band           = band_helper::get_band_from_dl_arfcn(cell_cfg.dl_f_ref_arfcn);
       cell_cfg.channel_bw_mhz = carrier_bw;
     }
-    return test_helpers::make_default_sched_cell_configuration_request(cell_cfg);
+    return sched_config_helper::make_default_sched_cell_configuration_request(cell_cfg);
   }
 
   uint64_t generate_five_g_s_tmsi()
@@ -324,7 +325,7 @@ TEST_F(paging_sched_special_case_tester, successfully_allocated_paging_grant_5mh
   const uint16_t drx_cycle_in_nof_rf = 128;
 
   auto sched_cell_cfg = create_custom_cell_config_request(
-      srsran::duplex_mode::FDD, subcarrier_spacing::kHz15, bs_channel_bandwidth_fr1::MHz5);
+      srsran::duplex_mode::FDD, subcarrier_spacing::kHz15, bs_channel_bandwidth::MHz5);
 
   // Shuffle between SearchSpace#0 and SearchSpace#1.
   const auto ss_id = to_search_space_id(get_random_uint(0, 1));

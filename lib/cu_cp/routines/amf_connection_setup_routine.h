@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include "../cu_cp_impl_interface.h"
+#include "../ngap_repository.h"
 #include "srsran/cu_cp/cu_cp_configuration.h"
 #include "srsran/ngap/ngap.h"
 #include "srsran/support/async/async_task.h"
@@ -30,22 +30,28 @@
 namespace srsran {
 namespace srs_cu_cp {
 
+async_task<bool> start_amf_connection_setup(ngap_repository&                                    ngap_db,
+                                            std::unordered_map<amf_index_t, std::atomic<bool>>& amfs_connected);
+
 /// \brief Handles the setup of the connection between the CU-CP and AMF, handling in particular the NG Setup procedure.
 class amf_connection_setup_routine
 {
 public:
-  amf_connection_setup_routine(const ngap_configuration& ngap_cfg_, ngap_connection_manager& ngap_conn_mng_);
+  amf_connection_setup_routine(ngap_repository& ngap_db_, std::atomic<bool>& amf_connected_);
 
   void operator()(coro_context<async_task<bool>>& ctx);
 
 private:
-  ngap_ng_setup_request            fill_ng_setup_request();
-  async_task<ngap_ng_setup_result> send_ng_setup_request();
+  void handle_connection_setup_result();
 
-  const ngap_configuration& ngap_cfg;
-  ngap_connection_manager&  ngap_conn_mng;
+  ngap_repository&      ngap_db;
+  std::atomic<bool>&    amf_connected;
+  amf_index_t           amf_index = amf_index_t::invalid;
+  ngap_interface*       ngap      = nullptr;
+  srslog::basic_logger& logger;
 
   ngap_ng_setup_result result_msg = {};
+  bool                 success    = false;
 };
 
 } // namespace srs_cu_cp

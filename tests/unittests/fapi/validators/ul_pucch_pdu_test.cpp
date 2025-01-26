@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -45,7 +45,7 @@ TEST_P(validate_pucch_pdu_common_field, WithValue)
                validate_ul_pucch_pdu,
                srsran::fapi::message_type_id::ul_tti_request,
                ul_pdu_type::PUCCH);
-};
+}
 
 INSTANTIATE_TEST_SUITE_P(pci,
                          validate_pucch_pdu_common_field,

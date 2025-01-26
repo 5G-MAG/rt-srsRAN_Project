@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,6 +23,7 @@
 #include "ofh_uplane_message_decoder_impl.h"
 #include "../serdes/ofh_cuplane_constants.h"
 #include "../support/network_order_binary_deserializer.h"
+#include "srsran/ofh/compression/compression_properties.h"
 #include "srsran/ofh/compression/iq_decompressor.h"
 #include "srsran/support/units.h"
 
@@ -55,34 +56,38 @@ bool uplane_message_decoder_impl::decode(uplane_message_decoder_results& results
 /// Checks the Open Fronthaul User-Plane header and returns true on success, otherwise false.
 static bool is_header_valid(const uplane_message_params& params,
                             srslog::basic_logger&        logger,
+                            unsigned                     sector_id,
                             unsigned                     nof_symbols,
                             unsigned                     version)
 {
   if (params.direction != data_direction::uplink) {
-    logger.info("Dropped received Open Fronthaul message as it is not an uplink message");
+    logger.info("Sector#{}: dropped received Open Fronthaul message as it is not an uplink message", sector_id);
 
     return false;
   }
 
   if (version != OFH_PAYLOAD_VERSION) {
-    logger.info(
-        "Dropped received Open Fronthaul message as its payload version is '{}' but only version '{}' is supported",
-        version,
-        OFH_PAYLOAD_VERSION);
+    logger.info("Sector#{}: dropped received Open Fronthaul message as its payload version is '{}' but only version "
+                "'{}' is supported",
+                sector_id,
+                version,
+                OFH_PAYLOAD_VERSION);
 
     return false;
   }
 
   if (params.filter_index == filter_index_type::reserved) {
-    logger.info("Dropped received Open Fronthaul message as its filter index value is reserved '{}'",
-                params.filter_index);
+    logger.info("Sector#{}: dropped received Open Fronthaul message as its filter index value is reserved '{}'",
+                sector_id,
+                fmt::underlying(params.filter_index));
 
     return false;
   }
 
   if (params.symbol_id >= nof_symbols) {
-    logger.info("Dropped received Open Fronthaul message as its symbol index is '{}' and this decoder supports a "
-                "maximum of '{}' symbols",
+    logger.info("Sector#{}: dropped received Open Fronthaul message as its symbol index is '{}' and this decoder "
+                "supports a maximum of '{}' symbols",
+                sector_id,
                 params.symbol_id,
                 nof_symbols);
 
@@ -96,8 +101,9 @@ bool uplane_message_decoder_impl::decode_header(uplane_message_params&          
                                                 network_order_binary_deserializer& deserializer)
 {
   if (deserializer.remaining_bytes() < NOF_BYTES_UP_HEADER) {
-    logger.info("Dropped received Open Fronthaul message as its size is '{}' bytes and it is smaller than the message "
-                "header size",
+    logger.info("Sector#{}: dropped received Open Fronthaul message as its size is '{}' bytes and it is smaller than "
+                "the message header size",
+                sector_id,
                 deserializer.remaining_bytes());
 
     return false;
@@ -122,21 +128,25 @@ bool uplane_message_decoder_impl::decode_header(uplane_message_params&          
 
   // Check the subframe property.
   if (subframe >= NOF_SUBFRAMES_PER_FRAME) {
-    logger.info("Dropped received Open Fronthaul message as the decoded subframe property '{}' is invalid", subframe);
+    logger.info("Sector#{}: dropped received Open Fronthaul message as the decoded subframe property '{}' is invalid",
+                sector_id,
+                subframe);
 
     return false;
   }
 
   // Check the slot property.
   if (slot_id >= slot_point(scs, 0).nof_slots_per_subframe()) {
-    logger.info("Dropped received Open Fronthaul message as the decoded slot property '{}' is invalid", slot_id);
+    logger.info("Sector#{}: dropped received Open Fronthaul message as the decoded slot property '{}' is invalid",
+                sector_id,
+                slot_id);
 
     return false;
   }
 
   params.slot = slot_point(to_numerology_value(scs), frame, subframe, slot_id);
 
-  return is_header_valid(params, logger, nof_symbols, version);
+  return is_header_valid(params, logger, sector_id, nof_symbols, version);
 }
 
 bool uplane_message_decoder_impl::decode_all_sections(uplane_message_decoder_results&    results,
@@ -153,17 +163,19 @@ bool uplane_message_decoder_impl::decode_all_sections(uplane_message_decoder_res
     }
 
     if (status == decoded_section_status::malformed) {
-      logger.info(
-          "Dropped received Open Fronthaul message as a malformed section was decoded for slot '{}' and symbol '{}'",
-          results.params.slot,
-          results.params.symbol_id);
+      logger.info("Sector#{}: dropped received Open Fronthaul message as a malformed section was decoded for slot '{}' "
+                  "and symbol '{}'",
+                  sector_id,
+                  results.params.slot,
+                  results.params.symbol_id);
 
       return false;
     }
 
     if (results.sections.full()) {
-      logger.info("Dropped received Open Fronthaul message as this deserializer only supports '{}' section for slot "
-                  "'{}' and symbol '{}'",
+      logger.info("Sector#{}: dropped received Open Fronthaul message as this deserializer only supports '{}' section "
+                  "for slot '{}' and symbol '{}'",
+                  sector_id,
                   MAX_NOF_SUPPORTED_SECTIONS,
                   results.params.slot,
                   results.params.symbol_id);
@@ -174,10 +186,11 @@ bool uplane_message_decoder_impl::decode_all_sections(uplane_message_decoder_res
 
   bool is_result_valid = !results.sections.empty();
   if (!is_result_valid) {
-    logger.info(
-        "Dropped received Open Fronthaul message as no section was decoded correctly for slot '{}' and symbol '{}'",
-        results.params.slot,
-        results.params.symbol_id);
+    logger.info("Sector#{}: dropped received Open Fronthaul message as no section was decoded correctly for slot '{}' "
+                "and symbol '{}'",
+                sector_id,
+                results.params.slot,
+                results.params.symbol_id);
   }
 
   return is_result_valid;
@@ -197,26 +210,6 @@ static void fill_results_from_decoder_section(uplane_section_params&            
   results.ud_comp_param             = decoded_results.ud_comp_param;
 }
 
-/// Returns true if the compression parameter is present based on the given compression type.
-static bool is_ud_comp_param_present(compression_type comp)
-{
-  switch (comp) {
-    case compression_type::BFP:
-    case compression_type::block_scaling:
-    case compression_type::mu_law:
-    case compression_type::bfp_selective:
-    case compression_type::mod_selective:
-      return true;
-    case compression_type::none:
-    case compression_type::modulation:
-      return false;
-    default:
-      srsran_assert(0, "Invalid compression type '{}'", comp);
-  }
-
-  SRSRAN_UNREACHABLE;
-}
-
 /// \brief Returns true when the given deserializer contains enough bytes to decode the IQ samples defined by PRB IQ
 /// data size, otherwise false.
 ///
@@ -228,19 +221,21 @@ static bool is_ud_comp_param_present(compression_type comp)
 static bool check_iq_data_size(unsigned                           nof_prb,
                                network_order_binary_deserializer& deserializer,
                                const ru_compression_params&       compression_params,
-                               srslog::basic_logger&              logger)
+                               srslog::basic_logger&              logger,
+                               unsigned                           sector_id)
 {
   units::bytes prb_iq_data_size(
       units::bits(NOF_SUBCARRIERS_PER_RB * 2 * compression_params.data_width).round_up_to_bytes().value());
 
   // Add one byte when the udCompParam is present.
-  if (is_ud_comp_param_present(compression_params.type)) {
+  if (is_compression_param_present(compression_params.type)) {
     prb_iq_data_size = prb_iq_data_size + units::bytes(1);
   }
 
   if (deserializer.remaining_bytes() < prb_iq_data_size.value() * nof_prb) {
-    logger.info("Received Open Fronthaul message size is '{}' bytes and it is smaller than the expected IQ samples "
-                "size of '{}'",
+    logger.info("Sector#{}: received Open Fronthaul message size is '{}' bytes and it is smaller than the expected IQ "
+                "samples size of '{}'",
+                sector_id,
                 deserializer.remaining_bytes(),
                 prb_iq_data_size.value() * nof_prb);
 
@@ -274,7 +269,8 @@ uplane_message_decoder_impl::decode_section(uplane_message_decoder_results&    r
   }
 
   // Check the message contains the required IQ data.
-  if (!check_iq_data_size(decoder_ofh_up_section.nof_prbs, deserializer, decoder_ofh_up_section.ud_comp_hdr, logger)) {
+  if (!check_iq_data_size(
+          decoder_ofh_up_section.nof_prbs, deserializer, decoder_ofh_up_section.ud_comp_hdr, logger, sector_id)) {
     return decoded_section_status::incomplete;
   }
 
@@ -293,8 +289,10 @@ uplane_message_decoder_impl::decode_section_header(decoder_uplane_section_params
                                                    network_order_binary_deserializer& deserializer)
 {
   if (deserializer.remaining_bytes() < SECTION_ID_HEADER_NO_COMPRESSION_SIZE) {
-    logger.info("Received Open Fronthaul message size is '{}' bytes and is smaller than the section header size",
-                deserializer.remaining_bytes());
+    logger.info(
+        "Sector#{}: received Open Fronthaul message size is '{}' bytes and is smaller than the section header size",
+        sector_id,
+        deserializer.remaining_bytes());
 
     return decoded_section_status::incomplete;
   }
@@ -322,53 +320,6 @@ uplane_message_decoder_impl::decode_section_header(decoder_uplane_section_params
   return decoded_section_status::ok;
 }
 
-/// \brief Decodes the compressed PRBs from the deserializer.
-///
-/// This function skips the udCompParam field.
-///
-/// \param[out] comp_prb Compressed PRBs to decode.
-/// \param[in] deserializer Deserializer.
-/// \param[in] prb_iq_data_size PRB size in bits.
-static void decode_prbs_no_ud_comp_param_field(span<compressed_prb>               comp_prb,
-                                               network_order_binary_deserializer& deserializer,
-                                               units::bits                        prb_iq_data_size)
-{
-  unsigned nof_bytes = prb_iq_data_size.round_up_to_bytes().value();
-
-  // Read the samples from the deserializer.
-  for (auto& prb : comp_prb) {
-    // No need to read the udCompParam field.
-    prb.set_compression_param(0);
-
-    deserializer.read(prb.get_byte_buffer().first(nof_bytes));
-    prb.set_stored_size(nof_bytes);
-  }
-}
-
-/// \brief Decodes the compressed PRBs from the deserializer.
-///
-/// This function decodes the udCompParam field.
-///
-/// \param[out] comp_prb Compressed PRBs to decode.
-/// \param[in] deserializer Deserializer.
-/// \param[in] prb_iq_data_size PRB size in bits.
-static void decode_prbs_with_ud_comp_param_field(span<compressed_prb>               comp_prb,
-                                                 network_order_binary_deserializer& deserializer,
-                                                 units::bits                        prb_iq_data_size)
-{
-  unsigned nof_bytes = prb_iq_data_size.round_up_to_bytes().value();
-
-  // For each PRB, udCompParam must be decoded.
-  for (auto& prb : comp_prb) {
-    // Decode udComParam.
-    prb.set_compression_param(deserializer.read<uint8_t>());
-
-    // Decode IQ data.
-    deserializer.read(prb.get_byte_buffer().first(nof_bytes));
-    prb.set_stored_size(nof_bytes);
-  }
-}
-
 uplane_message_decoder_impl::decoded_section_status
 uplane_message_decoder_impl::decode_compression_length(decoder_uplane_section_params&     results,
                                                        network_order_binary_deserializer& deserializer,
@@ -386,9 +337,10 @@ uplane_message_decoder_impl::decode_compression_length(decoder_uplane_section_pa
   }
 
   if (deserializer.remaining_bytes() < sizeof(uint16_t)) {
-    logger.info(
-        "Received Open Fronthaul message size is '{}' bytes and is smaller than the user data compression length",
-        deserializer.remaining_bytes());
+    logger.info("Sector#{}: received Open Fronthaul message size is '{}' bytes and is smaller than the user data "
+                "compression length",
+                sector_id,
+                deserializer.remaining_bytes());
 
     return decoded_section_status::incomplete;
   }
@@ -402,20 +354,18 @@ void uplane_message_decoder_impl::decode_iq_data(uplane_section_params&         
                                                  network_order_binary_deserializer& deserializer,
                                                  const ru_compression_params&       compression_params)
 {
-  std::array<compressed_prb, MAX_NOF_PRBS> comp_prbs_buffer;
-  span<compressed_prb>                     comp_prbs(comp_prbs_buffer.data(), results.nof_prbs);
   units::bits prb_iq_data_size_bits(NOF_SUBCARRIERS_PER_RB * 2 * compression_params.data_width);
 
   // udCompParam field is not present when compression type is none or modulation.
-  if (is_ud_comp_param_present(compression_params.type)) {
-    decode_prbs_with_ud_comp_param_field(comp_prbs, deserializer, prb_iq_data_size_bits);
-  } else {
-    decode_prbs_no_ud_comp_param_field(comp_prbs, deserializer, prb_iq_data_size_bits);
+  if (is_compression_param_present(compression_params.type)) {
+    prb_iq_data_size_bits += units::bits(8);
   }
+  span<const uint8_t> compressed_data =
+      deserializer.get_view_and_advance(results.nof_prbs * prb_iq_data_size_bits.round_up_to_bytes().value());
 
   // Decompress the samples.
   results.iq_samples.resize(results.nof_prbs * NOF_SUBCARRIERS_PER_RB);
-  decompressor->decompress(results.iq_samples, comp_prbs, compression_params);
+  decompressor->decompress(results.iq_samples, compressed_data, compression_params);
 }
 
 filter_index_type srsran::ofh::uplane_peeker::peek_filter_index(span<const uint8_t> message)

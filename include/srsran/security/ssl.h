@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,9 +22,9 @@
 
 #pragma once
 
-#include "mbedtls/aes.h"
-#include "mbedtls/cmac.h"
-#include "mbedtls/md.h"
+#include <mbedtls/aes.h>
+#include <mbedtls/cmac.h>
+#include <mbedtls/md.h>
 
 namespace srsran {
 namespace security {
@@ -34,7 +34,7 @@ using aes_context = mbedtls_aes_context;
 constexpr int aes_encrypt = 1;
 constexpr int aes_decrypt = 0;
 
-inline int aes_setkey_enc(aes_context* ctx, const unsigned char* key, unsigned int keysize)
+inline int aes_setkey_enc(aes_context* ctx, const unsigned char* key, unsigned keysize)
 {
   return mbedtls_aes_setkey_enc(ctx, key, keysize);
 }

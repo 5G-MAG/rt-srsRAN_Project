@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,7 +22,7 @@
 
 #include "f1u_split_connector.h"
 #include "srsran/gtpu/gtpu_tunnel_nru_factory.h"
-#include "srsran/ran/lcid.h"
+#include "srsran/ran/rb_id.h"
 
 using namespace srsran;
 using namespace srs_du;
@@ -86,11 +86,16 @@ void f1u_split_connector::remove_du_bearer(const up_transport_layer_info& dl_up_
   logger_du.debug("Removed CU F1-U bearer with UL GTP Tunnel={}.", dl_up_tnl_info);
 }
 
-expected<std::string> f1u_split_connector::get_du_bind_address(gnb_du_id_t gnb_du_id)
+expected<std::string> f1u_split_connector::get_du_bind_address(gnb_du_id_t gnb_du_id) const
 {
   std::string ip_address;
-  if (not udp_session->get_bind_address(ip_address)) {
-    return make_unexpected(default_error_t{});
+
+  if (f1u_ext_addr == "auto" || f1u_ext_addr == "") {
+    if (not udp_session->get_bind_address(ip_address)) {
+      return make_unexpected(default_error_t{});
+    }
+  } else {
+    ip_address = f1u_ext_addr;
   }
   return ip_address;
 }

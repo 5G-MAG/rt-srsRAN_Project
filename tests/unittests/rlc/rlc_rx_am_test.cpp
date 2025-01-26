@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,6 +23,7 @@
 #include "lib/rlc/rlc_rx_am_entity.h"
 #include "tests/test_doubles/pdcp/pdcp_pdu_generator.h"
 #include "srsran/support/executors/manual_task_worker.h"
+#include "srsran/support/test_utils.h"
 #include <gtest/gtest.h>
 #include <list>
 #include <queue>
@@ -54,7 +55,8 @@ rlc_rx_am_config cfg_18bit_status_limit = {/*sn_field_length=*/rlc_am_sn_size::s
 /// Mocking class of the surrounding layers invoked by the RLC AM Rx entity.
 class rlc_rx_am_test_frame : public rlc_rx_upper_layer_data_notifier,
                              public rlc_tx_am_status_handler,
-                             public rlc_tx_am_status_notifier
+                             public rlc_tx_am_status_notifier,
+                             public rlc_metrics_notifier
 {
 public:
   std::queue<byte_buffer_chain> sdu_queue;
@@ -73,10 +75,27 @@ public:
   }
 
   // rlc_tx_am_status_handler interface
-  virtual void on_status_pdu(rlc_am_status_pdu status_) override { this->status = std::move(status_); }
+  void on_status_pdu(rlc_am_status_pdu status_) override { this->status = std::move(status_); }
   // rlc_tx_am_status_notifier interface
-  virtual void on_status_report_changed() override { this->status_trigger_counter++; }
+  void on_status_report_changed() override { this->status_trigger_counter++; }
+  // rlc_metrics_notifier
+  void report_metrics(const rlc_metrics& metrics) override {}
 };
+
+srsran::log_sink_spy& test_spy = []() -> srsran::log_sink_spy& {
+  if (!srslog::install_custom_sink(
+          srsran::log_sink_spy::name(),
+          std::unique_ptr<srsran::log_sink_spy>(new srsran::log_sink_spy(srslog::get_default_log_formatter())))) {
+    report_fatal_error("Unable to create logger spy");
+  }
+  auto* spy = static_cast<srsran::log_sink_spy*>(srslog::find_sink(srsran::log_sink_spy::name()));
+  if (spy == nullptr) {
+    report_fatal_error("Unable to create logger spy");
+  }
+
+  srslog::fetch_basic_logger("RLC", *spy, true);
+  return *spy;
+}();
 
 /// Fixture class for RLC AM Rx tests.
 /// It requires TEST_P() and INSTANTIATE_TEST_SUITE_P() to create/spawn tests for each config
@@ -89,6 +108,9 @@ protected:
     srslog::init();
     logger.set_level(srslog::basic_levels::debug);
 
+    // reset log spy
+    test_spy.reset_counters();
+
     // init RLC logger
     srslog::fetch_basic_logger("RLC", false).set_level(srslog::basic_levels::debug);
     srslog::fetch_basic_logger("RLC", false).set_hex_dump_max_size(100);
@@ -98,16 +120,19 @@ protected:
     // Create test frame
     tester = std::make_unique<rlc_rx_am_test_frame>(config.sn_field_length);
 
+    metrics_agg = std::make_unique<rlc_metrics_aggregator>(
+        gnb_du_id_t{}, du_ue_index_t{}, rb_id_t{}, timer_duration{1000}, tester.get(), ue_worker);
+
     // Create RLC AM RX entity
     rlc = std::make_unique<rlc_rx_am_entity>(gnb_du_id_t::min,
                                              du_ue_index_t::MIN_DU_UE_INDEX,
                                              srb_id_t::srb0,
                                              config,
                                              *tester,
-                                             timer_factory{timers, ue_worker},
+                                             *metrics_agg,
+                                             pcap,
                                              ue_worker,
-                                             true,
-                                             pcap);
+                                             timers);
 
     // Bind AM Tx/Rx interconnect
     rlc->set_status_handler(tester.get());
@@ -154,7 +179,7 @@ protected:
     ASSERT_GT(segment_size, 0) << "Invalid argument: Cannot create PDUs with zero-sized SDU segments";
 
     sdu = test_helpers::create_pdcp_pdu(
-        pdcp_sn_size::size12bits, sn, sdu_size, first_byte); // 12-bit PDCP SN allows smaller SDUs
+        pdcp_sn_size::size12bits, /* is_srb = */ false, sn, sdu_size, first_byte); // 12-bit PDCP SN allows smaller SDUs
     pdu_list.clear();
     byte_buffer_view rest = {sdu};
 
@@ -406,20 +431,29 @@ protected:
     tester->sdu_queue.pop();
   }
 
+  void tick_all(uint32_t ticks)
+  {
+    for (uint i = 0; i < ticks; ++i) {
+      timers.tick();
+      ue_worker.run_pending_tasks();
+    }
+  }
+
   void tick()
   {
     timers.tick();
     ue_worker.run_pending_tasks();
   }
 
-  srslog::basic_logger&                 logger  = srslog::fetch_basic_logger("TEST", false);
-  rlc_rx_am_config                      config  = GetParam();
-  rlc_am_sn_size                        sn_size = config.sn_field_length;
-  timer_manager                         timers;
-  manual_task_worker                    ue_worker{128};
-  std::unique_ptr<rlc_rx_am_test_frame> tester;
-  null_rlc_pcap                         pcap;
-  std::unique_ptr<rlc_rx_am_entity>     rlc;
+  srslog::basic_logger&                   logger  = srslog::fetch_basic_logger("TEST", false);
+  rlc_rx_am_config                        config  = GetParam();
+  rlc_am_sn_size                          sn_size = config.sn_field_length;
+  timer_manager                           timers;
+  manual_task_worker                      ue_worker{128};
+  std::unique_ptr<rlc_rx_am_test_frame>   tester;
+  null_rlc_pcap                           pcap;
+  std::unique_ptr<rlc_rx_am_entity>       rlc;
+  std::unique_ptr<rlc_metrics_aggregator> metrics_agg;
 };
 
 class rlc_rx_am_test_with_limit : public rlc_rx_am_test
@@ -429,6 +463,9 @@ class rlc_rx_am_test_with_limit : public rlc_rx_am_test
 TEST_P(rlc_rx_am_test, create_new_entity)
 {
   EXPECT_NE(rlc, nullptr);
+  // No warnings or error during construction
+  EXPECT_EQ(test_spy.get_warning_counter(), 0);
+  EXPECT_EQ(test_spy.get_error_counter(), 0);
 }
 
 /// Verify the status report from a freshly created instance
@@ -649,7 +686,7 @@ TEST_P(rlc_rx_am_test, rx_polling_bit_sn_outside_rx_window)
 
 /// Verify proper handling of polling bit for PDU duplicates inside the Rx window: The status-required state shall still
 /// change but the duplicated SDU shall be discarded
-TEST_P(rlc_rx_am_test, rx_polling_bit_sdu_duplicate)
+TEST_P(rlc_rx_am_test, rx_sdu_duplicate_with_one_polling_bit)
 {
   EXPECT_FALSE(rlc->status_report_required());
 
@@ -685,7 +722,60 @@ TEST_P(rlc_rx_am_test, rx_polling_bit_sdu_duplicate)
 
   // Check if polling bit was considered, despite duplicate SN
   EXPECT_TRUE(rlc->status_report_required());
+  auto& status = rlc->get_status_pdu();
+  EXPECT_EQ(status.ack_sn, 0);
   EXPECT_EQ(tester->status_trigger_counter, 1);
+
+  // Check if duplicate SDU was properly ignored
+  ASSERT_EQ(tester->sdu_queue.size(), 0);
+}
+
+/// Verify proper handling of polling bit for PDU duplicates inside the Rx window: The status-required state shall still
+/// change but the duplicated SDU shall be discarded
+TEST_P(rlc_rx_am_test, rx_sdu_duplicate_two_polling_bits)
+{
+  EXPECT_FALSE(rlc->status_report_required());
+
+  uint32_t sn_state = 0; // one SDU inside rx window and duplicate will be outside.
+  uint32_t sdu_size = 4;
+
+  // Create SDU and PDU with full SDU
+  std::list<std::vector<uint8_t>> pdu_list = {};
+  byte_buffer                     sdu;
+  ASSERT_NO_FATAL_FAILURE(create_pdus(pdu_list, sdu, sn_state, sdu_size, sdu_size, sn_state));
+  sn_state++;
+
+  // Set polling bit of PDUs
+  *(pdu_list.front().begin()) |= 0b01000000; // set P = 1;
+
+  // Push into RLC
+  byte_buffer_slice pdu = byte_buffer_slice::create(pdu_list.front()).value();
+  rlc->handle_pdu(std::move(pdu));
+
+  // Check if polling bit has not changed
+  EXPECT_TRUE(rlc->status_report_required());
+  auto& status1 = rlc->get_status_pdu();
+  EXPECT_EQ(status1.ack_sn, 1);
+  EXPECT_EQ(tester->status_trigger_counter, 1);
+
+  // Check if SDU was properly unpacked and forwarded
+  ASSERT_EQ(tester->sdu_queue.size(), 1);
+  EXPECT_EQ(tester->sdu_queue.front().length(), sdu_size);
+  EXPECT_EQ(tester->sdu_queue.front(), sdu);
+  tester->sdu_queue.pop();
+
+  // Let t-StatusProhibit expire
+  tick_all(config.t_status_prohibit + 1);
+
+  // Push into RLC
+  pdu = byte_buffer_slice::create(pdu_list.front()).value();
+  rlc->handle_pdu(std::move(pdu));
+
+  // Check if polling bit was considered, despite duplicate SN
+  EXPECT_TRUE(rlc->status_report_required());
+  auto& status2 = rlc->get_status_pdu();
+  EXPECT_EQ(status2.ack_sn, 1); // Check the status report is not stale.
+  EXPECT_EQ(tester->status_trigger_counter, 2);
 
   // Check if duplicate SDU was properly ignored
   ASSERT_EQ(tester->sdu_queue.size(), 0);
@@ -1433,7 +1523,7 @@ TEST_P(rlc_rx_am_test, rx_reverse_with_reversed_segmentation)
 
 std::string test_param_info_to_string(const ::testing::TestParamInfo<rlc_rx_am_config>& info)
 {
-  constexpr static const char* options[] = {"12bit", "18bit"};
+  static constexpr const char* options[] = {"12bit", "18bit"};
   return options[info.index];
 }
 
@@ -1444,7 +1534,7 @@ INSTANTIATE_TEST_SUITE_P(rlc_rx_am_test_each_sn_size,
 
 std::string test_param_info_to_string_status_limit(const ::testing::TestParamInfo<rlc_rx_am_config>& info)
 {
-  constexpr static const char* options[] = {"12bit", "18bit", "12bit_status_limit", "18bit_status_limit"};
+  static constexpr const char* options[] = {"12bit", "18bit", "12bit_status_limit", "18bit_status_limit"};
   return options[info.index];
 }
 

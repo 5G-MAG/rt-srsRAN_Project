@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "tests/test_doubles/du/test_du_high_worker_manager.h"
 #include "tests/test_doubles/f1ap/f1c_test_local_gateway.h"
 #include "tests/test_doubles/mac/dummy_mac_result_notifier.h"
 #include "tests/test_doubles/mac/dummy_scheduler_ue_metric_notifier.h"
@@ -29,8 +30,8 @@
 #include "tests/unittests/f1ap/cu_cp/f1ap_cu_test_helpers.h"
 #include "tests/unittests/ngap/test_helpers.h"
 #include "srsran/cu_cp/cu_cp.h"
-#include "srsran/du_high/du_high.h"
-#include "srsran/du_high/du_high_configuration.h"
+#include "srsran/du/du_high/du_high.h"
+#include "srsran/du/du_high/du_high_configuration.h"
 #include "srsran/support/executors/manual_task_worker.h"
 #include "srsran/support/executors/task_worker.h"
 
@@ -44,17 +45,13 @@ public:
 
   void stop();
 
-  manual_task_worker                                    test_worker;
-  std::map<std::string, task_executor*>                 executors;
-  std::vector<std::unique_ptr<du_high_executor_mapper>> du_hi_exec_mappers;
-
-private:
-  std::map<std::string, std::unique_ptr<task_worker>>   workers;
-  std::map<std::string, std::unique_ptr<task_executor>> executor_insts;
+  manual_task_worker                                                 test_worker;
+  std::vector<std::unique_ptr<test_helpers::du_high_worker_manager>> dus;
+  task_executor*                                                     cu_cp_exec = nullptr;
 };
 
 struct du_high_cu_cp_test_simulator_config {
-  std::vector<std::vector<du_cell_config>> dus;
+  std::vector<std::vector<srs_du::du_cell_config>> dus;
 };
 
 class du_high_cu_test_simulator
@@ -66,7 +63,7 @@ public:
     null_mac_pcap                       mac_pcap;
     null_rlc_pcap                       rlc_pcap;
     dummy_scheduler_ue_metrics_notifier ue_metrics_notifier;
-    std::unique_ptr<du_high>            du_high_inst;
+    std::unique_ptr<srs_du::du_high>    du_high_inst;
 
     slot_point next_slot;
 

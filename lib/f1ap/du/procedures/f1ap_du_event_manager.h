@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -39,7 +39,7 @@ using f1ap_transaction = protocol_transaction<f1ap_transaction_response>;
 class f1ap_event_manager
 {
   /// Transaction Response Container, which gets indexed by transaction_id.
-  constexpr static size_t MAX_NOF_TRANSACTIONS = 256;
+  static constexpr size_t MAX_NOF_TRANSACTIONS = 256;
 
 public:
   protocol_transaction_manager<f1ap_transaction_response> transactions;

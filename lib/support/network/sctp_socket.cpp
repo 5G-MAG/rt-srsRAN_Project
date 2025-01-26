@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,8 +23,8 @@
 #include "srsran/support/io/sctp_socket.h"
 #include "srsran/srslog/srslog.h"
 #include "srsran/support/error_handling.h"
-#include "srsran/support/format_utils.h"
 #include "srsran/support/io/sockets.h"
+#include "srsran/support/srsran_assert.h"
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/sctp.h>
@@ -43,10 +43,7 @@ bool sctp_subscribe_to_events(const unique_fd& fd)
   events.sctp_shutdown_event         = 1;
   events.sctp_association_event      = 1;
 
-  if (::setsockopt(fd.value(), IPPROTO_SCTP, SCTP_EVENTS, &events, sizeof(events)) != 0) {
-    return false;
-  }
-  return true;
+  return ::setsockopt(fd.value(), IPPROTO_SCTP, SCTP_EVENTS, &events, sizeof(events)) == 0;
 }
 
 /// \brief Modify SCTP default parameters for quicker detection of broken links.
@@ -155,10 +152,7 @@ bool sctp_set_nodelay(const unique_fd& fd, std::optional<bool> nodelay)
   }
 
   int optval = nodelay.value() ? 1 : 0;
-  if (::setsockopt(fd.value(), IPPROTO_SCTP, SCTP_NODELAY, &optval, sizeof(optval)) != 0) {
-    return false;
-  }
-  return true;
+  return ::setsockopt(fd.value(), IPPROTO_SCTP, SCTP_NODELAY, &optval, sizeof(optval)) == 0;
 }
 
 } // namespace
@@ -211,11 +205,6 @@ sctp_socket& sctp_socket::operator=(sctp_socket&& other) noexcept
   return *this;
 }
 
-sctp_socket::~sctp_socket()
-{
-  close();
-}
-
 bool sctp_socket::close()
 {
   if (not sock_fd.is_open()) {
@@ -230,8 +219,7 @@ bool sctp_socket::close()
   return true;
 }
 
-SRSRAN_NODISCARD bool
-sctp_socket::bind(struct sockaddr& ai_addr, const socklen_t& ai_addrlen, const std::string& bind_interface)
+bool sctp_socket::bind(struct sockaddr& ai_addr, const socklen_t& ai_addrlen, const std::string& bind_interface)
 {
   if (not is_open()) {
     logger.error("Failed to bind to {}. Cause: Socket is closed", get_nameinfo(ai_addr, ai_addrlen));
@@ -261,7 +249,7 @@ sctp_socket::bind(struct sockaddr& ai_addr, const socklen_t& ai_addrlen, const s
   return true;
 }
 
-SRSRAN_NODISCARD bool sctp_socket::connect(struct sockaddr& ai_addr, const socklen_t& ai_addrlen)
+bool sctp_socket::connect(struct sockaddr& ai_addr, const socklen_t& ai_addrlen)
 {
   logger.debug("{}: Connecting to {}...", if_name, get_nameinfo(ai_addr, ai_addrlen));
   if (not is_open()) {
@@ -284,7 +272,7 @@ SRSRAN_NODISCARD bool sctp_socket::connect(struct sockaddr& ai_addr, const sockl
   return true;
 }
 
-SRSRAN_NODISCARD bool sctp_socket::listen()
+bool sctp_socket::listen()
 {
   if (not is_open()) {
     logger.error("{}: Failed to listen for new SCTP connections. Cause: socket is closed", if_name);
@@ -311,6 +299,7 @@ bool sctp_socket::set_non_blocking()
 
 bool sctp_socket::set_sockopts(const sctp_socket_params& params)
 {
+  logger.debug("Setting socket options. params=[{}]", params);
   if (not sctp_subscribe_to_events(sock_fd)) {
     logger.error(
         "{}: SCTP failed to be created. Cause: Subscribing to SCTP events failed: {}", if_name, strerror(errno));

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -27,7 +27,8 @@
 #include "ldpc/ldpc_encoder_generic.h"
 #include "ldpc/ldpc_rate_dematcher_impl.h"
 #include "ldpc/ldpc_rate_matcher_impl.h"
-#include "ldpc/ldpc_segmenter_impl.h"
+#include "ldpc/ldpc_segmenter_rx_impl.h"
+#include "ldpc/ldpc_segmenter_tx_impl.h"
 #include "polar/polar_allocator_impl.h"
 #include "polar/polar_code_impl.h"
 #include "polar/polar_deallocator_impl.h"
@@ -49,6 +50,7 @@
 #endif // __x86_64__
 
 #ifdef __ARM_NEON
+#include "crc_calculator_neon_impl.h"
 #include "ldpc/ldpc_decoder_neon.h"
 #include "ldpc/ldpc_encoder_neon.h"
 #include "ldpc/ldpc_rate_dematcher_neon_impl.h"
@@ -77,6 +79,14 @@ public:
       return std::make_unique<crc_calculator_clmul_impl>(poly);
     }
 #endif // __x86_64__
+
+#ifdef __aarch64__
+    bool supports_pmull = cpu_supports_feature(cpu_feature::neon) && cpu_supports_feature(cpu_feature::pmull);
+
+    if (((type == "auto") || (type == "neon")) && supports_pmull) {
+      return std::make_unique<crc_calculator_neon_impl>(poly);
+    }
+#endif // __aarch64__
 
     if ((type == "auto") || (type == "lut")) {
       return std::make_unique<crc_calculator_lut_impl>(poly);
@@ -214,19 +224,19 @@ public:
 
   std::unique_ptr<ldpc_segmenter_tx> create() override
   {
-    ldpc_segmenter_impl::sch_crc sch_crc = {
+    ldpc_segmenter_tx_impl::sch_crc sch_crc = {
         crc_factory->create(crc_generator_poly::CRC16),
         crc_factory->create(crc_generator_poly::CRC24A),
         crc_factory->create(crc_generator_poly::CRC24B),
     };
-    return ldpc_segmenter_impl::create_ldpc_segmenter_impl_tx(sch_crc);
+    return std::make_unique<ldpc_segmenter_tx_impl>(sch_crc);
   }
 };
 
 class ldpc_segmenter_rx_factory_sw : public ldpc_segmenter_rx_factory
 {
 public:
-  std::unique_ptr<ldpc_segmenter_rx> create() override { return ldpc_segmenter_impl::create_ldpc_segmenter_impl_rx(); }
+  std::unique_ptr<ldpc_segmenter_rx> create() override { return std::make_unique<ldpc_segmenter_rx_impl>(); }
 };
 
 class polar_factory_sw : public polar_factory

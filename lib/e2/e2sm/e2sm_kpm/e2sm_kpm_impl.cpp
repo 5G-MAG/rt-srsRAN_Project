@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -41,12 +41,13 @@ bool e2sm_kpm_impl::action_supported(const asn1::e2ap::ric_action_to_be_setup_it
       e2sm_packer.handle_packed_e2sm_action_definition(ric_action.ric_action_definition);
   if (action_def.service_model != e2sm_service_model_t::KPM) {
     logger.error("Unknown service model {} -> do not admit action {}  (type {})",
-                 action_def.service_model,
+                 fmt::underlying(action_def.service_model),
                  ric_action.ric_action_id,
-                 ric_action.ric_action_type);
+                 fmt::underlying(ric_action.ric_action_type.value));
     return false;
   }
-  logger.info("Admitting action {} (type {})", ric_action.ric_action_id, ric_action.ric_action_type);
+  logger.info(
+      "Admitting action {} (type {})", ric_action.ric_action_id, fmt::underlying(ric_action.ric_action_type.value));
   e2sm_kpm_action_definition_s& e2sm_kpm_action_def =
       std::get<e2sm_kpm_action_definition_s>(action_def.action_definition);
 
@@ -65,7 +66,7 @@ bool e2sm_kpm_impl::action_supported(const asn1::e2ap::ric_action_to_be_setup_it
       logger.info("Unknown RIC style type %i -> do not admit action %i (type %i)",
                   e2sm_kpm_action_def.ric_style_type,
                   ric_action.ric_action_id,
-                  ric_action.ric_action_type);
+                  fmt::underlying(ric_action.ric_action_type.value));
   }
   return false;
 }
@@ -83,7 +84,7 @@ bool e2sm_kpm_impl::process_action_def_meas_info_list(const meas_info_list_l&   
 
     for (uint32_t l = 0; l < meas_info_list[i].label_info_list.size(); l++) {
       const meas_label_s& meas_label = meas_info_list[i].label_info_list[l].meas_label;
-      if (du_meas_provider.metric_supported(meas_type, meas_label, level, cell_scope)) {
+      if (du_meas_provider.is_metric_supported(meas_type, meas_label, level, cell_scope)) {
         admitted_value_type_labels[meas_name] = NO_LABEL;
       } else {
         return false;
@@ -113,7 +114,7 @@ bool e2sm_kpm_impl::process_action_definition_format1(
   }
 
   if (cell_scope) {
-    if (not du_meas_provider.cell_supported(action_definition.cell_global_id)) {
+    if (not du_meas_provider.is_cell_supported(action_definition.cell_global_id)) {
       logger.debug("Cell not available -> do not admitted action\n");
       return false;
     }
@@ -140,7 +141,7 @@ bool e2sm_kpm_impl::process_action_definition_format2(const e2sm_kpm_action_defi
   const ue_id_c&                              ueid           = action_definition.ue_id;
   const e2sm_kpm_action_definition_format1_s& subscript_info = action_definition.subscript_info;
 
-  if (not du_meas_provider.ue_supported(ueid)) {
+  if (not du_meas_provider.is_ue_supported(ueid)) {
     return false;
   }
 
@@ -161,7 +162,7 @@ bool e2sm_kpm_impl::process_action_definition_format3(const e2sm_kpm_action_defi
   }
 
   if (cell_scope) {
-    if (not du_meas_provider.cell_supported(action_definition.cell_global_id)) {
+    if (not du_meas_provider.is_cell_supported(action_definition.cell_global_id)) {
       logger.debug("Cell not available -> do not admit action\n");
       return false;
     }
@@ -174,14 +175,14 @@ bool e2sm_kpm_impl::process_action_definition_format3(const e2sm_kpm_action_defi
       matching_cond_item_choice_c::types test_type          = matching_cond_item.matching_cond_choice.type();
       if (test_type == matching_cond_item_choice_c::types_opts::test_cond_info) {
         const test_cond_info_s& test_cond_info = matching_cond_item.matching_cond_choice.test_cond_info();
-        if (not du_meas_provider.test_cond_supported(test_cond_info.test_type)) {
+        if (not du_meas_provider.is_test_cond_supported(test_cond_info.test_type)) {
           logger.debug("Matching UE test condition [test_cond] not supported -> do not admit action");
           return false;
         }
       } else {
         // test_type == matching_cond_item_choice_c::types_opts::meas_label
         const meas_label_s& meas_label = matching_cond_item.matching_cond_choice.meas_label();
-        if (not du_meas_provider.metric_supported(meas_type, meas_label, UE_LEVEL, cell_scope)) {
+        if (not du_meas_provider.is_metric_supported(meas_type, meas_label, UE_LEVEL, cell_scope)) {
           logger.debug("Matching UE test condition [meas_label] not supported -> do not admit action");
           return false;
         }
@@ -199,7 +200,7 @@ bool e2sm_kpm_impl::process_action_definition_format4(const e2sm_kpm_action_defi
   for (uint32_t i = 0; i < action_definition.matching_ue_cond_list.size(); ++i) {
     const test_cond_type_c& test_cond_type = action_definition.matching_ue_cond_list[i].test_cond_info.test_type;
 
-    if (not du_meas_provider.test_cond_supported(test_cond_type)) {
+    if (not du_meas_provider.is_test_cond_supported(test_cond_type)) {
       logger.debug("Matching UE test condition not supported -> do not admit action");
       return false;
     }
@@ -219,7 +220,7 @@ bool e2sm_kpm_impl::process_action_definition_format5(const e2sm_kpm_action_defi
   for (uint32_t i = 0; i < action_definition.matching_ue_id_list.size(); ++i) {
     const ue_id_c& ueid = action_definition.matching_ue_id_list[i].ue_id;
     // if at least one UE not present -> do not admit
-    if (not du_meas_provider.ue_supported(ueid)) {
+    if (not du_meas_provider.is_ue_supported(ueid)) {
       return false;
     }
   }
@@ -233,7 +234,7 @@ e2sm_kpm_impl::get_e2sm_report_service(const srsran::byte_buffer& action_definit
 {
   e2sm_action_definition action_def = e2sm_packer.handle_packed_e2sm_action_definition(action_definition);
   if (action_def.service_model != e2sm_service_model_t::KPM) {
-    logger.info("Unknown service model {}", action_def.service_model);
+    logger.info("Unknown service model {}", fmt::underlying(action_def.service_model));
     return nullptr;
   }
   e2sm_kpm_action_definition_s& e2sm_kpm_action_def =

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -28,7 +28,7 @@
 namespace srsran {
 namespace config_helpers {
 
-mac_cell_group_config make_initial_mac_cell_group_config(const mac_cell_group_params& mcg_params = {});
+mac_cell_group_config make_initial_mac_cell_group_config(const srs_du::mac_cell_group_params& mcg_params = {});
 
 } // namespace config_helpers
 } // namespace srsran

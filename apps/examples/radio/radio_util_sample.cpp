@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -28,8 +28,8 @@
 #include "srsran/gateways/baseband/buffer/baseband_gateway_buffer_dynamic.h"
 #include "srsran/radio/radio_factory.h"
 #include "srsran/support/executors/task_worker.h"
-#include "srsran/support/file_sink.h"
-#include "srsran/support/math_utils.h"
+#include "srsran/support/file_vector.h"
+#include "srsran/support/math/math_utils.h"
 #include "srsran/support/signal_handling.h"
 #include <getopt.h>
 #include <random>
@@ -180,7 +180,7 @@ static std::atomic<bool>              stop  = {false};
 static std::unique_ptr<radio_session> radio = nullptr;
 
 /// Function to call when the application is interrupted.
-static void interrupt_signal_handler()
+static void interrupt_signal_handler(int signal)
 {
   if (radio != nullptr) {
     radio->stop();
@@ -189,7 +189,7 @@ static void interrupt_signal_handler()
 }
 
 /// Function to call when the application is going to be forcefully shutdown.
-static void cleanup_signal_handler()
+static void cleanup_signal_handler(int signal)
 {
   srslog::flush();
 }
@@ -363,9 +363,9 @@ int main(int argc, char** argv)
   uint64_t sample_count      = 0;
 
   // Open file sink if mot empty.
-  file_sink<cf_t> rx_file;
+  std::unique_ptr<file_vector<cf_t>> rx_file;
   if (!rx_filename.empty()) {
-    rx_file = file_sink<cf_t>(rx_filename);
+    rx_file = std::make_unique<file_vector<cf_t>>(rx_filename.c_str(), openmode::write_only);
   }
 
   // Counter for the number of empty transmission buffers.
@@ -394,8 +394,8 @@ int main(int argc, char** argv)
       rx_metadata[stream_id] = receiver.receive(rx_baseband_buffers[stream_id].get_writer());
 
       // Save file.
-      if (stream_id == 0 && rx_file.is_open()) {
-        rx_file.write(rx_baseband_buffers[stream_id][0]);
+      if (stream_id == 0 && rx_file) {
+        rx_file->write(rx_baseband_buffers[stream_id][0]);
       }
 
       // Prepare transmit metadata.

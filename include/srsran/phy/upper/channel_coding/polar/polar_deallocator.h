@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -20,17 +20,27 @@
  *
  */
 
+/// \file
+/// \brief Polar deallocator - Interface.
+
 #pragma once
 
 #include "srsran/phy/upper/channel_coding/polar/polar_code.h"
 
 namespace srsran {
 
+/// Polar deallocator interface.
 class polar_deallocator
 {
 public:
+  /// Default destructor.
   virtual ~polar_deallocator() = default;
 
+  /// \brief Extracts the information bits from the polar decoder output.
+  ///
+  /// \param[out] message         Information bits.
+  /// \param[in]  output_decoder  Output bits of the polar decoder.
+  /// \param[in]  code            Polar code description.
   virtual void deallocate(span<uint8_t> message, span<const uint8_t> output_decoder, const polar_code& code) = 0;
 };
 

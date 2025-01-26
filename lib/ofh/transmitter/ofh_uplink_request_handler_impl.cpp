@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -21,6 +21,7 @@
  */
 
 #include "ofh_uplink_request_handler_impl.h"
+#include "srsran/phy/support/shared_resource_grid.h"
 #include "srsran/ran/prach/prach_configuration.h"
 #include "srsran/ran/prach/prach_frequency_mapping.h"
 #include "srsran/ran/prach/prach_preamble_information.h"
@@ -121,7 +122,7 @@ void uplink_request_handler_impl::handle_prach_occasion(const prach_buffer_conte
 {
   logger.debug("Registering PRACH context entry for slot '{}' and sector#{}", context.slot, context.sector);
 
-  frame_pool->clear_uplink_slot(context.slot, logger);
+  frame_pool->clear_uplink_slot(context.slot, context.sector, logger);
 
   // Sampling rate defining the \f$T_s = 1/(\Delta f_{ref} \times N_{f,ref})\f$ parameter, see 3GPP TS38.211,
   // clause 4.1.
@@ -179,11 +180,12 @@ void uplink_request_handler_impl::handle_prach_occasion(const prach_buffer_conte
   }
 }
 
-void uplink_request_handler_impl::handle_new_uplink_slot(const resource_grid_context& context, resource_grid& grid)
+void uplink_request_handler_impl::handle_new_uplink_slot(const resource_grid_context& context,
+                                                         const shared_resource_grid&  grid)
 {
   logger.debug("Registering UL context entry for slot '{}' and sector#{}", context.slot, context.sector);
 
-  frame_pool->clear_uplink_slot(context.slot, logger);
+  frame_pool->clear_uplink_slot(context.slot, context.sector, logger);
 
   data_flow_cplane_type_1_context df_context;
   df_context.slot         = context.slot;

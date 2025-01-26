@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -20,8 +20,8 @@
  *
  */
 
-#include "lib/du_manager/du_ue/du_bearer.h"
-#include "lib/du_manager/du_ue/du_ue_bearer_manager.h"
+#include "lib/du/du_high/du_manager/du_ue/du_bearer.h"
+#include "lib/du/du_high/du_manager/du_ue/du_ue_bearer_manager.h"
 #include "tests/unittests/du_manager/du_manager_test_helpers.h"
 #include "srsran/du/du_cell_config_helpers.h"
 #include "srsran/support/test_utils.h"
@@ -50,7 +50,7 @@ protected:
   {
     du_mng = std::make_unique<du_manager_test_bench>(
         std::vector<du_cell_config>{config_helpers::make_default_du_cell_config()});
-    dummy_slice_info = s_nssai_t{.sst = 1};
+    dummy_slice_info = s_nssai_t{.sst = slice_service_type{1}};
   }
 
   void SetUp() override
@@ -69,7 +69,7 @@ protected:
       std::vector<du_cell_config>{config_helpers::make_default_du_cell_config()});
   dummy_teid_pool        teid_pool;
   dummy_rlc_rlf_notifier rlf_notifier;
-  s_nssai_t              dummy_slice_info = s_nssai_t{.sst = 1};
+  s_nssai_t              dummy_slice_info = s_nssai_t{.sst = slice_service_type{1}};
 
   std::unique_ptr<du_ue_drb> create_dummy_drb(drb_id_t drb_id, lcid_t lcid)
   {
@@ -80,15 +80,11 @@ protected:
                                         drb_id,
                                         lcid,
                                         rlc_config{},
-                                        mac_lc_config{},
                                         f1u_config{},
                                         ul_tnls,
                                         teid_pool,
                                         du_mng->params,
-                                        rlf_notifier,
-                                        qos_characteristics{},
-                                        std::nullopt,
-                                        dummy_slice_info});
+                                        rlf_notifier});
   }
 };
 

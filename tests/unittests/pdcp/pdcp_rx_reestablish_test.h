@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,12 +22,8 @@
 
 #pragma once
 
-#include "lib/pdcp/pdcp_entity_rx.h"
 #include "pdcp_rx_test_helpers.h"
-#include "pdcp_test_vectors.h"
-#include "srsran/pdcp/pdcp_config.h"
 #include <gtest/gtest.h>
-#include <queue>
 
 namespace srsran {
 

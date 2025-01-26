@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -24,6 +24,7 @@
 
 #include "srsran/ran/rrm.h"
 #include "srsran/ran/s_nssai.h"
+#include "srsran/scheduler/config/scheduler_expert_config.h"
 
 namespace srsran {
 
@@ -35,6 +36,8 @@ struct slice_rrm_policy_config {
   unsigned min_prb = 0;
   /// Sets the maximum number of PRBs to be allocated to this group.
   unsigned max_prb = MAX_NOF_PRBS;
+  /// Policy scheduler configuration for the slice.
+  policy_scheduler_expert_config policy_sched_cfg = time_rr_scheduler_expert_config{};
 };
 
 } // namespace srsran

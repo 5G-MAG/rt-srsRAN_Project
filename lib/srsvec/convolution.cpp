@@ -1,7 +1,7 @@
 
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,7 +22,7 @@
  */
 
 #include "srsran/srsvec/convolution.h"
-#include "simd.h"
+#include "srsran/srsvec/simd.h"
 
 using namespace srsran;
 using namespace srsvec;

@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -19,14 +19,8 @@
 #
 
 set(SOURCES 
-  bbdev_acc.cpp
-  bbdev_acc_factory.cpp
-  bbdev.cpp
-  bbdev_op_pool_factory.cpp
-  ldpc/bbdev_ldpc_decoder.cpp
-  ldpc/bbdev_ldpc_encoder.cpp
-)
+  bbdev_acc_factory.cpp)
 
-add_library(hal_bbdev STATIC ${SOURCES})
-target_compile_options(hal_bbdev PRIVATE ${DPDK_CFLAGS})
-target_link_libraries(hal_bbdev srslog ${DPDK_LIBRARIES})
+add_library(srsran_hal_bbdev STATIC ${SOURCES})
+target_compile_options(srsran_hal_bbdev PRIVATE ${DPDK_CFLAGS})
+target_link_libraries(srsran_hal_bbdev srslog ${DPDK_LIBRARIES} dl)

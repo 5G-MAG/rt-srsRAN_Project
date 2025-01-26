@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -20,15 +20,15 @@
  *
  */
 
-#include "../../../../unittests/phy/upper/channel_processors/pdsch_processor_test_doubles.h"
+#include "../../../../unittests/phy/upper/channel_processors/pdsch/pdsch_processor_test_doubles.h"
 #include "srsran/phy/support/support_factories.h"
-#include "srsran/phy/upper/channel_processors/channel_processor_factories.h"
+#include "srsran/phy/upper/channel_processors/pdsch/factories.h"
 #include "srsran/ran/precoding/precoding_codebooks.h"
 #include "srsran/ran/sch/tbs_calculator.h"
 #include "srsran/support/benchmark_utils.h"
 #include "srsran/support/executors/task_worker_pool.h"
 #include "srsran/support/executors/unique_thread.h"
-#include "srsran/support/math_utils.h"
+#include "srsran/support/math/math_utils.h"
 #include "srsran/support/srsran_test.h"
 #ifdef HWACC_PDSCH_ENABLED
 #include "srsran/hal/dpdk/bbdev/bbdev_acc.h"
@@ -305,7 +305,7 @@ static void usage(const char* prog)
              dedicated_queue ? "dedicated_queue" : "shared_queue");
   fmt::print("\t-x       Force TB mode [Default {}]\n", cb_mode ? "cb_mode" : "tb_mode");
   fmt::print("\t-y       Force logging output written to a file [Default {}]\n", std_out_sink ? "std_out" : "file");
-  fmt::print("\t-z       Set logging level for the HAL [Default {}]\n", hal_log_level);
+  fmt::print("\t-z       Set logging level for the HAL [Default {}]\n", fmt::underlying(hal_log_level));
   fmt::print("\teal_args EAL arguments\n");
 #endif // HWACC_PDSCH_ENABLED
   fmt::print("\t-h Show this message\n");
@@ -450,29 +450,31 @@ static std::vector<test_case_type> generate_test_cases(const test_profile& profi
         unsigned tbs            = tbs_calculator_calculate(tbs_config);
 
         // Build the PDSCH PDU configuration.
-        pdsch_processor::pdu_t config = {std::nullopt,
-                                         slot_point(to_numerology_value(profile.scs), 0),
-                                         1,
-                                         nof_prb,
-                                         0,
-                                         profile.cp,
-                                         {pdsch_processor::codeword_description{mcs.modulation, i_rv}},
-                                         0,
-                                         pdsch_processor::pdu_t::CRB0,
-                                         dmrs_symbol_mask,
-                                         dmrs_type::options::TYPE1,
-                                         0,
-                                         false,
-                                         nof_cdm_groups_without_data,
-                                         rb_allocation::make_type1(config.bwp_start_rb, nof_prb),
-                                         profile.start_symbol,
-                                         profile.nof_symbols,
-                                         get_ldpc_base_graph(mcs.get_normalised_target_code_rate(), units::bits(tbs)),
-                                         units::bits(ldpc::MAX_CODEBLOCK_SIZE).truncate_to_bytes(),
-                                         {},
-                                         0.0,
-                                         0.0,
-                                         precoding_config};
+        pdsch_processor::pdu_t config = {
+            .context                     = std::nullopt,
+            .slot                        = slot_point(to_numerology_value(profile.scs), 0),
+            .rnti                        = 1,
+            .bwp_size_rb                 = nof_prb,
+            .bwp_start_rb                = 0,
+            .cp                          = profile.cp,
+            .codewords                   = {pdsch_processor::codeword_description{mcs.modulation, i_rv}},
+            .n_id                        = 0,
+            .ref_point                   = pdsch_processor::pdu_t::CRB0,
+            .dmrs_symbol_mask            = dmrs_symbol_mask,
+            .dmrs                        = dmrs_type::options::TYPE1,
+            .scrambling_id               = 0,
+            .n_scid                      = false,
+            .nof_cdm_groups_without_data = nof_cdm_groups_without_data,
+            .freq_alloc                  = rb_allocation::make_type1(config.bwp_start_rb, nof_prb),
+            .start_symbol_index          = profile.start_symbol,
+            .nof_symbols                 = profile.nof_symbols,
+            .ldpc_base_graph             = get_ldpc_base_graph(mcs.get_normalised_target_code_rate(), units::bits(tbs)),
+            .tbs_lbrm                    = units::bits(ldpc::MAX_CODEBLOCK_SIZE).truncate_to_bytes(),
+            .reserved                    = {},
+            .ptrs                        = std::nullopt,
+            .ratio_pdsch_dmrs_to_sss_dB  = 0.0,
+            .ratio_pdsch_data_to_sss_dB  = 0.0,
+            .precoding                   = precoding_config};
         test_case_set.emplace_back(std::tuple<pdsch_processor::pdu_t, unsigned>(config, tbs));
       }
     }
@@ -515,8 +517,8 @@ static std::shared_ptr<hal::hw_accelerator_pdsch_enc_factory> create_hw_accelera
   std::shared_ptr<dpdk::bbdev_acc> bbdev_accelerator = create_bbdev_acc(bbdev_config, logger);
   TESTASSERT(bbdev_accelerator);
 
-  // Set the hardware-accelerator configuration.
-  hal::hw_accelerator_pdsch_enc_configuration hw_encoder_config;
+  // Set the PDSCH encoder hardware-accelerator factory configuration for the ACC100.
+  hal::bbdev_hwacc_pdsch_enc_factory_configuration hw_encoder_config;
   hw_encoder_config.acc_type          = "acc100";
   hw_encoder_config.bbdev_accelerator = bbdev_accelerator;
   hw_encoder_config.cb_mode           = cb_mode;
@@ -524,7 +526,7 @@ static std::shared_ptr<hal::hw_accelerator_pdsch_enc_factory> create_hw_accelera
   hw_encoder_config.dedicated_queue   = dedicated_queue;
 
   // ACC100 hardware-accelerator implementation.
-  return create_hw_accelerator_pdsch_enc_factory(hw_encoder_config);
+  return srsran::hal::create_bbdev_pdsch_enc_acc_factory(hw_encoder_config);
 #else  // HWACC_PDSCH_ENABLED
   return nullptr;
 #endif // HWACC_PDSCH_ENABLED
@@ -586,19 +588,33 @@ static pdsch_processor_factory& get_processor_factory()
   std::shared_ptr<ldpc_rate_matcher_factory> ldpc_rm_factory = create_ldpc_rate_matcher_factory_sw();
   TESTASSERT(ldpc_rm_factory);
 
-  // Create LDPC desegmenter factory.
+  // Create LDPC segmenter factory.
   std::shared_ptr<ldpc_segmenter_tx_factory> ldpc_segm_tx_factory =
       create_ldpc_segmenter_tx_factory_sw(crc_calc_factory);
   TESTASSERT(ldpc_segm_tx_factory);
 
+  // Create channel precoder factory.
+  std::shared_ptr<channel_precoder_factory> precoding_factory = create_channel_precoder_factory("auto");
+  TESTASSERT(precoding_factory);
+
+  // Create resource grid mapper factory.
+  std::shared_ptr<resource_grid_mapper_factory> rg_mapper_factory =
+      create_resource_grid_mapper_factory(precoding_factory);
+  TESTASSERT(rg_mapper_factory);
+
   // Create DM-RS for PDSCH channel estimator.
   std::shared_ptr<dmrs_pdsch_processor_factory> dmrs_pdsch_gen_factory =
-      create_dmrs_pdsch_processor_factory_sw(prg_factory);
+      create_dmrs_pdsch_processor_factory_sw(prg_factory, rg_mapper_factory);
   TESTASSERT(dmrs_pdsch_gen_factory);
+
+  // Create PT-RS for PDSCH channel estimator.
+  std::shared_ptr<ptrs_pdsch_generator_factory> ptrs_pdsch_gen_factory =
+      create_ptrs_pdsch_generator_generic_factory(prg_factory, rg_mapper_factory);
+  TESTASSERT(ptrs_pdsch_gen_factory);
 
   // Create PDSCH demodulator factory.
   std::shared_ptr<pdsch_modulator_factory> pdsch_mod_factory =
-      create_pdsch_modulator_factory_sw(chan_modulation_factory, prg_factory);
+      create_pdsch_modulator_factory_sw(chan_modulation_factory, prg_factory, rg_mapper_factory);
   TESTASSERT(pdsch_mod_factory);
 
   // Create PDSCH encoder factory.
@@ -607,8 +623,8 @@ static pdsch_processor_factory& get_processor_factory()
 
   // Create generic PDSCH processor.
   if (pdsch_processor_type == "generic") {
-    pdsch_proc_factory =
-        create_pdsch_processor_factory_sw(pdsch_enc_factory, pdsch_mod_factory, dmrs_pdsch_gen_factory);
+    pdsch_proc_factory = create_pdsch_processor_factory_sw(
+        pdsch_enc_factory, pdsch_mod_factory, dmrs_pdsch_gen_factory, ptrs_pdsch_gen_factory);
   }
 
   // Note that currently hardware-acceleration is limited to "generic" processor types.
@@ -618,11 +634,13 @@ static pdsch_processor_factory& get_processor_factory()
                                                                 ldpc_rm_factory,
                                                                 prg_factory,
                                                                 chan_modulation_factory,
-                                                                dmrs_pdsch_gen_factory);
+                                                                dmrs_pdsch_gen_factory,
+                                                                ptrs_pdsch_gen_factory,
+                                                                rg_mapper_factory);
   }
 
   // Create synchronous PDSCH processor pool if the processor is synchronous.
-  if (pdsch_proc_factory) {
+  if (pdsch_proc_factory && (nof_threads > 1)) {
     // Only valid for generic and lite.
     pdsch_proc_factory = create_pdsch_processor_pool(std::move(pdsch_proc_factory), nof_threads);
   }
@@ -640,12 +658,14 @@ static pdsch_processor_factory& get_processor_factory()
         "pdsch_proc", nof_pdsch_processor_concurrent_threads, 1024);
     executor = std::make_unique<task_worker_pool_executor<concurrent_queue_policy::locking_mpmc>>(*worker_pool);
 
-    pdsch_proc_factory = create_pdsch_concurrent_processor_factory_sw(crc_calc_factory,
+    pdsch_proc_factory = create_pdsch_concurrent_processor_factory_sw(ldpc_segm_tx_factory,
                                                                       ldpc_enc_factory,
                                                                       ldpc_rm_factory,
                                                                       prg_factory,
+                                                                      rg_mapper_factory,
                                                                       chan_modulation_factory,
                                                                       dmrs_pdsch_gen_factory,
+                                                                      ptrs_pdsch_gen_factory,
                                                                       *executor,
                                                                       nof_pdsch_processor_concurrent_threads);
 
@@ -673,9 +693,7 @@ static std::unique_ptr<pdsch_processor> create_processor()
 // Creates a resource grid.
 static std::unique_ptr<resource_grid> create_resource_grid(unsigned nof_ports, unsigned nof_symbols, unsigned nof_subc)
 {
-  std::shared_ptr<channel_precoder_factory> precoding_factory = create_channel_precoder_factory("auto");
-  TESTASSERT(precoding_factory != nullptr, "Invalid channel precoder factory.");
-  std::shared_ptr<resource_grid_factory> rg_factory = create_resource_grid_factory(precoding_factory);
+  std::shared_ptr<resource_grid_factory> rg_factory = create_resource_grid_factory();
   TESTASSERT(rg_factory != nullptr, "Invalid resource grid factory.");
 
   return rg_factory->create(nof_ports, nof_symbols, nof_subc);
@@ -717,12 +735,11 @@ static void thread_process(pdsch_processor& proc, const pdsch_processor::pdu_t& 
 
     // Process PDU.
     if (worker_pool) {
-      bool success = worker_pool->push_task([&proc, &grid, &notifier, &data, &config]() mutable {
-        proc.process(grid->get_mapper(), notifier, {data}, config);
+      (void)worker_pool->push_task([&proc, &grid, &notifier, &data, &config]() mutable {
+        proc.process(grid->get_writer(), notifier, {shared_transport_block(data)}, config);
       });
-      (void)success;
     } else {
-      proc.process(grid->get_mapper(), notifier, {data}, config);
+      proc.process(grid->get_writer(), notifier, {shared_transport_block(data)}, config);
     }
 
     // Wait for the processor to finish.
@@ -766,13 +783,18 @@ int main(int argc, char** argv)
 
   // Inform of the benchmark configuration.
   if (benchmark_mode != benchmark_modes::silent) {
+    std::string hwacc_verbose = "";
+    if (ldpc_encoder_type == "acc100") {
+      hwacc_verbose = fmt::format(" ({} VFs)", nof_threads);
+    }
     fmt::print("Launching benchmark for {} threads, {} times per thread, and {} repetitions. Using {} profile, and {} "
-               "LDPC encoder.\n",
+               "LDPC encoder{}.\n",
                nof_threads,
                batch_size_per_thread,
                nof_repetitions,
                selected_profile_name,
-               ldpc_encoder_type);
+               ldpc_encoder_type,
+               hwacc_verbose);
   }
 
   benchmarker perf_meas("PDSCH processor", nof_repetitions);
@@ -830,7 +852,7 @@ int main(int argc, char** argv)
 
     // Measurement description.
     fmt::memory_buffer meas_description;
-    fmt::format_to(meas_description,
+    fmt::format_to(std::back_inserter(meas_description),
                    "PDSCH RB={:<3} Mod={:<6} rv={} - {:>5.1f} Mbps",
                    config.freq_alloc.get_nof_rb(),
                    to_string(config.codewords.front().modulation),

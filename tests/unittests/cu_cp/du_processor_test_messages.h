@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,9 +23,9 @@
 #pragma once
 
 #include "srsran/cu_cp/cu_cp_types.h"
-#include "srsran/f1ap/common/f1ap_message.h"
 #include "srsran/f1ap/cu_cp/du_setup_notifier.h"
 #include "srsran/f1ap/cu_cp/f1ap_cu.h"
+#include "srsran/f1ap/f1ap_message.h"
 
 namespace srsran {
 namespace srs_cu_cp {
@@ -35,7 +35,8 @@ void generate_valid_f1_setup_request(
     du_setup_request& setup_request,
     gnb_du_id_t       gnb_du_id = int_to_gnb_du_id(0x11),
     nr_cell_identity  nrcell_id = nr_cell_identity::create(gnb_id_t{411, 22}, 0).value(),
-    pci_t             pci       = 0);
+    pci_t             pci       = 0,
+    unsigned          tac       = 7);
 
 /// \brief Generate a dummy F1 Setup Request base to extend.
 void generate_f1_setup_request_base(du_setup_request& setup_request);
