@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -26,7 +26,6 @@
 #include "f1ap_du_connection_handler.h"
 #include "f1ap_du_context.h"
 #include "srsran/asn1/f1ap/f1ap.h"
-#include "srsran/du_high/du_high_executor_mapper.h"
 #include "srsran/f1ap/du/f1ap_du.h"
 #include <memory>
 
@@ -43,7 +42,8 @@ public:
                f1ap_du_configurator&       task_sched_,
                task_executor&              ctrl_exec,
                du_high_ue_executor_mapper& ue_exec_mapper,
-               f1ap_du_paging_notifier&    paging_notifier_);
+               f1ap_du_paging_notifier&    paging_notifier_,
+               timer_manager&              timers_);
   ~f1ap_du_impl() override;
 
   bool connect_to_cu_cp() override;
@@ -93,6 +93,9 @@ private:
   /// \param[in] outcome The unsuccessful outcome message.
   void handle_unsuccessful_outcome(const asn1::f1ap::unsuccessful_outcome_s& outcome);
 
+  /// \brief Handle RESET as per TS 38.473, Section 8.2.1.
+  void handle_reset(const asn1::f1ap::reset_s& msg);
+
   /// \brief Handle GNB-CU CONFIGURATION UPDATE as per TS38.473, Section 8.2.5.2.
   void handle_gnb_cu_configuration_update(const asn1::f1ap::gnb_cu_cfg_upd_s& msg);
 
@@ -110,7 +113,10 @@ private:
 
   bool handle_rx_message_gnb_cu_ue_f1ap_id(f1ap_du_ue& ue, gnb_cu_ue_f1ap_id_t cu_ue_id);
 
-  void send_error_indication(const asn1::f1ap::cause_c& cause);
+  void send_error_indication(const asn1::f1ap::cause_c&         cause,
+                             std::optional<uint8_t>             transaction_id = {},
+                             std::optional<gnb_du_ue_f1ap_id_t> du_ue_id       = {},
+                             std::optional<gnb_cu_ue_f1ap_id_t> cu_ue_id       = {});
 
   /// \brief Handle Paging as per TS38.473, Section 8.7.
   void handle_paging_request(const asn1::f1ap::paging_s& msg);

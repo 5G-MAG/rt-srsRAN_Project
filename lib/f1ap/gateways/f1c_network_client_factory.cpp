@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,7 +22,7 @@
 
 #include "srsran/f1ap/gateways/f1c_network_client_factory.h"
 #include "srsran/asn1/f1ap/f1ap.h"
-#include "srsran/f1ap/common/f1ap_message.h"
+#include "srsran/f1ap/f1ap_message.h"
 #include "srsran/gateways/sctp_network_client_factory.h"
 #include "srsran/pcap/dlt_pcap.h"
 #include "srsran/support/io/io_broker.h"
@@ -112,7 +112,7 @@ public:
     pcap_writer(params.pcap), broker(params.broker), sctp_params(params.sctp)
   {
     // Create SCTP network adapter.
-    sctp_gateway = create_sctp_network_client(sctp_network_client_config{params.sctp, broker});
+    sctp_gateway = create_sctp_network_client(sctp_network_client_config{params.sctp, broker, params.io_rx_executor});
     report_error_if_not(sctp_gateway != nullptr, "Failed to create SCTP gateway client.\n");
   }
 

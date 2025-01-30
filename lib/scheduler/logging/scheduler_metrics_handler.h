@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,18 +22,21 @@
 
 #pragma once
 
-#include "../ue_scheduling/harq_process.h"
 #include "scheduler_metrics_ue_configurator.h"
 #include "srsran/scheduler/scheduler_dl_buffer_state_indication_handler.h"
 #include "srsran/scheduler/scheduler_feedback_handler.h"
 #include "srsran/scheduler/scheduler_metrics.h"
-#include "srsran/scheduler/scheduler_slot_handler.h"
+#include "srsran/support/math/stats.h"
 #include <unordered_map>
 
 namespace srsran {
 
-///\brief Handler of scheduler slot metrics.
-class scheduler_metrics_handler final : public harq_timeout_handler, public sched_metrics_ue_configurator
+class cell_configuration;
+struct rach_indication_message;
+struct sched_result;
+
+///\brief Handler of scheduler slot metrics for a given cell.
+class cell_metrics_handler final : public sched_metrics_ue_configurator
 {
   using msecs = std::chrono::milliseconds;
   using usecs = std::chrono::microseconds;
@@ -45,6 +48,7 @@ class scheduler_metrics_handler final : public harq_timeout_handler, public sche
       unsigned count_uci_harqs        = 0;
       unsigned count_crc_acks         = 0;
       unsigned count_crc_pdus         = 0;
+      unsigned count_sr               = 0;
       unsigned dl_mcs                 = 0;
       unsigned nof_dl_cws             = 0;
       unsigned ul_mcs                 = 0;
@@ -54,11 +58,22 @@ class scheduler_metrics_handler final : public harq_timeout_handler, public sche
       double   sum_pusch_snrs         = 0;
       double   sum_pucch_snrs         = 0;
       double   sum_pusch_rsrp         = 0;
+      unsigned sum_crc_delay_slots    = 0;
       unsigned nof_pucch_snr_reports  = 0;
       unsigned nof_pusch_snr_reports  = 0;
       unsigned nof_pusch_rsrp_reports = 0;
-      unsigned dl_prbs_used           = 0;
-      unsigned ul_prbs_used           = 0;
+      unsigned tot_dl_prbs_used       = 0;
+      unsigned tot_ul_prbs_used       = 0;
+      unsigned sum_ul_ce_delay_slots  = 0;
+      unsigned nof_ul_ces             = 0;
+      /// TA statistics over the metrics report interval, in seconds.
+      sample_statistics<float> ta;
+      /// PUSCH TA statistics over the metrics report interval, in seconds.
+      sample_statistics<float> pusch_ta;
+      /// PUCCH TA statistics over the metrics report interval, in seconds.
+      sample_statistics<float> pucch_ta;
+      /// SRS TA statistics over the metrics report interval, in seconds.
+      sample_statistics<float> srs_ta;
       /// CQI statistics over the metrics report interval.
       sample_statistics<unsigned> cqi;
       /// RI statistics over the metrics report interval.
@@ -70,23 +85,28 @@ class scheduler_metrics_handler final : public harq_timeout_handler, public sche
     ue_metric_context() {}
 
     pci_t                                  pci;
-    unsigned                               nof_prbs;
     du_ue_index_t                          ue_index;
     rnti_t                                 rnti;
     unsigned                               last_bsr = 0;
     std::optional<int>                     last_phr;
-    std::optional<phy_time_unit>           last_ta;
     std::array<unsigned, MAX_NOF_RB_LCIDS> last_dl_bs{0};
+    std::optional<float>                   last_dl_olla;
+    std::optional<float>                   last_ul_olla;
     non_persistent_data                    data;
 
-    scheduler_ue_metrics compute_report(std::chrono::milliseconds metric_report_period);
+    scheduler_ue_metrics compute_report(std::chrono::milliseconds metric_report_period, unsigned nof_slots_per_sf);
     void                 reset();
   };
 
   scheduler_metrics_notifier&     notifier;
   const std::chrono::milliseconds report_period;
-  /// Derived value.
+  const cell_configuration&       cell_cfg;
+
+  // Derived values.
+  unsigned nof_slots_per_sf    = 0;
   unsigned report_period_slots = 0;
+
+  slot_point last_slot_tx;
 
   unsigned                                                        error_indication_counter = 0;
   std::chrono::microseconds                                       decision_latency_sum{0};
@@ -95,32 +115,56 @@ class scheduler_metrics_handler final : public harq_timeout_handler, public sche
   slotted_id_table<du_ue_index_t, ue_metric_context, MAX_NOF_DU_UES> ues;
   std::unordered_map<rnti_t, du_ue_index_t>                          rnti_to_ue_index_lookup;
 
+  /// Number of full downlink slots.
+  unsigned nof_dl_slots = 0;
+
+  /// Number of full uplink slots.
+  unsigned nof_ul_slots = 0;
+  // Number of PRACH preambles
+
+  unsigned nof_prach_preambles = 0;
+
   /// Counter of number of slots elapsed since the last report.
   unsigned slot_counter = 0;
 
   scheduler_cell_metrics next_report;
 
 public:
-  /// \brief Creates a scheduler UE metrics handler. In case the metrics_report_period is zero, no metrics are reported.
-  explicit scheduler_metrics_handler(msecs metrics_report_period, scheduler_metrics_notifier& notifier);
+  /// \brief Creates a scheduler UE metrics handler for a given cell. In case the metrics_report_period is zero,
+  /// no metrics are reported.
+  explicit cell_metrics_handler(msecs                       metrics_report_period,
+                                scheduler_metrics_notifier& notifier,
+                                const cell_configuration&   cell_cfg_);
 
   /// \brief Register creation of a UE.
-  void handle_ue_creation(du_ue_index_t ue_index, rnti_t rnti, pci_t pcell_pci, unsigned num_prbs) override;
+  void handle_ue_creation(du_ue_index_t ue_index, rnti_t rnti, pci_t pcell_pci) override;
+
+  /// \brief Register UE reconfiguration.
+  void handle_ue_reconfiguration(du_ue_index_t ue_index) override;
 
   /// \brief Register removal of a UE.
   void handle_ue_deletion(du_ue_index_t ue_index) override;
 
+  /// \brief Register detected PRACH.
+  void handle_rach_indication(const rach_indication_message& msg);
+
   /// \brief Register CRC indication.
-  void handle_crc_indication(const ul_crc_pdu_indication& crc_pdu, units::bytes tbs);
+  void handle_crc_indication(slot_point sl_rx, const ul_crc_pdu_indication& crc_pdu, units::bytes tbs);
+
+  /// \brief Handle SRS indication.
+  void handle_srs_indication(const srs_indication::srs_indication_pdu& srs_pdu);
 
   /// \brief Register HARQ-ACK UCI indication.
   void handle_dl_harq_ack(du_ue_index_t ue_index, bool ack, units::bytes tbs);
 
   /// \brief Register HARQ timeout.
-  void handle_harq_timeout(du_ue_index_t ue_index, bool is_dl) override;
+  void handle_harq_timeout(du_ue_index_t ue_index, bool is_dl);
 
   /// \brief Handle UCI PDU indication.
   void handle_uci_pdu_indication(const uci_indication::uci_pdu& pdu);
+
+  /// \brief Handle SR indication.
+  void handle_sr_indication(du_ue_index_t ue_index);
 
   /// \brief Handle UL BSR indication.
   void handle_ul_bsr_indication(const ul_bsr_indication_message& bsr);
@@ -145,6 +189,26 @@ private:
   void handle_csi_report(ue_metric_context& u, const csi_report_data& csi);
   void report_metrics();
   void handle_slot_result(const sched_result& slot_result, std::chrono::microseconds slot_decision_latency);
+};
+
+/// Handler of metrics for all the UEs and cells of the scheduler.
+class scheduler_metrics_handler
+{
+  using msecs = std::chrono::milliseconds;
+
+public:
+  /// \brief Creates a scheduler metrics handler. In case the metrics_report_period is zero, no metrics are reported.
+  explicit scheduler_metrics_handler(msecs metrics_report_period, scheduler_metrics_notifier& notifier);
+
+  cell_metrics_handler* add_cell(const cell_configuration& cell_cfg);
+
+  cell_metrics_handler& at(du_cell_index_t cell_idx) { return *cells[cell_idx]; }
+
+private:
+  scheduler_metrics_notifier&     notifier;
+  const std::chrono::milliseconds report_period;
+
+  slotted_array<std::unique_ptr<cell_metrics_handler>, MAX_NOF_DU_CELLS> cells;
 };
 
 } // namespace srsran

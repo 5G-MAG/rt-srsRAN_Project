@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -27,6 +27,7 @@
 #include "../support/uplink_cplane_context_repository.h"
 #include "srsran/ofh/transmitter/ofh_transmitter.h"
 #include "srsran/ofh/transmitter/ofh_transmitter_configuration.h"
+#include "srsran/srslog/logger.h"
 
 namespace srsran {
 

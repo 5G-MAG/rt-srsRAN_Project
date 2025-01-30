@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -24,6 +24,7 @@
 
 #include "../support/prach_context_repository.h"
 #include "srsran/ofh/ofh_uplane_rx_symbol_notifier.h"
+#include "srsran/srslog/logger.h"
 
 namespace srsran {
 namespace ofh {

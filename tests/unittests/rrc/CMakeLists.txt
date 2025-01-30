@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -28,7 +28,6 @@ set(SOURCES
         rrc_asn1_helpers_test.cpp
         rrc_ue_setup_proc_test.cpp
         rrc_ue_dl_info_transfer_proc_test.cpp
-        rrc_ue_smc_proc_test.cpp
         rrc_ue_reconfig_proc_test.cpp
         rrc_ue_capability_transfer_proc_test.cpp
         rrc_ue_reest_proc_test.cpp

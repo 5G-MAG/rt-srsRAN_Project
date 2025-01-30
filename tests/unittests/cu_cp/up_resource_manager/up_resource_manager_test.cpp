@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -103,7 +103,7 @@ protected:
 
 public:
   pdcp_config             pdcp_cfg{pdcp_rb_type::drb, pdcp_rlc_mode::am};
-  up_resource_manager_cfg cfg{{{uint_to_five_qi(9), {pdcp_cfg}}, {uint_to_five_qi(7), {pdcp_cfg}}}};
+  up_resource_manager_cfg cfg{{{uint_to_five_qi(9), {pdcp_cfg}}, {uint_to_five_qi(7), {pdcp_cfg}}}, 8};
   up_resource_manager     manager{cfg};
 };
 

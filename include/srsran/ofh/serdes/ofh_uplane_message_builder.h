@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -49,7 +49,7 @@ public:
   /// \param[in] config  User plane message parameters.
   /// \return Number of bytes serialized in the buffer.
   virtual unsigned
-  build_message(span<uint8_t> buffer, span<const cf_t> iq_data, const uplane_message_params& params) = 0;
+  build_message(span<uint8_t> buffer, span<const cbf16_t> iq_data, const uplane_message_params& params) = 0;
 };
 
 } // namespace ofh

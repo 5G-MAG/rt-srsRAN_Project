@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -91,6 +91,10 @@ gtest_discover_tests(ul_pucch_pdu_validator_test)
 add_executable(ul_pusch_pdu_validator_test ul_pusch_pdu_test.cpp)
 target_link_libraries(ul_pusch_pdu_validator_test srsran_support srsran_fapi_message_builder_test_helpers srslog srsran_fapi gtest gtest_main)
 gtest_discover_tests(ul_pusch_pdu_validator_test)
+
+add_executable(ul_srs_pdu_validator_test ul_srs_pdu_test.cpp)
+target_link_libraries(ul_srs_pdu_validator_test srsran_support srsran_fapi_message_builder_test_helpers srslog srsran_fapi gtest gtest_main)
+gtest_discover_tests(ul_srs_pdu_validator_test)
 
 add_executable(ul_tti_request_validator_test ul_tti_request_test.cpp)
 target_link_libraries(ul_tti_request_validator_test srsran_support srsran_fapi_message_builder_test_helpers srslog srsran_fapi gtest gtest_main)

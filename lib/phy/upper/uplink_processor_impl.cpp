@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -24,6 +24,8 @@
 #include "srsran/instrumentation/traces/du_traces.h"
 #include "srsran/phy/support/prach_buffer.h"
 #include "srsran/phy/support/prach_buffer_context.h"
+#include "srsran/phy/support/resource_grid.h"
+#include "srsran/phy/support/shared_resource_grid.h"
 #include "srsran/phy/upper/unique_rx_buffer.h"
 #include "srsran/phy/upper/upper_phy_rx_results_notifier.h"
 
@@ -86,7 +88,7 @@ void uplink_processor_impl::process_prach(upper_phy_rx_results_notifier& notifie
 void uplink_processor_impl::process_pusch(span<uint8_t>                      data,
                                           unique_rx_buffer                   rm_buffer,
                                           upper_phy_rx_results_notifier&     notifier,
-                                          const resource_grid_reader&        grid,
+                                          const shared_resource_grid&        grid,
                                           const uplink_processor::pusch_pdu& pdu)
 {
   trace_point tp = l1_tracer.now();
@@ -106,40 +108,42 @@ void uplink_processor_impl::process_pusch(span<uint8_t>                      dat
       notifier, to_rnti(pdu.pdu.rnti), pdu.pdu.slot, to_harq_id(pdu.harq_id), data);
 
   // Process PUSCH.
-  pusch_proc->process(data, std::move(rm_buffer), processor_notifier, grid, pdu.pdu);
+  pusch_proc->process(data, std::move(rm_buffer), processor_notifier, grid.get_reader(), pdu.pdu);
 
   l1_tracer << trace_event("process_pusch", tp);
 }
 
 void uplink_processor_impl::process_pucch(upper_phy_rx_results_notifier&     notifier,
-                                          const resource_grid_reader&        grid,
+                                          const shared_resource_grid&        grid,
                                           const uplink_processor::pucch_pdu& pdu)
 {
   trace_point tp = l1_tracer.now();
-
-  srsran_assert(pdu.context.format == pucch_format::FORMAT_1 || pdu.context.format == pucch_format::FORMAT_2,
-                "Currently supporting PUCCH Format 1 and 2 only.");
 
   pucch_processor_result proc_result;
   // Process the PUCCH.
   switch (pdu.context.format) {
     case pucch_format::FORMAT_0:
-      proc_result = pucch_proc->process(grid, pdu.format0);
+      proc_result = pucch_proc->process(grid.get_reader(), pdu.format0);
+      l1_tracer << trace_event("pucch0", tp);
       break;
     case pucch_format::FORMAT_1:
-      proc_result = pucch_proc->process(grid, pdu.format1);
+      proc_result = pucch_proc->process(grid.get_reader(), pdu.format1);
+      l1_tracer << trace_event("pucch1", tp);
       break;
     case pucch_format::FORMAT_2:
-      proc_result = pucch_proc->process(grid, pdu.format2);
+      proc_result = pucch_proc->process(grid.get_reader(), pdu.format2);
+      l1_tracer << trace_event("pucch2", tp);
       break;
     case pucch_format::FORMAT_3:
-      proc_result = pucch_proc->process(grid, pdu.format3);
+      proc_result = pucch_proc->process(grid.get_reader(), pdu.format3);
+      l1_tracer << trace_event("pucch3", tp);
       break;
     case pucch_format::FORMAT_4:
-      proc_result = pucch_proc->process(grid, pdu.format4);
+      proc_result = pucch_proc->process(grid.get_reader(), pdu.format4);
+      l1_tracer << trace_event("pucch4", tp);
       break;
     default:
-      srsran_assert(0, "Invalid PUCCH format={}", pdu.context.format);
+      srsran_assert(0, "Invalid PUCCH format={}", fmt::underlying(pdu.context.format));
   }
 
   // Write the results.
@@ -149,19 +153,17 @@ void uplink_processor_impl::process_pucch(upper_phy_rx_results_notifier&     not
 
   // Notify the PUCCH results.
   notifier.on_new_pucch_results(result);
-
-  l1_tracer << trace_event("process_pucch", tp);
 }
 
 void uplink_processor_impl::process_srs(upper_phy_rx_results_notifier&   notifier,
-                                        const resource_grid_reader&      grid,
+                                        const shared_resource_grid&      grid,
                                         const uplink_processor::srs_pdu& pdu)
 {
   trace_point tp = l1_tracer.now();
 
   ul_srs_results result;
   result.context          = pdu.context;
-  result.processor_result = srs->estimate(grid, pdu.config);
+  result.processor_result = srs->estimate(grid.get_reader(), pdu.config);
 
   l1_tracer << trace_event("process_srs", tp);
 

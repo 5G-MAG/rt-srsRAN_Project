@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,17 +22,14 @@
 
 #pragma once
 
-#include "../common/e1ap_asn1_utils.h"
 #include "e1ap_cu_up_connection_handler.h"
 #include "ue_context/e1ap_cu_up_ue_context.h"
 #include "srsran/asn1/e1ap/e1ap.h"
 #include "srsran/e1ap/cu_up/e1ap_cu_up.h"
 #include "srsran/support/executors/task_executor.h"
 #include "srsran/support/timers.h"
-#include <unordered_map>
 
-namespace srsran {
-namespace srs_cu_up {
+namespace srsran::srs_cu_up {
 
 class e1_connection_client;
 class e1ap_event_manager;
@@ -40,14 +37,14 @@ class e1ap_event_manager;
 class e1ap_cu_up_impl final : public e1ap_interface
 {
 public:
-  e1ap_cu_up_impl(e1_connection_client& e1_client_handler_,
-                  e1ap_cu_up_notifier&  cu_up_notifier_,
-                  timer_manager&        timers_,
-                  task_executor&        cu_up_exec_);
+  e1ap_cu_up_impl(e1_connection_client&        e1_client_handler_,
+                  e1ap_cu_up_manager_notifier& cu_up_notifier_,
+                  timer_manager&               timers_,
+                  task_executor&               cu_up_exec_);
   ~e1ap_cu_up_impl() override;
 
   // e1ap connection manager functions
-  bool connect_to_cu_cp() override;
+  [[nodiscard]] bool connect_to_cu_cp() override;
   // E1AP interface management procedures functions as per TS38.463, Section 8.2.
   async_task<cu_up_e1_setup_response> handle_cu_up_e1_setup_request(const cu_up_e1_setup_request& request) override;
 
@@ -110,7 +107,7 @@ private:
   srslog::basic_logger& logger;
 
   // nofifiers and handles
-  e1ap_cu_up_notifier& cu_up_notifier;
+  e1ap_cu_up_manager_notifier& cu_up_notifier;
 
   timer_manager& timers;
   task_executor& cu_up_exec;
@@ -124,5 +121,4 @@ private:
   std::unique_ptr<e1ap_event_manager> ev_mng;
 };
 
-} // namespace srs_cu_up
-} // namespace srsran
+} // namespace srsran::srs_cu_up

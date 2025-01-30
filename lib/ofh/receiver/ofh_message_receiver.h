@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -42,6 +42,8 @@ class rx_window_checker;
 
 /// Message receiver configuration.
 struct message_receiver_config {
+  /// Radio sector identifier.
+  unsigned sector;
   /// Number of symbols
   unsigned nof_symbols;
   /// Subcarrier spacing.
@@ -57,11 +59,11 @@ struct message_receiver_config {
 /// Message receiver dependencies.
 struct message_receiver_dependencies {
   /// Logger.
-  srslog::basic_logger* logger;
+  srslog::basic_logger* logger = nullptr;
   /// Ethernet receiver.
   std::unique_ptr<ether::receiver> eth_receiver;
   /// Reception window checker.
-  rx_window_checker* window_checker;
+  rx_window_checker* window_checker = nullptr;
   /// eCPRI packet decoder.
   std::unique_ptr<ecpri::packet_decoder> ecpri_decoder;
   /// Ethernet frame decoder.
@@ -112,6 +114,7 @@ private:
 
 private:
   srslog::basic_logger&                                 logger;
+  const unsigned                                        sector_id;
   const unsigned                                        nof_symbols;
   const subcarrier_spacing                              scs;
   const ether::vlan_frame_params                        vlan_params;

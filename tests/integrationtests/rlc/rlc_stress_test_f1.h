@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -57,7 +57,7 @@ public:
   }
 
   // RLC -> F1AP -> PDCP
-  void on_transmitted_sdu(uint32_t max_tx_pdcp_sn) final
+  void on_transmitted_sdu(uint32_t max_tx_pdcp_sn, uint32_t desired_buf_size) final
   {
     logger.log_debug("Transmitted SDU called");
     // TODO

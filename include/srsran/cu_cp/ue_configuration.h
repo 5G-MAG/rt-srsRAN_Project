@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -29,8 +29,9 @@ namespace srs_cu_cp {
 
 /// UE configuration passed to CU-CP
 struct ue_configuration {
-  std::chrono::seconds inactivity_timer;
-  unsigned             max_nof_supported_ues = MAX_NOF_CU_UES;
+  std::chrono::seconds inactivity_timer{7200};
+  /// Timeout for requesting a PDU session in seconds, before the UE is released.
+  std::chrono::seconds request_pdu_session_timeout = std::chrono::seconds{2};
 };
 
 } // namespace srs_cu_cp

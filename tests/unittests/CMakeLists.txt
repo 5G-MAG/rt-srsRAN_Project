@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -34,12 +34,12 @@ add_custom_target(all_vector_tests)
 macro(ADD_TEST_VECTOR TARGET VECTOR_FILE TEST_ARGS)
     if (NOT (${VECTOR_FILE} STREQUAL none))
         if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${VECTOR_FILE})
+            file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/test_data)
             add_custom_command(
                     TARGET ${TARGET}
                     POST_BUILD
                     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/test_data
                     COMMAND ${CMAKE_COMMAND} -E tar xf ${CMAKE_CURRENT_SOURCE_DIR}/${VECTOR_FILE}
-                    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${VECTOR_FILE}
                     VERBATIM)
         else (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${VECTOR_FILE})
             message(FATAL_ERROR "Vector file ${CMAKE_CURRENT_SOURCE_DIR}/${VECTOR_FILE} does not exist.")
@@ -72,7 +72,6 @@ add_subdirectory(ofh)
 add_subdirectory(pcap)
 add_subdirectory(pdcp)
 add_subdirectory(phy)
-add_subdirectory(psup)
 add_subdirectory(radio)
 add_subdirectory(ran)
 add_subdirectory(rlc)

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,9 +22,14 @@
 
 #pragma once
 
-#include "srsran/support/format_utils.h"
+#include "srsran/adt/to_array.h"
+#include "srsran/support/format/fmt_to_c_str.h"
 #include "fmt/format.h"
-#include <vector>
+
+#ifdef __aarch64__
+#include <asm/hwcap.h>
+#include <sys/auxv.h>
+#endif // __aarch64__
 
 namespace srsran {
 
@@ -59,6 +64,8 @@ enum class cpu_feature {
   ///
   /// NEON is supported if \c __ARM_NEON is defined in compilation time.
   neon,
+  /// CPU supports carry-less multiplication instruction PMULL.
+  pmull,
 #endif // __aarch64__
 };
 
@@ -92,6 +99,8 @@ constexpr const char* to_string(cpu_feature feature)
 #ifdef __aarch64__
     case cpu_feature::neon:
       return "neon";
+    case cpu_feature::pmull:
+      return "pmull";
 #endif // __aarch64__
   }
   return "invalid_cpu_feature";
@@ -133,13 +142,16 @@ inline bool cpu_supports_feature(cpu_feature feature)
     case cpu_feature::neon:
       return true;
 #endif // __ARM_NEON
+    case cpu_feature::pmull:
+      return ::getauxval(AT_HWCAP) & HWCAP_PMULL;
 #endif // __aarch64__
     default:
       return false;
   }
 }
 
-static const std::vector<cpu_feature> cpu_features_included = {
+namespace detail {
+constexpr auto cpu_features_included = to_array<cpu_feature>({
 #ifdef __x86_64__
 #ifdef __SSE4_1__
     cpu_feature::sse4_1,
@@ -180,18 +192,22 @@ static const std::vector<cpu_feature> cpu_features_included = {
     cpu_feature::neon,
 #endif // __ARM_NEON
 #endif // __aarch64__
-};
+});
+} // namespace detail
 
 inline std::string get_cpu_feature_info()
 {
   fmt::memory_buffer buffer;
-  for (cpu_feature feature : cpu_features_included) {
+  for (cpu_feature feature : detail::cpu_features_included) {
 #ifdef __x86_64__
-    format_to(
-        buffer, "{}{}{}", buffer.size() == 0 ? "" : " ", feature, cpu_supports_feature(feature) ? "(ok)" : "(na)");
+    fmt::format_to(std::back_inserter(buffer),
+                   "{}{}{}",
+                   buffer.size() == 0 ? "" : " ",
+                   feature,
+                   cpu_supports_feature(feature) ? "(ok)" : "(na)");
 #endif // __x86_64__
 #ifdef __aarch64__
-    format_to(buffer, "{}{}", buffer.size() == 0 ? "" : " ", feature);
+    fmt::format_to(std::back_inserter(buffer), "{}{}", buffer.size() == 0 ? "" : " ", feature);
 #endif // __aarch64__
   }
   return std::string{srsran::to_c_str(buffer)};
@@ -199,7 +215,7 @@ inline std::string get_cpu_feature_info()
 
 inline bool cpu_supports_included_features()
 {
-  for (cpu_feature feature : cpu_features_included) {
+  for (cpu_feature feature : detail::cpu_features_included) {
     if (!cpu_supports_feature(feature)) {
       return false;
     }
@@ -213,13 +229,13 @@ namespace fmt {
 template <>
 struct formatter<srsran::cpu_feature> {
   template <typename ParseContext>
-  auto parse(ParseContext& ctx) -> decltype(ctx.begin())
+  auto parse(ParseContext& ctx)
   {
     return ctx.begin();
   }
 
   template <typename FormatContext>
-  auto format(const srsran::cpu_feature feature, FormatContext& ctx) -> decltype(std::declval<FormatContext>().out())
+  auto format(const srsran::cpu_feature feature, FormatContext& ctx) const
   {
     return format_to(ctx.out(), "{}", srsran::to_string(feature));
   }

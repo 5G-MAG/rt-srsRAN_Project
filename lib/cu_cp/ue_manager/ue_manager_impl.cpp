@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -31,12 +31,12 @@ void cu_cp_ue::stop()
   task_sched.stop();
 }
 
-ue_manager::ue_manager(const ue_configuration&        ue_config_,
-                       const up_resource_manager_cfg& up_config_,
-                       const security_manager_config& sec_config_,
-                       timer_manager&                 timers,
-                       task_executor&                 cu_cp_exec) :
-  ue_config(ue_config_), up_config(up_config_), sec_config(sec_config_), ue_task_scheds(timers, cu_cp_exec, logger)
+ue_manager::ue_manager(const cu_cp_configuration& cu_cp_cfg) :
+  ue_config(cu_cp_cfg.ue),
+  up_config(up_resource_manager_cfg{cu_cp_cfg.bearers.drb_config, cu_cp_cfg.admission.max_nof_drbs_per_ue}),
+  sec_config(security_manager_config{cu_cp_cfg.security.int_algo_pref_list, cu_cp_cfg.security.enc_algo_pref_list}),
+  max_nof_ues(cu_cp_cfg.admission.max_nof_ues),
+  ue_task_scheds(*cu_cp_cfg.services.timers, *cu_cp_cfg.services.cu_cp_executor, logger)
 {
 }
 
@@ -46,6 +46,7 @@ void ue_manager::stop()
 }
 
 ue_index_t ue_manager::add_ue(du_index_t                     du_index,
+                              plmn_identity                  plmn,
                               std::optional<gnb_du_id_t>     du_id,
                               std::optional<pci_t>           pci,
                               std::optional<rnti_t>          rnti,
@@ -57,7 +58,7 @@ ue_index_t ue_manager::add_ue(du_index_t                     du_index,
   }
 
   if (du_id.has_value() && du_id.value() == gnb_du_id_t::invalid) {
-    logger.warning("CU-CP UE creation Failed. Cause: Invalid gNB-DU ID={}", du_id.value());
+    logger.warning("CU-CP UE creation Failed. Cause: Invalid gNB-DU ID={}", fmt::underlying(du_id.value()));
     return ue_index_t::invalid;
   }
 
@@ -76,9 +77,14 @@ ue_index_t ue_manager::add_ue(du_index_t                     du_index,
     return ue_index_t::invalid;
   }
 
-  if (ues.size() == ue_config.max_nof_supported_ues) {
-    logger.warning("CU-CP UE creation Failed. Cause: Maximum number of UEs {} supported by the CU-CP has been reached",
-                   ue_config.max_nof_supported_ues);
+  if (ues.size() == max_nof_ues) {
+    logger.warning(
+        "CU-CP UE creation Failed. Cause: Maximum number of UEs supported by the CU-CP ({}) has been reached",
+        max_nof_ues);
+    fmt::print("CU-CP UE creation failed. Cause: Maximum number of UEs supported by the CU-CP ({}) has been reached. "
+               "To increase the number of supported "
+               "UEs change the \"--max_nof_ues\" in the CU-CP configuration\n",
+               max_nof_ues);
     return ue_index_t::invalid;
   }
 
@@ -92,19 +98,22 @@ ue_index_t ue_manager::add_ue(du_index_t                     du_index,
   ue_task_scheduler_impl ue_sched = ue_task_scheds.create_ue_task_sched(new_ue_index);
 
   // Create UE object
-  ues.emplace(std::piecewise_construct,
-              std::forward_as_tuple(new_ue_index),
-              std::forward_as_tuple(
-                  new_ue_index, du_index, up_config, sec_config, std::move(ue_sched), du_id, pci, rnti, pcell_index));
+  ues.emplace(
+      std::piecewise_construct,
+      std::forward_as_tuple(new_ue_index),
+      std::forward_as_tuple(
+          new_ue_index, du_index, up_config, sec_config, std::move(ue_sched), plmn, du_id, pci, rnti, pcell_index));
 
   // Add PCI and RNTI to lookup.
   if (pci.has_value() && rnti.has_value()) {
     pci_rnti_to_ue_index.emplace(std::make_tuple(pci.value(), rnti.value()), new_ue_index);
   }
 
-  logger.info("ue={}{}{}{}{}: Created new CU-CP UE",
+  logger.info("ue={} du_index={} plmn={}{}{}{}{}: Created new CU-CP UE",
               new_ue_index,
-              du_id.has_value() ? fmt::format(" gnb_du_id={}", du_id.value()) : "",
+              du_index,
+              plmn,
+              du_id.has_value() ? fmt::format(" gnb_du_id={}", fmt::underlying(du_id.value())) : "",
               pci.has_value() ? fmt::format(" pci={}", pci.value()) : "",
               rnti.has_value() ? fmt::format(" rnti={}", rnti.value()) : "",
               pcell_index.has_value() ? fmt::format(" pcell_index={}", pcell_index.value()) : "");
@@ -201,8 +210,12 @@ cu_cp_ue* ue_manager::set_ue_du_context(ue_index_t      ue_index,
   // Add PCI and RNTI to lookup.
   pci_rnti_to_ue_index.emplace(std::make_tuple(pci, rnti), ue_index);
 
-  logger.debug(
-      "ue={}: Updated UE with gnb_du_id={} pci={} rnti={} pcell_index={}", ue_index, du_id, pci, rnti, pcell_index);
+  logger.debug("ue={}: Updated UE with gnb_du_id={} pci={} rnti={} pcell_index={}",
+               fmt::underlying(ue_index),
+               fmt::underlying(du_id),
+               pci,
+               rnti,
+               fmt::underlying(pcell_index));
 
   return &ue;
 }
@@ -240,6 +253,12 @@ std::vector<metrics_report::ue_info> ue_manager::handle_ue_metrics_report_reques
     ue_report.rnti  = ue.second.get_c_rnti();
     ue_report.du_id = ue.second.get_du_id();
     ue_report.pci   = ue.second.get_pci();
+
+    if (ue.second.get_rrc_ue() == nullptr) {
+      ue_report.rrc_connection_state = rrc_state::idle;
+    } else {
+      ue_report.rrc_connection_state = ue.second.get_rrc_ue()->get_rrc_ue_control_message_handler().get_rrc_state();
+    }
   }
 
   return report;
@@ -250,7 +269,7 @@ std::vector<metrics_report::ue_info> ue_manager::handle_ue_metrics_report_reques
 ue_index_t ue_manager::allocate_ue_index()
 {
   // return invalid when no UE index is available
-  if (ues.size() == ue_config.max_nof_supported_ues) {
+  if (ues.size() == max_nof_ues) {
     return ue_index_t::invalid;
   }
 

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,10 +23,10 @@
 #pragma once
 
 #include "srsran/adt/complex.h"
-#include "srsran/adt/optional.h"
 #include "srsran/adt/static_vector.h"
 #include "srsran/ofh/serdes/ofh_uplane_message_properties.h"
 #include "srsran/ran/resource_block.h"
+#include <optional>
 
 namespace srsran {
 namespace ofh {
@@ -55,7 +55,7 @@ struct uplane_section_params {
   /// \note For simplicity, all the PRBs use the same compression parameters.
   std::optional<unsigned> ud_comp_param;
   /// IQ samples for the number of PRBs indicated by \c nof_prbs.
-  static_vector<cf_t, MAX_NOF_PRBS * NOF_SUBCARRIERS_PER_RB> iq_samples;
+  static_vector<cbf16_t, MAX_NOF_PRBS * NOF_SUBCARRIERS_PER_RB> iq_samples;
 };
 
 /// Open Fronthaul User-Plane message decoder results.

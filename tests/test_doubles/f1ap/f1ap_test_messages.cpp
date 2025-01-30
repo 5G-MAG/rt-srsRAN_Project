@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -21,26 +21,33 @@
  */
 
 #include "f1ap_test_messages.h"
+#include "../pdcp/pdcp_pdu_generator.h"
+#include "../rrc/rrc_packed_test_messages.h"
 #include "srsran/asn1/f1ap/common.h"
 #include "srsran/asn1/f1ap/f1ap_ies.h"
 #include "srsran/asn1/f1ap/f1ap_pdu_contents.h"
 #include "srsran/asn1/f1ap/f1ap_pdu_contents_ue.h"
-#include "srsran/f1ap/common/f1ap_message.h"
+#include "srsran/f1ap/f1ap_message.h"
 #include "srsran/ran/up_transport_layer_info.h"
 #include "srsran/support/test_utils.h"
 
 using namespace srsran;
 using namespace asn1::f1ap;
 
-gnb_du_served_cells_item_s
-srsran::test_helpers::generate_served_cells_item(nr_cell_identity nci, pci_t nrpci, unsigned tac)
+static byte_buffer generate_rrc_container(uint32_t pdcp_sn, unsigned pdu_len)
+{
+  return test_helpers::create_pdcp_pdu(
+      pdcp_sn_size::size12bits, true, pdcp_sn, pdu_len, test_rgen::uniform_int<uint8_t>());
+}
+
+gnb_du_served_cells_item_s srsran::test_helpers::generate_served_cells_item(const served_cell_item_info& info)
 {
   gnb_du_served_cells_item_s served_cells_item;
   served_cells_item.served_cell_info.nr_cgi.plmn_id.from_string("00f110");
-  served_cells_item.served_cell_info.nr_cgi.nr_cell_id.from_number(nci.value());
-  served_cells_item.served_cell_info.nr_pci              = nrpci;
+  served_cells_item.served_cell_info.nr_cgi.nr_cell_id.from_number(info.nci.value());
+  served_cells_item.served_cell_info.nr_pci              = info.pci;
   served_cells_item.served_cell_info.five_gs_tac_present = true;
-  served_cells_item.served_cell_info.five_gs_tac.from_number(tac);
+  served_cells_item.served_cell_info.five_gs_tac.from_number(info.tac);
 
   served_plmns_item_s served_plmn;
   served_plmn.plmn_id.from_string("00f110");
@@ -51,13 +58,14 @@ srsran::test_helpers::generate_served_cells_item(nr_cell_identity nci, pci_t nrp
   served_cells_item.served_cell_info.served_plmns.push_back(served_plmn);
 
   served_cells_item.served_cell_info.nr_mode_info.set_tdd();
-  served_cells_item.served_cell_info.nr_mode_info.tdd().nr_freq_info.nr_arfcn = 626748;
+  served_cells_item.served_cell_info.nr_mode_info.tdd().nr_freq_info.nr_arfcn = info.nr_arfcn;
   freq_band_nr_item_s freq_band_nr_item;
-  freq_band_nr_item.freq_band_ind_nr = 78;
+  freq_band_nr_item.freq_band_ind_nr = static_cast<uint16_t>(info.band);
   served_cells_item.served_cell_info.nr_mode_info.tdd().nr_freq_info.freq_band_list_nr.push_back(freq_band_nr_item);
   served_cells_item.served_cell_info.nr_mode_info.tdd().tx_bw.nr_scs.value = nr_scs_opts::scs30;
   served_cells_item.served_cell_info.nr_mode_info.tdd().tx_bw.nr_nrb.value = nr_nrb_opts::nrb51;
-  served_cells_item.served_cell_info.meas_timing_cfg.from_string("101105af4084");
+  served_cells_item.served_cell_info.meas_timing_cfg =
+      create_meas_timing_cfg(info.meas_timing_cfg.carrier_freq, info.meas_timing_cfg.scs);
 
   served_cells_item.gnb_du_sys_info_present = true;
   served_cells_item.gnb_du_sys_info.mib_msg.from_string("01c586");
@@ -68,8 +76,8 @@ srsran::test_helpers::generate_served_cells_item(nr_cell_identity nci, pci_t nrp
   return served_cells_item;
 }
 
-f1ap_message
-srsran::test_helpers::generate_f1_setup_request(gnb_du_id_t gnb_du_id, nr_cell_identity nci, pci_t pci, unsigned tac)
+f1ap_message srsran::test_helpers::generate_f1_setup_request(gnb_du_id_t                               gnb_du_id,
+                                                             const std::vector<served_cell_item_info>& cells)
 {
   f1ap_message msg;
   msg.pdu.set_init_msg();
@@ -82,9 +90,11 @@ srsran::test_helpers::generate_f1_setup_request(gnb_du_id_t gnb_du_id, nr_cell_i
   setup_req->gnb_du_name.from_string("srsDU");
   setup_req->gnb_du_rrc_version.latest_rrc_version.from_number(1);
   setup_req->gnb_du_served_cells_list_present = true;
-  setup_req->gnb_du_served_cells_list.resize(1);
-  setup_req->gnb_du_served_cells_list[0].load_info_obj(ASN1_F1AP_ID_GNB_DU_SERVED_CELLS_ITEM);
-  setup_req->gnb_du_served_cells_list[0].value().gnb_du_served_cells_item() = generate_served_cells_item(nci, pci, tac);
+  setup_req->gnb_du_served_cells_list.resize(cells.size());
+  for (unsigned i = 0; i != cells.size(); ++i) {
+    setup_req->gnb_du_served_cells_list[i].load_info_obj(ASN1_F1AP_ID_GNB_DU_SERVED_CELLS_ITEM);
+    setup_req->gnb_du_served_cells_list[i].value().gnb_du_served_cells_item() = generate_served_cells_item(cells[i]);
+  }
 
   return msg;
 }
@@ -143,6 +153,39 @@ f1ap_message srsran::test_helpers::generate_f1_removal_response(const f1ap_messa
   return resp;
 }
 
+f1ap_message srsran::test_helpers::create_f1ap_reset_message(
+    const std::vector<std::pair<std::optional<gnb_du_ue_f1ap_id_t>, std::optional<gnb_cu_ue_f1ap_id_t>>>& ues_to_reset)
+{
+  f1ap_message msg;
+  msg.pdu.set_init_msg().load_info_obj(ASN1_F1AP_ID_RESET);
+
+  asn1::f1ap::reset_s& reset = msg.pdu.init_msg().value.reset();
+  reset->cause.set_misc();
+  reset->cause.misc().value = asn1::f1ap::cause_misc_opts::unspecified;
+
+  if (ues_to_reset.empty()) {
+    auto& f1 = reset->reset_type.set_f1_interface();
+    f1.value = asn1::f1ap::reset_all_opts::reset_all;
+  } else {
+    auto& lst = reset->reset_type.set_part_of_f1_interface();
+    lst.resize(ues_to_reset.size());
+    for (unsigned i = 0; i != ues_to_reset.size(); ++i) {
+      lst[i].load_info_obj(ASN1_F1AP_ID_UE_ASSOCIATED_LC_F1_CONN_ITEM);
+      auto& conn                     = lst[i].value().ue_associated_lc_f1_conn_item();
+      conn.gnb_du_ue_f1ap_id_present = ues_to_reset[i].first.has_value();
+      if (conn.gnb_du_ue_f1ap_id_present) {
+        conn.gnb_du_ue_f1ap_id = gnb_du_ue_f1ap_id_to_uint(ues_to_reset[i].first.value());
+      }
+      conn.gnb_cu_ue_f1ap_id_present = ues_to_reset[i].second.has_value();
+      if (conn.gnb_cu_ue_f1ap_id_present) {
+        conn.gnb_cu_ue_f1ap_id = gnb_cu_ue_f1ap_id_to_uint(ues_to_reset[i].second.value());
+      }
+    }
+  }
+
+  return msg;
+}
+
 static drbs_to_be_setup_item_s generate_drb_am_setup_item(drb_id_t drbid)
 {
   using namespace asn1::f1ap;
@@ -176,7 +219,9 @@ static drbs_to_be_setup_item_s generate_drb_am_setup_item(drb_id_t drbid)
 
 f1ap_message srsran::test_helpers::create_ue_context_setup_request(gnb_cu_ue_f1ap_id_t                cu_ue_id,
                                                                    std::optional<gnb_du_ue_f1ap_id_t> du_ue_id,
-                                                                   const std::vector<drb_id_t>&       drbs_to_setup)
+                                                                   uint32_t                     rrc_container_pdcp_sn,
+                                                                   const std::vector<drb_id_t>& drbs_to_setup,
+                                                                   nr_cell_global_id_t          nr_cgi)
 {
   using namespace asn1::f1ap;
   f1ap_message msg;
@@ -190,6 +235,10 @@ f1ap_message srsran::test_helpers::create_ue_context_setup_request(gnb_cu_ue_f1a
     dl_msg->gnb_du_ue_f1ap_id         = (unsigned)*du_ue_id;
   }
 
+  // spCell.
+  dl_msg->sp_cell_id.plmn_id = nr_cgi.plmn_id.to_bytes();
+  dl_msg->sp_cell_id.nr_cell_id.from_number(nr_cgi.nci.value());
+
   // SRB2.
   dl_msg->srbs_to_be_setup_list_present = true;
   dl_msg->srbs_to_be_setup_list.resize(1);
@@ -197,7 +246,7 @@ f1ap_message srsran::test_helpers::create_ue_context_setup_request(gnb_cu_ue_f1a
   srbs_to_be_setup_item_s& srb2 = dl_msg->srbs_to_be_setup_list[0]->srbs_to_be_setup_item();
   srb2.srb_id                   = 2;
 
-  // drbs-to-be-setup
+  // drbs-to-be-setup.
   dl_msg->drbs_to_be_setup_list_present = drbs_to_setup.size() > 0;
   dl_msg->drbs_to_be_setup_list.resize(drbs_to_setup.size());
   unsigned count = 0;
@@ -208,9 +257,9 @@ f1ap_message srsran::test_helpers::create_ue_context_setup_request(gnb_cu_ue_f1a
   }
 
   dl_msg->rrc_container_present = true;
-  report_error_if_not(
-      dl_msg->rrc_container.append(test_rgen::random_vector<uint8_t>(test_rgen::uniform_int<unsigned>(3, 100))),
-      "Failed to allocate RRC containe");
+  bool success                  = dl_msg->rrc_container.append(
+      generate_rrc_container(rrc_container_pdcp_sn, test_rgen::uniform_int<unsigned>(3, 100)));
+  report_error_if_not(success, "Failed to allocate RRC container");
 
   return msg;
 }
@@ -324,6 +373,30 @@ f1ap_message srsran::test_helpers::generate_ue_context_release_request(gnb_cu_ue
   return msg;
 }
 
+f1ap_message srsran::test_helpers::generate_ue_context_release_command(gnb_cu_ue_f1ap_id_t cu_ue_id,
+                                                                       gnb_du_ue_f1ap_id_t du_ue_id,
+                                                                       srb_id_t            srb_id,
+                                                                       byte_buffer         rrc_container)
+{
+  f1ap_message msg;
+  msg.pdu.set_init_msg();
+  msg.pdu.init_msg().load_info_obj(ASN1_F1AP_ID_UE_CONTEXT_RELEASE);
+
+  auto& release_cmd              = msg.pdu.init_msg().value.ue_context_release_cmd();
+  release_cmd->gnb_cu_ue_f1ap_id = (unsigned)cu_ue_id;
+  release_cmd->gnb_du_ue_f1ap_id = (unsigned)du_ue_id;
+  release_cmd->cause.set_radio_network();
+  release_cmd->cause.radio_network().value = cause_radio_network_e::unspecified;
+  if (not rrc_container.empty()) {
+    release_cmd->srb_id_present        = true;
+    release_cmd->srb_id                = srb_id_to_uint(srb_id);
+    release_cmd->rrc_container_present = true;
+    release_cmd->rrc_container         = std::move(rrc_container);
+  }
+
+  return msg;
+}
+
 f1ap_message srsran::test_helpers::generate_ue_context_release_complete(const f1ap_message& ue_ctxt_release_cmd)
 {
   srsran_assert(ue_ctxt_release_cmd.pdu.type().value == f1ap_pdu_c::types_opts::init_msg, "Invalid argument message");
@@ -352,6 +425,115 @@ f1ap_message srsran::test_helpers::generate_ue_context_release_complete(gnb_cu_u
   return ue_ctxt_rel_complete_msg;
 }
 
+static asn1::f1ap::ul_up_tnl_info_to_be_setup_list_l generate_ul_up_tnl_info_to_be_setup_list_l()
+{
+  asn1::f1ap::ul_up_tnl_info_to_be_setup_list_l list;
+
+  list.resize(1);
+  auto& gtp_tun = list[0].ul_up_tnl_info.set_gtp_tunnel();
+  auto  addr    = transport_layer_address::create_from_string("127.0.0.1");
+  gtp_tun.transport_layer_address.from_string(addr.to_bitstring());
+  gtp_tun.gtp_teid.from_number(1);
+
+  return list;
+}
+
+static asn1::f1ap::drbs_to_be_setup_mod_item_s generate_drb_am_mod_item(drb_id_t drbid)
+{
+  using namespace asn1::f1ap;
+  drbs_to_be_setup_mod_item_s drb;
+  drb.drb_id = drb_id_to_uint(drbid);
+  drb.qos_info.set_choice_ext().load_info_obj(ASN1_F1AP_ID_DRB_INFO);
+  auto& drb_info                                                 = drb.qos_info.choice_ext()->drb_info();
+  drb_info.drb_qos.qos_characteristics.set_non_dyn_5qi().five_qi = 8;
+  drb_info.drb_qos.ngra_nalloc_retention_prio.prio_level         = 1;
+  drb_info.drb_qos.ngra_nalloc_retention_prio.pre_emption_cap.value =
+      pre_emption_cap_opts::shall_not_trigger_pre_emption;
+  drb_info.drb_qos.ngra_nalloc_retention_prio.pre_emption_vulnerability.value =
+      pre_emption_vulnerability_opts::not_pre_emptable;
+  drb_info.drb_qos.reflective_qos_attribute_present = true;
+  drb_info.drb_qos.reflective_qos_attribute.value =
+      qos_flow_level_qos_params_s::reflective_qos_attribute_opts::subject_to;
+  drb_info.flows_mapped_to_drb_list.resize(1);
+  drb_info.flows_mapped_to_drb_list[0].qos_flow_id = 0;
+  auto& qos_flow                                   = drb_info.flows_mapped_to_drb_list[0].qos_flow_level_qos_params;
+  auto& desc                                       = qos_flow.qos_characteristics.set_non_dyn_5qi();
+  desc.five_qi                                     = 8;
+  qos_flow.ngra_nalloc_retention_prio.pre_emption_cap.value = pre_emption_cap_opts::shall_not_trigger_pre_emption;
+  qos_flow.ngra_nalloc_retention_prio.pre_emption_vulnerability.value =
+      pre_emption_vulnerability_opts::not_pre_emptable;
+  drb_info.snssai.sst.from_string("01");
+  drb_info.snssai.sd.from_string("0027db");
+  drb.rlc_mode.value                  = rlc_mode_opts::rlc_am;
+  drb.ie_exts_present                 = true;
+  drb.ie_exts.dl_pdcp_sn_len_present  = true;
+  drb.ie_exts.dl_pdcp_sn_len          = pdcp_sn_len_opts::twelve_bits;
+  drb.ul_up_tnl_info_to_be_setup_list = generate_ul_up_tnl_info_to_be_setup_list_l();
+  return drb;
+}
+
+static asn1::f1ap::drbs_to_be_modified_item_s generate_to_modify_drb_am_mod_item(drb_id_t drbid)
+{
+  using namespace asn1::f1ap;
+
+  drbs_to_be_modified_item_s drb;
+  drb.drb_id                          = drb_id_to_uint(drbid);
+  drb.ie_exts_present                 = true;
+  drb.ie_exts.dl_pdcp_sn_len_present  = true;
+  drb.ie_exts.dl_pdcp_sn_len          = pdcp_sn_len_opts::twelve_bits;
+  drb.ul_up_tnl_info_to_be_setup_list = generate_ul_up_tnl_info_to_be_setup_list_l();
+  return drb;
+}
+
+f1ap_message
+srsran::test_helpers::generate_ue_context_modification_request(gnb_du_ue_f1ap_id_t                    du_ue_id,
+                                                               gnb_cu_ue_f1ap_id_t                    cu_ue_id,
+                                                               const std::initializer_list<drb_id_t>& drbs_to_setup,
+                                                               const std::initializer_list<drb_id_t>& drbs_to_mod,
+                                                               const std::initializer_list<drb_id_t>& drbs_to_rem,
+                                                               byte_buffer                            rrc_container)
+{
+  using namespace asn1::f1ap;
+  f1ap_message msg;
+
+  msg.pdu.set_init_msg().load_info_obj(ASN1_F1AP_ID_UE_CONTEXT_MOD);
+  ue_context_mod_request_s& dl_msg = msg.pdu.init_msg().value.ue_context_mod_request();
+  dl_msg->gnb_cu_ue_f1ap_id        = gnb_cu_ue_f1ap_id_to_uint(cu_ue_id);
+  dl_msg->gnb_du_ue_f1ap_id        = gnb_du_ue_f1ap_id_to_uint(du_ue_id);
+
+  dl_msg->drbs_to_be_setup_mod_list_present = drbs_to_setup.size() > 0;
+  dl_msg->drbs_to_be_setup_mod_list.resize(drbs_to_setup.size());
+  unsigned count = 0;
+  for (drb_id_t drbid : drbs_to_setup) {
+    dl_msg->drbs_to_be_setup_mod_list[count].load_info_obj(ASN1_F1AP_ID_DRBS_SETUP_MOD_ITEM);
+    dl_msg->drbs_to_be_setup_mod_list[count]->drbs_to_be_setup_mod_item() = generate_drb_am_mod_item(drbid);
+    ++count;
+  }
+
+  dl_msg->drbs_to_be_released_list_present = drbs_to_rem.size() > 0;
+  dl_msg->drbs_to_be_released_list.resize(drbs_to_rem.size());
+  count = 0;
+  for (drb_id_t drbid : drbs_to_rem) {
+    dl_msg->drbs_to_be_released_list[count].load_info_obj(ASN1_F1AP_ID_DRBS_TO_BE_RELEASED_ITEM);
+    dl_msg->drbs_to_be_released_list[count]->drbs_to_be_released_item().drb_id = drb_id_to_uint(drbid);
+    ++count;
+  }
+
+  dl_msg->drbs_to_be_modified_list_present = drbs_to_mod.size() > 0;
+  dl_msg->drbs_to_be_modified_list.resize(drbs_to_mod.size());
+  count = 0;
+  for (drb_id_t drbid : drbs_to_mod) {
+    dl_msg->drbs_to_be_modified_list[count].load_info_obj(ASN1_F1AP_ID_DRBS_TO_BE_MODIFIED_ITEM);
+    dl_msg->drbs_to_be_modified_list[count]->drbs_to_be_modified_item() = generate_to_modify_drb_am_mod_item(drbid);
+    ++count;
+  }
+
+  dl_msg->rrc_container_present = not rrc_container.empty();
+  dl_msg->rrc_container         = rrc_container.copy();
+
+  return msg;
+}
+
 f1ap_message srsran::test_helpers::generate_ue_context_modification_response(gnb_du_ue_f1ap_id_t du_ue_id,
                                                                              gnb_cu_ue_f1ap_id_t cu_ue_id,
                                                                              rnti_t              crnti)
@@ -373,6 +555,29 @@ f1ap_message srsran::test_helpers::generate_ue_context_modification_response(gnb
   ue_context_mod_resp->drbs_setup_mod_list.back().value().drbs_setup_mod_item().drb_id = 1;
 
   return pdu;
+}
+
+byte_buffer srsran::test_helpers::create_dl_dcch_rrc_container(uint32_t                              pdcp_sn,
+                                                               const std::initializer_list<uint8_t>& dl_dcch_msg)
+{
+  return create_dl_dcch_rrc_container(pdcp_sn, byte_buffer::create(dl_dcch_msg).value());
+}
+
+byte_buffer srsran::test_helpers::create_dl_dcch_rrc_container(uint32_t pdcp_sn, const byte_buffer& dl_dcch_msg)
+{
+  byte_buffer container;
+
+  // Add PDCP header.
+  report_fatal_error_if_not(container.append(pdcp_sn >> 8U), "Failed to allocate");
+  report_fatal_error_if_not(container.append(pdcp_sn & 0xfU), "Failed to allocate");
+
+  // Add payload.
+  report_fatal_error_if_not(container.append(dl_dcch_msg), "Failed to allocate");
+
+  // Add dummy MAC.
+  report_fatal_error_if_not(container.append({0x0, 0x0, 0x0, 0x0}), "Failed to allocate");
+
+  return container;
 }
 
 byte_buffer srsran::test_helpers::extract_dl_dcch_msg(const byte_buffer& rrc_container)

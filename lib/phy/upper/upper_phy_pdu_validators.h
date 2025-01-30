@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -46,14 +46,38 @@ public:
   }
 
   // See interface for documentation.
-  bool is_valid(const prach_detector::configuration& config) const override { return prach->is_valid(config); }
-  bool is_valid(const pucch_processor::format0_configuration& config) const override { return pucch->is_valid(config); }
-  bool is_valid(const pucch_processor::format1_configuration& config) const override { return pucch->is_valid(config); }
-  bool is_valid(const pucch_processor::format2_configuration& config) const override { return pucch->is_valid(config); }
-  bool is_valid(const pucch_processor::format3_configuration& config) const override { return pucch->is_valid(config); }
-  bool is_valid(const pucch_processor::format4_configuration& config) const override { return pucch->is_valid(config); }
-  bool is_valid(const pusch_processor::pdu_t& config) const override { return pusch->is_valid(config); }
-  bool is_valid(const srs_estimator_configuration& config) const override { return srs->is_valid(config); }
+  error_type<std::string> is_valid(const prach_detector::configuration& config) const override
+  {
+    return prach->is_valid(config);
+  }
+  error_type<std::string> is_valid(const pucch_processor::format0_configuration& config) const override
+  {
+    return pucch->is_valid(config);
+  }
+  error_type<std::string> is_valid(const pucch_processor::format1_configuration& config) const override
+  {
+    return pucch->is_valid(config);
+  }
+  error_type<std::string> is_valid(const pucch_processor::format2_configuration& config) const override
+  {
+    return pucch->is_valid(config);
+  }
+  error_type<std::string> is_valid(const pucch_processor::format3_configuration& config) const override
+  {
+    return pucch->is_valid(config);
+  }
+  error_type<std::string> is_valid(const pucch_processor::format4_configuration& config) const override
+  {
+    return pucch->is_valid(config);
+  }
+  error_type<std::string> is_valid(const pusch_processor::pdu_t& config) const override
+  {
+    return pusch->is_valid(config);
+  }
+  error_type<std::string> is_valid(const srs_estimator_configuration& config) const override
+  {
+    return srs->is_valid(config);
+  }
 
 private:
   std::unique_ptr<prach_detector_validator>              prach;
@@ -80,9 +104,9 @@ public:
   }
 
   // See interface for documentation.
-  bool is_valid(const ssb_processor::pdu_t& pdu) const override { return ssb->is_valid(pdu); }
-  bool is_valid(const pdcch_processor::pdu_t& pdu) const override { return pdcch->is_valid(pdu); }
-  bool is_valid(const pdsch_processor::pdu_t& pdu) const override { return pdsch->is_valid(pdu); }
+  bool                    is_valid(const ssb_processor::pdu_t& pdu) const override { return ssb->is_valid(pdu); }
+  bool                    is_valid(const pdcch_processor::pdu_t& pdu) const override { return pdcch->is_valid(pdu); }
+  error_type<std::string> is_valid(const pdsch_processor::pdu_t& pdu) const override { return pdsch->is_valid(pdu); }
   bool is_valid(const nzp_csi_rs_generator::config_t& config) const override { return csi->is_valid(config); }
 
 private:

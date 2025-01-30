@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -24,12 +24,14 @@
 #include "srsran/instrumentation/traces/du_traces.h"
 #include "srsran/mac/mac_cell_result.h"
 #include "srsran/ran/pdsch/pdsch_constants.h"
-#include "srsran/support/async/execute_on.h"
+#include "srsran/scheduler/result/sched_result.h"
+#include "srsran/support/async/execute_on_blocking.h"
+#include "srsran/support/rtsan.h"
 
 using namespace srsran;
 
 /// Maximum PDSH K0 value as per TS38.331 "PDSCH-TimeDomainResourceAllocation".
-constexpr size_t MAX_K0_DELAY = 32;
+static constexpr size_t MAX_K0_DELAY = 32;
 
 mac_cell_processor::mac_cell_processor(const mac_cell_creation_request& cell_cfg_req_,
                                        mac_scheduler_cell_info_handler& sched_,
@@ -38,18 +40,19 @@ mac_cell_processor::mac_cell_processor(const mac_cell_creation_request& cell_cfg
                                        task_executor&                   cell_exec_,
                                        task_executor&                   slot_exec_,
                                        task_executor&                   ctrl_exec_,
-                                       mac_pcap&                        pcap_) :
+                                       mac_pcap&                        pcap_,
+                                       timer_manager&                   timers_) :
   logger(srslog::fetch_basic_logger("MAC")),
   cell_cfg(cell_cfg_req_),
   cell_exec(cell_exec_),
   slot_exec(slot_exec_),
   ctrl_exec(ctrl_exec_),
   phy_cell(phy_notifier_),
+  timers(timers_),
   ue_mng(rnti_table),
-  dl_harq_buffers(band_helper::get_n_rbs_from_bw(
-                      MHz_to_bs_channel_bandwidth(cell_cfg.dl_carrier.carrier_bw_mhz),
-                      cell_cfg.scs_common,
-                      band_helper::get_freq_range(band_helper::get_band_from_dl_arfcn(cell_cfg.dl_carrier.arfcn))),
+  dl_harq_buffers(band_helper::get_n_rbs_from_bw(MHz_to_bs_channel_bandwidth(cell_cfg.dl_carrier.carrier_bw_mhz),
+                                                 cell_cfg.scs_common,
+                                                 band_helper::get_freq_range(cell_cfg.dl_carrier.band)),
                   cell_cfg.dl_carrier.nof_ant,
                   ctrl_exec_),
   // The PDU pool has to be large enough to fit the maximum number of RARs and Paging PDUs per slot for all possible K0
@@ -67,23 +70,57 @@ mac_cell_processor::mac_cell_processor(const mac_cell_creation_request& cell_cfg
 {
 }
 
+static void initialize_cell_tracer(du_cell_index_t cell_idx, subcarrier_spacing scs)
+{
+  constexpr static size_t MAX_EVENTS = 8;
+
+  std::chrono::microseconds slot_dur{1000 / get_nof_slots_per_subframe(scs)};
+
+  l2_late_tracer[cell_idx] = create_rusage_trace_recorder(fmt::format("cell_{}_slot_run", fmt::underlying(cell_idx)),
+                                                          file_event_tracer<L2_LATE_TRACE_ENABLED>{},
+                                                          slot_dur,
+                                                          MAX_EVENTS);
+}
+
 async_task<void> mac_cell_processor::start()
 {
-  return execute_and_continue_on_blocking(cell_exec, ctrl_exec, [this]() { state = cell_state::active; });
+  return execute_and_continue_on_blocking(
+      cell_exec,
+      ctrl_exec,
+      timers,
+      [this]() {
+        // set up thread-local tracer parameters.
+        initialize_cell_tracer(cell_cfg.cell_index, cell_cfg.scs_common);
+
+        // set cell as active.
+        state = cell_state::active;
+      },
+      [this, cell_index = cell_cfg.cell_index]() {
+        logger.warning("cell={}: Postponed cell start operation. Cause: Task queue is full",
+                       fmt::underlying(cell_index));
+      });
 }
 
 async_task<void> mac_cell_processor::stop()
 {
-  return execute_and_continue_on_blocking(cell_exec, ctrl_exec, [this]() {
-    if (state == cell_state::inactive) {
-      return;
-    }
+  return execute_and_continue_on_blocking(
+      cell_exec,
+      ctrl_exec,
+      timers,
+      [this]() {
+        if (state == cell_state::inactive) {
+          return;
+        }
 
-    // Set cell state as inactive to stop answering to slot indications.
-    state = cell_state::inactive;
+        // Set cell state as inactive to stop answering to slot indications.
+        state = cell_state::inactive;
 
-    logger.info("cell={}: Cell was stopped.", cell_cfg.cell_index);
-  });
+        logger.info("cell={}: Cell was stopped.", fmt::underlying(cell_cfg.cell_index));
+      },
+      [this, cell_index = cell_cfg.cell_index]() {
+        logger.warning("cell={}: Postponed cell stop operation. Cause: Task queue is full",
+                       fmt::underlying(cell_index));
+      });
 }
 
 void mac_cell_processor::handle_slot_indication(slot_point sl_tx)
@@ -115,28 +152,39 @@ async_task<bool> mac_cell_processor::add_ue(const mac_ue_create_request& request
   mac_dl_ue_context ue_inst(request);
 
   // > Update the UE context inside the cell executor.
-  return execute_and_continue_on_blocking(cell_exec, ctrl_exec, [this, ue_inst = std::move(ue_inst)]() mutable {
-    // > Insert UE and DL bearers.
-    // Note: Ensure we only do so if the cell is active.
-    return state == cell_state::active and ue_mng.add_ue(std::move(ue_inst));
-  });
+  return execute_and_continue_on_blocking(
+      cell_exec,
+      ctrl_exec,
+      timers,
+      [this, ue_inst = std::move(ue_inst)]() mutable {
+        // > Insert UE and DL bearers.
+        // Note: Ensure we only do so if the cell is active.
+        return state == cell_state::active and ue_mng.add_ue(std::move(ue_inst));
+      },
+      [this, ue_index = request.ue_index]() {
+        logger.warning("ue={}: Postponed UE creation. Cause: Task queue is full", fmt::underlying(ue_index));
+      });
 }
 
 async_task<void> mac_cell_processor::remove_ue(const mac_ue_delete_request& request)
 {
-  return launch_async([this, request](coro_context<async_task<void>>& ctx) mutable {
+  auto log_dispatch_failure = [this, ue_index = request.ue_index]() {
+    logger.warning("ue={}: Postponed UE removal. Cause: task queue is full", fmt::underlying(ue_index));
+  };
+
+  return launch_async([this, request, log_dispatch_failure](coro_context<async_task<void>>& ctx) mutable {
     CORO_BEGIN(ctx);
 
     // Change to respective DL cell executor.
     // Note: Caller (ctrl exec) blocks if the cell executor is full.
-    CORO_AWAIT(execute_on_blocking(cell_exec));
+    CORO_AWAIT(execute_on_blocking(cell_exec, timers, log_dispatch_failure));
 
     // Remove UE associated DL channels
     ue_mng.remove_ue(request.ue_index);
 
     // Change back to CTRL executor before returning
     // Note: Blocks if the executor is full (which should never happen).
-    CORO_AWAIT(execute_on_blocking(ctrl_exec));
+    CORO_AWAIT(execute_on_blocking(ctrl_exec, timers, log_dispatch_failure));
 
     // Deallocate DL HARQ buffers back in the CTRL executor.
     dl_harq_buffers.deallocate_ue_buffers(request.ue_index);
@@ -148,26 +196,42 @@ async_task<void> mac_cell_processor::remove_ue(const mac_ue_delete_request& requ
 async_task<bool> mac_cell_processor::addmod_bearers(du_ue_index_t                                  ue_index,
                                                     const std::vector<mac_logical_channel_config>& logical_channels)
 {
-  return execute_and_continue_on_blocking(cell_exec, ctrl_exec, [this, ue_index, logical_channels]() {
-    // Configure logical channels.
-    return state == cell_state::active and ue_mng.addmod_bearers(ue_index, logical_channels);
-  });
+  return execute_and_continue_on_blocking(
+      cell_exec,
+      ctrl_exec,
+      timers,
+      [this, ue_index, logical_channels]() {
+        // Configure logical channels.
+        return state == cell_state::active and ue_mng.addmod_bearers(ue_index, logical_channels);
+      },
+      [this, ue_index]() {
+        logger.warning("ue={}: Postponed UE bearer add/mod operation. Cause: Task queue is full",
+                       fmt::underlying(ue_index));
+      });
 }
 
 async_task<bool> mac_cell_processor::remove_bearers(du_ue_index_t ue_index, span<const lcid_t> lcids_to_rem)
 {
   std::vector<lcid_t> lcids(lcids_to_rem.begin(), lcids_to_rem.end());
 
-  return execute_and_continue_on_blocking(cell_exec, ctrl_exec, [this, ue_index, lcids = std::move(lcids)]() {
-    // Remove logical channels.
-    return ue_mng.remove_bearers(ue_index, lcids);
-  });
+  return execute_and_continue_on_blocking(
+      cell_exec,
+      ctrl_exec,
+      timers,
+      [this, ue_index, lcids = std::move(lcids)]() {
+        // Remove logical channels.
+        return ue_mng.remove_bearers(ue_index, lcids);
+      },
+      [this, ue_index]() {
+        logger.warning("ue={}: Postponed UE bearer removal. Cause: Task queue is full", fmt::underlying(ue_index));
+      });
 }
 
-void mac_cell_processor::handle_slot_indication_impl(slot_point sl_tx)
+void mac_cell_processor::handle_slot_indication_impl(slot_point sl_tx) SRSRAN_RTSAN_NONBLOCKING
 {
   // * Start of Critical Path * //
 
+  l2_late_tracer[cell_cfg.cell_index].start();
   trace_point sched_tp = l2_tracer.now();
 
   logger.set_context(sl_tx.sfn(), sl_tx.slot_index());
@@ -183,7 +247,8 @@ void mac_cell_processor::handle_slot_indication_impl(slot_point sl_tx)
   // Generate DL scheduling result for provided slot and cell.
   const sched_result& sl_res = sched.slot_indication(sl_tx, cell_cfg.cell_index);
   if (not sl_res.success) {
-    logger.warning("Unable to compute scheduling result for slot={}, cell={}", sl_tx, cell_cfg.cell_index);
+    logger.warning(
+        "Unable to compute scheduling result for slot={}, cell={}", sl_tx, fmt::underlying(cell_cfg.cell_index));
     if (sl_res.dl.nof_dl_symbols > 0) {
       mac_dl_sched_result mac_dl_res{};
       mac_dl_res.slot = sl_tx;
@@ -201,6 +266,7 @@ void mac_cell_processor::handle_slot_indication_impl(slot_point sl_tx)
   mac_dl_sched_result mac_dl_res{};
   mac_dl_data_result  data_res{};
 
+  l2_late_tracer[cell_cfg.cell_index].add_section("mac_sched");
   l2_tracer << trace_event{"mac_sched", sched_tp};
 
   // If it is a DL slot, process results.
@@ -213,6 +279,7 @@ void mac_cell_processor::handle_slot_indication_impl(slot_point sl_tx)
     // Send DL sched result to PHY.
     phy_cell.on_new_downlink_scheduler_results(mac_dl_res);
 
+    l2_late_tracer[cell_cfg.cell_index].add_section("mac_dl_tti_req");
     l2_tracer << trace_event{"mac_dl_tti_req", dl_tti_req_tp};
 
     // Start assembling Slot Data Result.
@@ -225,6 +292,7 @@ void mac_cell_processor::handle_slot_indication_impl(slot_point sl_tx)
       // Send DL Data to PHY.
       phy_cell.on_new_downlink_data(data_res);
 
+      l2_late_tracer[cell_cfg.cell_index].add_section("mac_tx_data_req");
       l2_tracer << trace_event{"mac_tx_data_req", tx_data_req_tp};
     }
   }
@@ -238,6 +306,7 @@ void mac_cell_processor::handle_slot_indication_impl(slot_point sl_tx)
     mac_ul_res.ul_res = &sl_res.ul;
     phy_cell.on_new_uplink_scheduler_results(mac_ul_res);
 
+    l2_late_tracer[cell_cfg.cell_index].add_section("mac_ul_tti_req");
     l2_tracer << trace_event{"mac_ul_tti_req", ul_tti_req_tp};
   }
 
@@ -251,10 +320,11 @@ void mac_cell_processor::handle_slot_indication_impl(slot_point sl_tx)
   // Update DL buffer state for the allocated logical channels.
   update_logical_channel_dl_buffer_states(sl_res.dl);
 
-  // Write PCAP
+  // Write PCAP.
   write_tx_pdu_pcap(sl_tx, sl_res, data_res);
 
   l2_tracer << trace_event{"mac_cleanup_tp", cleanup_tp};
+  l2_late_tracer[cell_cfg.cell_index].stop("mac_cleanup");
 }
 
 /// Encodes DL DCI.
@@ -334,34 +404,36 @@ void mac_cell_processor::assemble_dl_data_request(mac_dl_data_result&    data_re
     } else {
       payload = sib_assembler.encode_si_message_pdu(sib_info.si_msg_index.value(), tbs);
     }
-    data_res.si_pdus.emplace_back(0, payload);
+    data_res.si_pdus.emplace_back(0, shared_transport_block(payload));
   }
 
   // Assemble scheduled RARs' subheaders and payloads.
   for (const rar_information& rar : dl_res.rar_grants) {
-    data_res.rar_pdus.emplace_back(0, rar_assembler.encode_rar_pdu(rar));
+    data_res.rar_pdus.emplace_back(0, shared_transport_block(rar_assembler.encode_rar_pdu(rar)));
   }
 
   // Assemble data grants.
   for (const dl_msg_alloc& grant : dl_res.ue_grants) {
-    for (unsigned cw_idx = 0; cw_idx != grant.pdsch_cfg.codewords.size(); ++cw_idx) {
+    for (unsigned cw_idx = 0, e = grant.pdsch_cfg.codewords.size(); cw_idx != e; ++cw_idx) {
       const pdsch_codeword& cw = grant.pdsch_cfg.codewords[cw_idx];
-      span<const uint8_t>   pdu;
       if (cw.new_data) {
-        pdu = dlsch_assembler.assemble_newtx_pdu(
-            grant.pdsch_cfg.rnti, grant.pdsch_cfg.harq_id, cw_idx, grant.tb_list[cw_idx], cw.tb_size_bytes);
-      } else {
-        pdu =
-            dlsch_assembler.assemble_retx_pdu(grant.pdsch_cfg.rnti, grant.pdsch_cfg.harq_id, cw_idx, cw.tb_size_bytes);
+        data_res.ue_pdus.emplace_back(
+            cw_idx,
+            dlsch_assembler.assemble_newtx_pdu(
+                grant.pdsch_cfg.rnti, grant.pdsch_cfg.harq_id, cw_idx, grant.tb_list[cw_idx], cw.tb_size_bytes));
+        continue;
       }
-      data_res.ue_pdus.emplace_back(cw_idx, pdu);
+
+      data_res.ue_pdus.emplace_back(
+          cw_idx,
+          dlsch_assembler.assemble_retx_pdu(grant.pdsch_cfg.rnti, grant.pdsch_cfg.harq_id, cw_idx, cw.tb_size_bytes));
     }
   }
 
   // Assemble scheduled Paging payloads.
   for (const dl_paging_allocation& pg : dl_res.paging_grants) {
-    for (unsigned cw_idx = 0; cw_idx != pg.pdsch_cfg.codewords.size(); ++cw_idx) {
-      data_res.paging_pdus.emplace_back(cw_idx, paging_assembler.encode_paging_pdu(pg));
+    for (unsigned cw_idx = 0, e = pg.pdsch_cfg.codewords.size(); cw_idx != e; ++cw_idx) {
+      data_res.paging_pdus.emplace_back(cw_idx, shared_transport_block(paging_assembler.encode_paging_pdu(pg)));
     }
   }
 
@@ -370,23 +442,25 @@ void mac_cell_processor::assemble_dl_data_request(mac_dl_data_result&    data_re
 
 void mac_cell_processor::update_logical_channel_dl_buffer_states(const dl_sched_result& dl_res)
 {
-  if (dl_res.nof_dl_symbols > 0) {
-    for (const dl_msg_alloc& grant : dl_res.ue_grants) {
-      for (const dl_msg_tb_info& tb_info : grant.tb_list) {
-        for (const dl_msg_lc_info& lc_info : tb_info.lc_chs_to_sched) {
-          if (not lc_info.lcid.is_sdu()) {
-            continue;
-          }
+  if (dl_res.nof_dl_symbols == 0) {
+    return;
+  }
 
-          // Fetch RLC Bearer.
-          mac_sdu_tx_builder* bearer = ue_mng.get_lc_sdu_builder(grant.pdsch_cfg.rnti, lc_info.lcid.to_lcid());
-          srsran_sanity_check(bearer != nullptr, "Scheduler is allocating inexistent bearers");
-
-          // Update DL buffer state for the allocated logical channel.
-          mac_dl_buffer_state_indication_message bs{
-              ue_mng.get_ue_index(grant.pdsch_cfg.rnti), lc_info.lcid.to_lcid(), bearer->on_buffer_state_update()};
-          sched.handle_dl_buffer_state_update(bs);
+  for (const dl_msg_alloc& grant : dl_res.ue_grants) {
+    for (const dl_msg_tb_info& tb_info : grant.tb_list) {
+      for (const dl_msg_lc_info& lc_info : tb_info.lc_chs_to_sched) {
+        if (not lc_info.lcid.is_sdu()) {
+          continue;
         }
+
+        // Fetch RLC Bearer.
+        mac_sdu_tx_builder* bearer = ue_mng.get_lc_sdu_builder(grant.pdsch_cfg.rnti, lc_info.lcid.to_lcid());
+        srsran_sanity_check(bearer != nullptr, "Scheduler is allocating inexistent bearers");
+
+        // Update DL buffer state for the allocated logical channel.
+        mac_dl_buffer_state_indication_message bs{
+            ue_mng.get_ue_index(grant.pdsch_cfg.rnti), lc_info.lcid.to_lcid(), bearer->on_buffer_state_update()};
+        sched.handle_dl_buffer_state_update(bs);
       }
     }
   }
@@ -400,7 +474,7 @@ void mac_cell_processor::write_tx_pdu_pcap(const slot_point&         sl_tx,
     return;
   }
 
-  for (unsigned i = 0; i < dl_res.si_pdus.size(); ++i) {
+  for (unsigned i = 0, e = dl_res.si_pdus.size(); i != e; ++i) {
     const sib_information& dl_alloc = sl_res.dl.bc.sibs[i];
     // At the moment, we allocate max 1 SIB (SIB1) message per slot. Eventually, this will be extended to other SIBs.
     // TODO: replace sib1_pcap_dumped flag with a vector or booleans that includes other SIBs.
@@ -413,13 +487,13 @@ void mac_cell_processor::write_tx_pdu_pcap(const slot_point&         sl_tx,
       context.rnti      = to_value(dl_alloc.pdsch_cfg.rnti);
       context.system_frame_number = sl_tx.sfn();
       context.sub_frame_number    = sl_tx.subframe_index();
-      context.length              = sib1_pdu.pdu.size();
-      pcap.push_pdu(context, sib1_pdu.pdu);
+      context.length              = sib1_pdu.pdu.get_buffer().size();
+      pcap.push_pdu(context, sib1_pdu.pdu.get_buffer());
       sib1_pcap_dumped = true;
     }
   }
 
-  for (unsigned i = 0; i < dl_res.rar_pdus.size(); ++i) {
+  for (unsigned i = 0, e = dl_res.rar_pdus.size(); i != e; ++i) {
     const mac_dl_data_result::dl_pdu& rar_pdu  = dl_res.rar_pdus[i];
     const rar_information&            dl_alloc = sl_res.dl.rar_grants[i];
     srsran::mac_nr_context_info       context  = {};
@@ -429,10 +503,11 @@ void mac_cell_processor::write_tx_pdu_pcap(const slot_point&         sl_tx,
     context.rnti                = to_value(dl_alloc.pdsch_cfg.rnti);
     context.system_frame_number = sl_tx.sfn();
     context.sub_frame_number    = sl_tx.subframe_index();
-    context.length              = rar_pdu.pdu.size();
-    pcap.push_pdu(context, rar_pdu.pdu);
+    context.length              = rar_pdu.pdu.get_buffer().size();
+    pcap.push_pdu(context, rar_pdu.pdu.get_buffer());
   }
-  for (unsigned i = 0; i < dl_res.paging_pdus.size(); ++i) {
+
+  for (unsigned i = 0, e = dl_res.paging_pdus.size(); i != e; ++i) {
     const mac_dl_data_result::dl_pdu& pg_pdu   = dl_res.paging_pdus[i];
     const dl_paging_allocation&       dl_alloc = sl_res.dl.paging_grants[i];
     srsran::mac_nr_context_info       context  = {};
@@ -442,10 +517,11 @@ void mac_cell_processor::write_tx_pdu_pcap(const slot_point&         sl_tx,
     context.rnti                = to_value(dl_alloc.pdsch_cfg.rnti);
     context.system_frame_number = sl_tx.sfn();
     context.sub_frame_number    = sl_tx.subframe_index();
-    context.length              = pg_pdu.pdu.size();
-    pcap.push_pdu(context, pg_pdu.pdu);
+    context.length              = pg_pdu.pdu.get_buffer().size();
+    pcap.push_pdu(context, pg_pdu.pdu.get_buffer());
   }
-  for (unsigned i = 0; i < dl_res.ue_pdus.size(); ++i) {
+
+  for (unsigned i = 0, e = dl_res.ue_pdus.size(); i != e; ++i) {
     const mac_dl_data_result::dl_pdu& ue_pdu   = dl_res.ue_pdus[i];
     const dl_msg_alloc&               dl_alloc = sl_res.dl.ue_grants[i];
     if (dl_alloc.pdsch_cfg.codewords[0].new_data) {
@@ -460,8 +536,8 @@ void mac_cell_processor::write_tx_pdu_pcap(const slot_point&         sl_tx,
       context.harqid    = dl_alloc.pdsch_cfg.harq_id;
       context.system_frame_number = sl_tx.sfn();
       context.sub_frame_number    = sl_tx.subframe_index();
-      context.length              = ue_pdu.pdu.size();
-      pcap.push_pdu(context, ue_pdu.pdu);
+      context.length              = ue_pdu.pdu.get_buffer().size();
+      pcap.push_pdu(context, ue_pdu.pdu.get_buffer());
     }
   }
 }

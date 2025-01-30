@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -41,13 +41,12 @@ enum class openmode {
   read_write
 };
 
-template <typename T>
 /// \brief Simple binary file input-output interface.
 ///
 /// An object of this file allows reading and writing values of type \c T from and to a binary file.
+template <typename T>
 class file_vector
 {
-private:
   const char* file_name;
   openmode    op;
 

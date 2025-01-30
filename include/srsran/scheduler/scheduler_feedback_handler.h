@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -24,16 +24,18 @@
 
 #include "srsran/adt/bounded_bitset.h"
 #include "srsran/adt/static_vector.h"
-#include "srsran/mac/bsr_format.h"
-#include "srsran/mac/lcid_dl_sch.h"
-#include "srsran/mac/phr_report.h"
 #include "srsran/ran/csi_report/csi_report_data.h"
 #include "srsran/ran/du_types.h"
+#include "srsran/ran/logical_channel/bsr_format.h"
+#include "srsran/ran/logical_channel/lcid_dl_sch.h"
+#include "srsran/ran/logical_channel/phr_report.h"
 #include "srsran/ran/phy_time_unit.h"
 #include "srsran/ran/rnti.h"
 #include "srsran/ran/slot_pdu_capacity_constants.h"
 #include "srsran/ran/slot_point.h"
+#include "srsran/ran/srs/srs_channel_matrix.h"
 #include "srsran/ran/uci/uci_constants.h"
+#include "srsran/scheduler/config/logical_channel_group.h"
 #include "srsran/scheduler/harq_id.h"
 #include <variant>
 
@@ -82,6 +84,89 @@ struct ul_crc_indication {
   static_vector<ul_crc_pdu_indication, MAX_PUSCH_PDUS_PER_SLOT> crcs;
 };
 
+/// \brief List of HARQ-ACK report bits of unbounded size.
+/// Small buffer optimization pattern is used.
+class harq_ack_report_list
+{
+public:
+  harq_ack_report_list() = default;
+  explicit harq_ack_report_list(size_t                     nof_reports,
+                                mac_harq_ack_report_status init_val = mac_harq_ack_report_status::dtx)
+  {
+    srsran_assert(nof_reports <= uci_constants::MAX_NOF_HARQ_BITS, "Invalid number of reports");
+    if (nof_reports <= nof_harq_reports_thres) {
+      buffer.emplace<small_buffer_type>(nof_reports, init_val);
+    } else {
+      buffer.emplace<large_buffer_type>(nof_reports, init_val);
+    }
+  }
+
+  void resize(size_t nof_reports, mac_harq_ack_report_status init_val = mac_harq_ack_report_status::dtx)
+  {
+    if (auto* vec = std::get_if<small_buffer_type>(&buffer)) {
+      if (nof_reports <= nof_harq_reports_thres) {
+        // Stay in small buffer.
+        vec->resize(nof_reports, init_val);
+      } else {
+        // Moving to large buffer.
+        std::vector<mac_harq_ack_report_status> new_harqs;
+        new_harqs.reserve(nof_reports);
+        new_harqs.assign(vec->begin(), vec->end());
+        new_harqs.resize(nof_reports, init_val);
+        buffer = std::move(new_harqs);
+      }
+    } else {
+      auto& large_vec = std::get<large_buffer_type>(buffer);
+      if (nof_reports <= nof_harq_reports_thres) {
+        // Moving to small vector.
+        auto old_vec = std::move(large_vec);
+        buffer.emplace<small_buffer_type>(old_vec.begin(), old_vec.begin() + nof_reports);
+      } else {
+        // Stay in large vector.
+        large_vec.resize(nof_reports, init_val);
+      }
+    }
+  }
+
+  mac_harq_ack_report_status&       operator[](unsigned idx) { return to_span()[idx]; }
+  const mac_harq_ack_report_status& operator[](unsigned idx) const { return to_span()[idx]; }
+                                    operator span<mac_harq_ack_report_status>() { return to_span(); }
+                                    operator span<const mac_harq_ack_report_status>() const { return to_span(); }
+  size_t                            size() const { return to_span().size(); }
+  bool                              empty() const { return to_span().empty(); }
+
+  auto begin() { return to_span().begin(); }
+  auto begin() const { return to_span().begin(); }
+  auto end() { return to_span().end(); }
+  auto end() const { return to_span().end(); }
+
+private:
+  constexpr static size_t nof_harq_reports_thres = 11;
+  // type used when the number of harq-bits is equal or below \c nof_harq_reports_thres
+  using small_buffer_type = static_vector<mac_harq_ack_report_status, nof_harq_reports_thres>;
+  // type used when the number of harq-bits is above \c nof_harq_reports_thres
+  using large_buffer_type = std::vector<mac_harq_ack_report_status>;
+
+  span<mac_harq_ack_report_status> to_span()
+  {
+    if (auto* vec = std::get_if<small_buffer_type>(&buffer)) {
+      return {vec->data(), vec->size()};
+    }
+    auto& vec = std::get<large_buffer_type>(buffer);
+    return {vec.data(), vec.size()};
+  }
+  span<const mac_harq_ack_report_status> to_span() const
+  {
+    if (auto* vec = std::get_if<small_buffer_type>(&buffer)) {
+      return {vec->data(), vec->size()};
+    }
+    auto& vec = std::get<large_buffer_type>(buffer);
+    return {vec.data(), vec.size()};
+  }
+
+  std::variant<small_buffer_type, large_buffer_type> buffer;
+};
+
 /// UCI indication for a given UE.
 struct uci_indication {
   struct uci_pdu {
@@ -102,7 +187,7 @@ struct uci_indication {
     /// UCI multiplexed in the PUSCH.
     struct uci_pusch_pdu {
       /// HARQ bits.
-      static_vector<mac_harq_ack_report_status, uci_constants::MAX_NOF_HARQ_BITS> harqs;
+      harq_ack_report_list harqs;
       /// CSI report.
       std::optional<csi_report_data> csi;
     };
@@ -115,7 +200,7 @@ struct uci_indication {
       /// SR bits.
       bounded_bitset<MAX_SR_PAYLOAD_SIZE_BITS> sr_info;
       /// HARQ bits.
-      static_vector<mac_harq_ack_report_status, uci_constants::MAX_NOF_HARQ_BITS> harqs;
+      harq_ack_report_list harqs;
       /// CSI report.
       std::optional<csi_report_data> csi;
       /// Metric of channel quality in dB.
@@ -141,6 +226,38 @@ struct uci_indication {
   uci_pdu_list    ucis;
 };
 
+struct srs_indication {
+  struct srs_indication_pdu {
+    srs_indication_pdu() = default;
+    srs_indication_pdu(const du_ue_index_t          ue_idx,
+                       const rnti_t                 ue_rnti_,
+                       std::optional<phy_time_unit> ta,
+                       const srs_channel_matrix&    matrix) :
+      ue_index(ue_idx), rnti(ue_rnti_), time_advance_offset(ta), channel_matrix(matrix)
+    {
+    }
+
+    du_ue_index_t ue_index;
+    /// RNTI value corresponding to the UE that generated this PDU.
+    rnti_t rnti;
+    /// Timing Advance Offset measured for the UE.
+    std::optional<phy_time_unit> time_advance_offset;
+    /// Channel matrix reported in the SRS codebook-based report.
+    /// \remark This Channel matrix assumes that the SRS usage is codebook-based, which is the only usage currently
+    /// supported.
+    srs_channel_matrix channel_matrix;
+  };
+
+  using srs_pdu_list = static_vector<srs_indication_pdu, MAX_SRS_PDUS_PER_SRS_IND>;
+
+  // Note: user-defined ctor to avoid zero-initialization of srs_pdu_list.
+  srs_indication() {}
+
+  du_cell_index_t cell_index;
+  slot_point      slot_rx;
+  srs_pdu_list    srss;
+};
+
 struct dl_mac_ce_indication {
   du_ue_index_t ue_index;
   lcid_dl_sch_t ce_lcid;
@@ -151,6 +268,7 @@ struct ul_phr_indication_message {
   du_cell_index_t cell_index;
   du_ue_index_t   ue_index;
   rnti_t          rnti;
+  slot_point      slot_rx;
   phr_report      phr;
 };
 
@@ -161,6 +279,7 @@ public:
   virtual void handle_ul_bsr_indication(const ul_bsr_indication_message& bsr) = 0;
   virtual void handle_crc_indication(const ul_crc_indication& crc)            = 0;
   virtual void handle_uci_indication(const uci_indication& uci)               = 0;
+  virtual void handle_srs_indication(const srs_indication& srs)               = 0;
 
   /// \brief Handles PHR indication sent by MAC.
   ///

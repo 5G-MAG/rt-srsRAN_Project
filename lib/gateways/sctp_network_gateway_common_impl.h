@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -56,7 +56,7 @@ public:
   ~sctp_network_gateway_common_impl();
 
 protected:
-  constexpr static uint32_t network_gateway_sctp_max_len = 9100;
+  static constexpr uint32_t network_gateway_sctp_max_len = 9100;
 
   // Close socket and unsubscribe it from the io_broker.
   bool close_socket();

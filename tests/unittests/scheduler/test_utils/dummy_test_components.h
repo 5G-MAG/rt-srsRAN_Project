@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,10 +22,10 @@
 
 #pragma once
 
+#include "lib/scheduler/cell/cell_harq_manager.h"
 #include "lib/scheduler/logging/scheduler_metrics_ue_configurator.h"
 #include "lib/scheduler/pdcch_scheduling/pdcch_resource_allocator.h"
 #include "lib/scheduler/uci_scheduling/uci_allocator.h"
-#include "lib/scheduler/ue_scheduling/harq_process.h"
 #include "srsran/scheduler/scheduler_metrics.h"
 #include "srsran/support/test_utils.h"
 
@@ -44,7 +44,8 @@ public:
                                               search_space_id               ss_id,
                                               aggregation_level             aggr_lvl) override
   {
-    TESTASSERT_EQ(ss_id, slot_alloc.cfg.dl_cfg_common.init_dl_bwp.pdcch_common.ra_search_space_id);
+    TESTASSERT_EQ(fmt::underlying(ss_id),
+                  fmt::underlying(slot_alloc.cfg.dl_cfg_common.init_dl_bwp.pdcch_common.ra_search_space_id));
     if (fail_pdcch_alloc_cond and fail_pdcch_alloc_cond(slot_alloc.slot)) {
       return nullptr;
     }
@@ -168,18 +169,19 @@ public:
   void report_metrics(const scheduler_cell_metrics& ue_metrics) override {}
 };
 
-class scheduler_harq_timeout_dummy_handler : public harq_timeout_handler
+class scheduler_harq_timeout_dummy_notifier : public harq_timeout_notifier
 {
 public:
   du_ue_index_t last_ue_idx = INVALID_DU_UE_INDEX;
 
-  void handle_harq_timeout(du_ue_index_t ue_index, bool is_dl) override { last_ue_idx = ue_index; }
+  void on_harq_timeout(du_ue_index_t ue_idx, bool is_dl, bool ack) override { last_ue_idx = ue_idx; }
 };
 
 class scheduler_ue_metrics_dummy_configurator : public sched_metrics_ue_configurator
 {
 public:
-  void handle_ue_creation(du_ue_index_t ue_index, rnti_t rnti, pci_t pcell_pci, unsigned num_prbs) override {}
+  void handle_ue_creation(du_ue_index_t ue_index, rnti_t rnti, pci_t pcell_pci) override {}
+  void handle_ue_reconfiguration(du_ue_index_t ue_index) override {}
   void handle_ue_deletion(du_ue_index_t ue_index) override {}
 };
 

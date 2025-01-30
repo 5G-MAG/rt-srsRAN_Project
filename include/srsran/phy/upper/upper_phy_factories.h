@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -25,6 +25,8 @@
 #include "srsran/phy/support/support_factories.h"
 #include "srsran/phy/upper/channel_coding/channel_coding_factories.h"
 #include "srsran/phy/upper/channel_processors/channel_processor_factories.h"
+#include "srsran/phy/upper/channel_processors/pdsch/factories.h"
+#include "srsran/phy/upper/channel_processors/pusch/factories.h"
 #include "srsran/phy/upper/downlink_processor.h"
 #include "srsran/phy/upper/rx_buffer_pool.h"
 #include "srsran/phy/upper/uplink_processor.h"
@@ -110,10 +112,10 @@ public:
   virtual ~downlink_processor_factory() = default;
 
   /// \brief Creates a downlink processor.
-  virtual std::unique_ptr<downlink_processor> create(const downlink_processor_config& config) = 0;
+  virtual std::unique_ptr<downlink_processor_controller> create(const downlink_processor_config& config) = 0;
 
   /// \brief Creates a downlink processor with logging capabilities.
-  virtual std::unique_ptr<downlink_processor>
+  virtual std::unique_ptr<downlink_processor_controller>
   create(const downlink_processor_config& config, srslog::basic_logger& logger, bool enable_broadcast) = 0;
 
   /// \brief Creates a downlink PDU validator.
@@ -130,7 +132,7 @@ struct pdsch_processor_generic_configuration {
 struct pdsch_processor_concurrent_configuration {
   /// \brief Number of threads for processing PDSCH codeblocks concurrently.
   ///
-  /// Only used when \ref pdsch_processor_type is set to \c concurrent. Ignored otherwise.
+  /// Only used when \ref pdsch_processor is set to \c concurrent. Ignored otherwise.
   ///
   /// \remark An assertion is triggered if it is not greater than 1.
   unsigned nof_pdsch_codeblock_threads = 0;
@@ -138,7 +140,7 @@ struct pdsch_processor_concurrent_configuration {
   ///
   /// Sets the maximum number of PDSCH processor instances that can be used simultaneously.
   unsigned max_nof_simultaneous_pdsch = 0;
-  /// PDSCH codeblock task executor. Set to \c nullptr if \ref nof_pdsch_threads is less than 2.
+  /// PDSCH codeblock task executor. Set to \c nullptr if \ref nof_pdsch_codeblock_threads is less than 2.
   task_executor* pdsch_codeblock_task_executor = nullptr;
 };
 
@@ -178,40 +180,29 @@ struct downlink_processor_factory_sw_config {
       pdsch_processor;
   /// Number of concurrent threads processing downlink transmissions.
   unsigned nof_concurrent_threads;
+  /// \brief Optional hardware-accelerated PDSCH encoder factory.
+  ///
+  /// if the optional is not set, a software PDSCH encoder factory will be used.
+  std::optional<std::shared_ptr<hal::hw_accelerator_pdsch_enc_factory>> hw_encoder_factory;
 };
 
 /// Creates a full software based downlink processor factory.
 std::shared_ptr<downlink_processor_factory>
-create_downlink_processor_factory_sw(const downlink_processor_factory_sw_config& config);
-
-/// \brief Downlink processor hardware-accelerated factory configuration.
-struct downlink_processor_factory_hw_config {
-  /// \brief CRC calculator factory.
-  std::shared_ptr<crc_calculator_factory> crc_calc_factory;
-  /// \brief PDSCH encoder factory.
-  std::shared_ptr<pdsch_encoder_factory> pdsch_enc_factory;
-};
-
-/// Creates a full hardware-accelerated based downlink processor factory.
-std::shared_ptr<downlink_processor_factory>
-create_downlink_processor_factory_hw(const downlink_processor_factory_hw_config& config);
+create_downlink_processor_factory_sw(const downlink_processor_factory_sw_config&   config,
+                                     std::shared_ptr<resource_grid_mapper_factory> rg_mapper_factory);
 
 /// Describes all downlink processors in a pool.
 struct downlink_processor_pool_config {
   /// Downlink processors for a given sector and numerology.
   struct sector_dl_processor {
-    /// Base station sector identifier.
-    unsigned sector;
     /// Subcarrier spacing.
     subcarrier_spacing scs;
     /// Pointers to the actual downlink processors.
-    std::vector<std::unique_ptr<downlink_processor>> procs;
+    std::vector<std::unique_ptr<downlink_processor_controller>> procs;
   };
 
   /// Collection of all downlink processors, organized by radio sector and numerology.
   std::vector<sector_dl_processor> dl_processors;
-  /// Number of base station sector.
-  unsigned num_sectors;
 };
 
 /// \brief Creates and returns a downlink processor pool.
@@ -273,8 +264,6 @@ struct upper_phy_config {
   /// Number of downlink resource grids. Downlink resource grids minimum reuse time is \c dl_rg_expire_timeout_slots
   /// slots.
   unsigned nof_dl_rg;
-  /// Downlink resource grid timeout expiration in number of slots.
-  unsigned dl_rg_expire_timeout_slots;
   /// Number of uplink resource grids. They are reused after \c nof_ul_rg slots.
   unsigned nof_ul_rg;
   /// Number of PRACH buffer.
@@ -299,6 +288,8 @@ struct upper_phy_config {
   unsigned ul_bw_rb;
   /// Request headroom size in slots.
   unsigned nof_slots_request_headroom;
+  /// Maximum number of layers for PUSCH transmissions.
+  unsigned pusch_max_nof_layers;
   /// List of active subcarrier spacing, indexed by numerology.
   std::array<bool, to_numerology_value(subcarrier_spacing::invalid)> active_scs;
   /// Receive buffer pool configuration.
@@ -319,6 +310,10 @@ struct upper_phy_config {
   task_executor* srs_executor;
   /// Received symbol request notifier.
   upper_phy_rx_symbol_request_notifier* rx_symbol_request_notifier;
+  /// \brief Optional hardware-accelerated PUSCH decoder factory.
+  ///
+  /// if the optional is not set, a software PUSCH decoder factory will be used.
+  std::optional<std::shared_ptr<hal::hw_accelerator_pusch_dec_factory>> hw_decoder_factory;
 };
 
 /// Returns true if the given upper PHY configuration is valid, otherwise false.

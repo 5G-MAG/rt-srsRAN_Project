@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -26,7 +26,8 @@
 /// The benchmark compares the latency of a hardware-accelerated PDSCH encoder implementation to that of the generic
 /// one.
 
-#include "srsran/phy/upper/channel_processors/channel_processor_factories.h"
+#include "srsran/phy/upper/channel_processors/pdsch/factories.h"
+#include "srsran/phy/upper/channel_processors/pdsch/pdsch_encoder.h"
 #include "srsran/ran/pdsch/pdsch_constants.h"
 #include "srsran/ran/sch/tbs_calculator.h"
 #include "srsran/support/srsran_test.h"
@@ -90,7 +91,7 @@ static void usage(const char* prog)
              dedicated_queue ? "dedicated_queue" : "shared_queue");
   fmt::print("\t-x       Force TB mode [Default {}]\n", cb_mode ? "cb_mode" : "tb_mode");
   fmt::print("\t-y       Force logging output written to a file [Default {}]\n", std_out_sink ? "std_out" : "file");
-  fmt::print("\t-z       Set logging level for the HAL [Default {}]\n", hal_log_level);
+  fmt::print("\t-z       Set logging level for the HAL [Default {}]\n", fmt::underlying(hal_log_level));
   fmt::print("\teal_args EAL arguments\n");
 #endif // DPDK_FOUND
   fmt::print("\t-h This help\n");
@@ -210,8 +211,8 @@ static std::shared_ptr<hal::hw_accelerator_pdsch_enc_factory> create_hw_accelera
   std::shared_ptr<dpdk::bbdev_acc> bbdev_accelerator = create_bbdev_acc(bbdev_config, logger);
   TESTASSERT(bbdev_accelerator);
 
-  // Set the hardware-accelerator configuration.
-  hal::hw_accelerator_pdsch_enc_configuration hw_encoder_config;
+  // Set the PDSCH encoder hardware-accelerator factory configuration for the ACC100.
+  hal::bbdev_hwacc_pdsch_enc_factory_configuration hw_encoder_config;
   hw_encoder_config.acc_type          = "acc100";
   hw_encoder_config.bbdev_accelerator = bbdev_accelerator;
   hw_encoder_config.cb_mode           = cb_mode;
@@ -219,7 +220,7 @@ static std::shared_ptr<hal::hw_accelerator_pdsch_enc_factory> create_hw_accelera
   hw_encoder_config.dedicated_queue   = dedicated_queue;
 
   // ACC100 hardware-accelerator implementation.
-  return create_hw_accelerator_pdsch_enc_factory(hw_encoder_config);
+  return srsran::hal::create_bbdev_pdsch_enc_acc_factory(hw_encoder_config);
 #else  // DPDK_FOUND
   return nullptr;
 #endif // DPDK_FOUND
@@ -393,7 +394,7 @@ int main(int argc, char** argv)
     fmt::print(
         "PDSCH RB={:<3} Mod={:<2} tbs={:<8}: latency gain {:<3.2f}%% (generic {:<10.2f} us, {:<5} {:<10.2f} us)\n",
         nof_prb,
-        cfg.mod,
+        fmt::underlying(cfg.mod),
         tbs,
         perf_gain,
         gen_lat,

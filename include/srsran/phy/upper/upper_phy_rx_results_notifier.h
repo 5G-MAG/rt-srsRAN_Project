@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -29,7 +29,7 @@
 #include "srsran/adt/span.h"
 #include "srsran/phy/support/prach_buffer_context.h"
 #include "srsran/phy/upper/channel_processors/prach_detection_result.h"
-#include "srsran/phy/upper/channel_processors/pucch_processor_result.h"
+#include "srsran/phy/upper/channel_processors/pucch/pucch_processor_result.h"
 #include "srsran/phy/upper/channel_processors/pusch/pusch_processor_result_notifier.h"
 #include "srsran/phy/upper/signal_processors/srs/srs_estimator_result.h"
 #include "srsran/phy/upper/uplink_processor_context.h"
@@ -63,9 +63,9 @@ struct ul_pusch_results_data {
   span<const uint8_t> payload;
 
   /// \brief Creates a data-related decoding result produced from a discarded transmission.
-  /// \param rnti_   Parameter \f$n_{RNTI}\f$ from TS38.211 Section 6.3.1.1.
-  /// \param slot_   Slot description (also specifies the numerology).
-  /// \param harq_id HARQ process ID.
+  /// \param[in] rnti_     Parameter \f$n_{RNTI}\f$ from TS38.211 Section 6.3.1.1.
+  /// \param[in] slot_     Slot description (also specifies the numerology).
+  /// \param[in] harq_id_  HARQ process ID.
   /// \return The data-related PUSCH processing results without CSI measurements and marked as failed transmission.
   static ul_pusch_results_data create_discarded(rnti_t rnti_, slot_point slot_, unsigned harq_id_)
   {

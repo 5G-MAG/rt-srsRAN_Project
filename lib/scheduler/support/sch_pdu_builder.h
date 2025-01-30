@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -24,11 +24,9 @@
 
 #include "../config/cell_configuration.h"
 #include "../config/ue_configuration.h"
-#include "../ue_scheduling/harq_process.h"
-#include "../ue_scheduling/ue_channel_state_manager.h"
+#include "../ue_context/ue_channel_state_manager.h"
 #include "mcs_tbs_calculator.h"
-#include "srsran/scheduler/harq_id.h"
-#include "srsran/scheduler/scheduler_slot_handler.h"
+#include "srsran/scheduler/result/pusch_info.h"
 
 namespace srsran {
 
@@ -51,6 +49,7 @@ struct pusch_config_params {
   unsigned          tb_scaling_field;
   unsigned          nof_layers;
   bool              tp_pi2bpsk_present;
+  bool              use_transform_precoder;
   dmrs_information  dmrs;
   unsigned          nof_harq_ack_bits{0};
   unsigned          nof_csi_part1_bits{0};
@@ -159,7 +158,7 @@ void build_pdsch_f1_1_c_rnti(pdsch_information&              pdsch,
                              search_space_id                 ss_id,
                              const dci_1_1_configuration&    dci_cfg,
                              const crb_interval&             crbs,
-                             const dl_harq_process&          h_dl,
+                             bool                            is_new_data,
                              const ue_channel_state_manager& cs_mgr);
 
 /// \brief Builds PUSCH PDU for DCI format 0_0, scrambled by TC-RNTI.
@@ -192,6 +191,6 @@ void build_pusch_f0_1_c_rnti(pusch_information&           pusch,
                              search_space_id              ss_id,
                              const dci_0_1_configuration& dci_cfg,
                              const crb_interval&          crbs,
-                             const ul_harq_process&       h_ul);
+                             bool                         is_new_data);
 
 } // namespace srsran

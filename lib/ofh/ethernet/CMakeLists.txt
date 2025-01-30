@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -20,6 +20,7 @@
 
 set(SOURCES
         ethernet_factories.cpp
+        ethernet_frame_builder_impl.cpp
         ethernet_transmitter_impl.cpp
         ethernet_receiver_impl.cpp
         ethernet_rx_buffer_impl.cpp

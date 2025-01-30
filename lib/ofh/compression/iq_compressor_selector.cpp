@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -38,10 +38,10 @@ iq_compressor_selector::iq_compressor_selector(
   }
 }
 
-void iq_compressor_selector::compress(span<compressed_prb>         compressed_prbs,
-                                      span<const cf_t>             iq_data,
+void iq_compressor_selector::compress(span<uint8_t>                buffer,
+                                      span<const cbf16_t>          iq_data,
                                       const ru_compression_params& params)
 {
   auto& compressor = compressors[static_cast<unsigned>(params.type)];
-  compressor->compress(compressed_prbs, iq_data, params);
+  compressor->compress(buffer, iq_data, params);
 }

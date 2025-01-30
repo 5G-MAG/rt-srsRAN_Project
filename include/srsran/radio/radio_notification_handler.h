@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,7 +22,6 @@
 
 #pragma once
 
-#include "srsran/adt/optional.h"
 #include "srsran/radio/radio_base.h"
 
 namespace srsran {
@@ -40,6 +39,7 @@ public:
   class event_source
   {
   public:
+    /// Radio event sources.
     enum sources {
       /// Default event value meaning it is not set.
       UNDEFINED = 0,
@@ -83,6 +83,7 @@ public:
   class event_type
   {
   public:
+    /// Radio event types.
     enum types {
       /// Default event value meaning it is not set.
       UNDEFINED = 0,

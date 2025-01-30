@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -1041,7 +1041,7 @@ public:
   }
 
 private:
-  const static uint32_t          stack_size = (UB == std::numeric_limits<uint32_t>::max()) ? 4 : ceil_frac(ub, 8u);
+  static const uint32_t          stack_size = (UB == std::numeric_limits<uint32_t>::max()) ? 4 : ceil_frac(ub, 8u);
   ext_array<uint8_t, stack_size> octets_;
   uint32_t                       nof_bits = 0;
 };

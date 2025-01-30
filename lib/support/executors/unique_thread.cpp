@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -21,7 +21,7 @@
  */
 
 #include "srsran/support/executors/unique_thread.h"
-#include "fmt/ostream.h"
+#include "fmt/std.h"
 #include <cstdio>
 #include <pthread.h>
 #include <sys/types.h>
@@ -47,12 +47,13 @@ static bool thread_set_affinity(pthread_t t, const os_sched_affinity_bitmask& bi
 {
   auto invalid_ids = bitmap.subtract(os_sched_affinity_bitmask::available_cpus());
   if (invalid_ids.size() > 0) {
-    fmt::print(
-        "Warning: The CPU affinity of thread \"{}\" contains the following invalid CPU ids: {}\n", name, invalid_ids);
+    fmt::print("Warning: The CPU affinity of thread \"{}\" contains the following invalid CPU ids: {}\n",
+               name,
+               span<const size_t>(invalid_ids));
   }
 
-  cpu_set_t* cpusetp     = CPU_ALLOC(bitmap.size());
-  size_t     cpuset_size = CPU_ALLOC_SIZE(bitmap.size());
+  ::cpu_set_t* cpusetp     = CPU_ALLOC(bitmap.size());
+  size_t       cpuset_size = CPU_ALLOC_SIZE(bitmap.size());
   CPU_ZERO_S(cpuset_size, cpusetp);
 
   for (size_t i = 0; i < bitmap.size(); ++i) {
@@ -89,13 +90,13 @@ static void print_thread_priority(pthread_t t, const char* tname, std::thread::i
     return;
   }
 
-  cpu_set_t          cpuset;
+  ::cpu_set_t        cpuset;
   struct sched_param param;
   int                policy;
   const char*        p;
   int                s, j;
 
-  s = pthread_getaffinity_np(t, sizeof(cpu_set_t), &cpuset);
+  s = pthread_getaffinity_np(t, sizeof(::cpu_set_t), &cpuset);
   if (s != 0) {
     printf("error pthread_getaffinity_np: %s\n", strerror(s));
   }
@@ -131,7 +132,7 @@ const os_sched_affinity_bitmask& os_sched_affinity_bitmask::available_cpus()
 {
   static os_sched_affinity_bitmask available_cpus_mask = []() {
     os_sched_affinity_bitmask bitmask;
-    cpu_set_t                 cpuset = cpu_architecture_info::get().get_available_cpuset();
+    ::cpu_set_t               cpuset = cpu_architecture_info::get().get_available_cpuset();
     for (size_t i = 0; i < bitmask.size(); ++i) {
       if (CPU_ISSET(i, &cpuset)) {
         bitmask.cpu_bitset.set(i);

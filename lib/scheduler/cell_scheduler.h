@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -39,10 +39,11 @@
 #include "uci_scheduling/uci_allocator_impl.h"
 #include "ue_scheduling/ue_scheduler.h"
 #include "srsran/scheduler/config/scheduler_config.h"
+#include "srsran/support/tracing/rusage_trace_recorder.h"
 
 namespace srsran {
 
-class scheduler_metrics_handler;
+class cell_metrics_handler;
 
 /// \brief This class holds all the resources that are specific to a cell.
 /// This includes the SIB and RA scheduler objects, PDCCH scheduler object, the cell resource grid, etc.
@@ -53,7 +54,7 @@ public:
                           const sched_cell_configuration_request_message& msg,
                           const cell_configuration&                       cell_cfg,
                           ue_scheduler&                                   ue_sched,
-                          scheduler_metrics_handler&                      metrics);
+                          cell_metrics_handler&                           metrics);
 
   void run_slot(slot_point sl_tx);
 
@@ -75,10 +76,10 @@ private:
   cell_resource_allocator res_grid;
 
   /// Logger of cell events and scheduling results.
-  scheduler_event_logger     event_logger;
-  scheduler_metrics_handler& metrics;
-  scheduler_result_logger    result_logger;
-  srslog::basic_logger&      logger;
+  scheduler_event_logger  event_logger;
+  cell_metrics_handler&   metrics;
+  scheduler_result_logger result_logger;
+  srslog::basic_logger&   logger;
 
   ssb_scheduler                 ssb_sch;
   pdcch_resource_allocator_impl pdcch_sch;
@@ -91,6 +92,9 @@ private:
   si_message_scheduler          si_msg_sch;
   pucch_guardbands_scheduler    pucch_guard_sch;
   paging_scheduler              pg_sch;
+
+  // Tracer of resource usage (e.g. context switches)
+  rusage_trace_recorder<logger_event_tracer<true>> res_usage_tracer;
 };
 
 } // namespace srsran

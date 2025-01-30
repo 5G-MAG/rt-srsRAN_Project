@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -26,6 +26,7 @@
 #include "srsran/asn1/f1ap/f1ap.h"
 #include "srsran/f1ap/cu_cp/f1ap_configuration.h"
 #include "srsran/f1ap/cu_cp/f1ap_cu.h"
+#include "srsran/f1ap/f1ap_message_notifier.h"
 #include "srsran/support/executors/task_executor.h"
 #include <memory>
 

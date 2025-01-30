@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -22,7 +22,6 @@
 KPI related logic
 """
 
-from contextlib import suppress
 from dataclasses import dataclass, fields
 from typing import Optional, Sequence
 
@@ -30,7 +29,7 @@ from google.protobuf.empty_pb2 import Empty
 from retina.launcher.public import MetricsSummary
 from retina.protocol import RanStub
 from retina.protocol.base_pb2 import Metrics
-from retina.viavi.client import ViaviFailureManager
+from retina.viavi.client import ViaviKPIs
 
 
 @dataclass
@@ -48,7 +47,8 @@ class KPIs:
     dl_brate_max: float = 0
     ul_bler_aggregate: float = 0
     dl_bler_aggregate: float = 0
-    nof_ko_aggregate: int = 0
+    nof_ko_ul: int = 0
+    nof_ko_dl: int = 0
     nof_attach_failures: int = 0
     nof_reestablishments: int = 0
     nof_handovers: int = 0
@@ -58,7 +58,7 @@ class KPIs:
 def get_kpis(
     gnb: RanStub,
     ue_array: Sequence[RanStub] = (),
-    viavi_failure_manager: Optional[ViaviFailureManager] = None,
+    viavi_kpis: Optional[ViaviKPIs] = None,
     metrics_summary: Optional[MetricsSummary] = None,
 ) -> KPIs:
     """
@@ -70,34 +70,22 @@ def get_kpis(
     # GNB
     gnb_metrics: Metrics = gnb.GetMetrics(Empty())
 
-    ul_nof_ok_aggregate = 0
-    dl_nof_ok_aggregate = 0
-    ul_nof_ko_aggregate = 0
-    dl_nof_ko_aggregate = 0
+    kpis.ul_brate_aggregate = gnb_metrics.total.ul_bitrate
+    kpis.ul_brate_min = gnb_metrics.total.ul_bitrate_min
+    kpis.ul_brate_max = gnb_metrics.total.ul_bitrate_max
 
-    for ue_info in gnb_metrics.ue_array:
-        kpis.ul_brate_aggregate += ue_info.ul_bitrate
-        kpis.dl_brate_aggregate += ue_info.dl_bitrate
+    kpis.dl_brate_aggregate = gnb_metrics.total.dl_bitrate
+    kpis.dl_brate_min = gnb_metrics.total.dl_bitrate_min
+    kpis.dl_brate_max = gnb_metrics.total.dl_bitrate_max
 
-        with suppress(TypeError):
-            kpis.ul_brate_min = min(*filter(lambda value: value != 0, (kpis.ul_brate_min, ue_info.ul_bitrate_min)))
-        with suppress(TypeError):
-            kpis.dl_brate_min = min(*filter(lambda value: value != 0, (kpis.dl_brate_min, ue_info.dl_bitrate_min)))
+    kpis.nof_ko_dl = gnb_metrics.total.dl_nof_ko
+    kpis.nof_ko_ul = gnb_metrics.total.ul_nof_ko
 
-        kpis.ul_brate_max = max(ue_info.ul_bitrate_max, kpis.ul_brate_max)
-        kpis.dl_brate_max = max(ue_info.dl_bitrate_max, kpis.dl_brate_max)
+    total_ul_ko_ok = gnb_metrics.total.ul_nof_ok + gnb_metrics.total.ul_nof_ko
+    total_dl_ko_ok = gnb_metrics.total.dl_nof_ok + gnb_metrics.total.dl_nof_ko
 
-        ul_nof_ok_aggregate += ue_info.ul_nof_ok
-        dl_nof_ok_aggregate += ue_info.dl_nof_ok
-        ul_nof_ko_aggregate += ue_info.ul_nof_ko
-        dl_nof_ko_aggregate += ue_info.dl_nof_ko
-        kpis.nof_ko_aggregate += ue_info.ul_nof_ko + ue_info.dl_nof_ko
-
-    tota_ul_ko_ok = ul_nof_ok_aggregate + ul_nof_ko_aggregate
-    total_dl_ko_ok = dl_nof_ok_aggregate + dl_nof_ko_aggregate
-
-    kpis.ul_bler_aggregate = 0 if not tota_ul_ko_ok else ul_nof_ko_aggregate / tota_ul_ko_ok
-    kpis.dl_bler_aggregate = 0 if not total_dl_ko_ok else dl_nof_ko_aggregate / total_dl_ko_ok
+    kpis.ul_bler_aggregate = 0 if not total_ul_ko_ok else gnb_metrics.total.ul_nof_ko / total_ul_ko_ok
+    kpis.dl_bler_aggregate = 0 if not total_dl_ko_ok else gnb_metrics.total.dl_nof_ko / total_dl_ko_ok
 
     # UE
     for ue in ue_array:
@@ -107,8 +95,8 @@ def get_kpis(
             kpis.nof_handovers += ue_info.nof_handovers
 
     # Viavi
-    if viavi_failure_manager:
-        nof_failure = viavi_failure_manager.get_nof_failure_by_group_procedure("EMM_PROCEDURE", "attach")
+    if viavi_kpis:
+        nof_failure = viavi_kpis.get_nof_procedure_failure_by_group("EMM_PROCEDURE", "attach")
         if nof_failure:
             kpis.nof_attach_failures += nof_failure
 

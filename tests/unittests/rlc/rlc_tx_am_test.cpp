@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -24,6 +24,7 @@
 #include "tests/test_doubles/pdcp/pdcp_pdu_generator.h"
 #include "srsran/ran/pdsch/pdsch_constants.h"
 #include "srsran/support/executors/manual_task_worker.h"
+#include "srsran/support/rtsan.h"
 #include <gtest/gtest.h>
 #include <list>
 
@@ -33,13 +34,15 @@ using namespace srsran;
 class rlc_tx_am_test_frame : public rlc_tx_upper_layer_data_notifier,
                              public rlc_tx_upper_layer_control_notifier,
                              public rlc_tx_lower_layer_notifier,
-                             public rlc_rx_am_status_provider
+                             public rlc_rx_am_status_provider,
+                             public rlc_metrics_notifier
 {
 public:
   std::list<uint32_t> highest_transmitted_pdcp_sn_list;
   std::list<uint32_t> highest_delivered_pdcp_sn_list;
   std::list<uint32_t> highest_retransmitted_pdcp_sn_list;
   std::list<uint32_t> highest_delivered_retransmitted_pdcp_sn_list;
+  std::list<uint32_t> desired_buf_size_list;
   rlc_am_sn_size      sn_size;
   rlc_am_status_pdu   status;
   bool                status_required = false;
@@ -51,26 +54,31 @@ public:
   rlc_tx_am_test_frame(rlc_am_sn_size sn_size_) : sn_size(sn_size_), status(sn_size_) {}
 
   // rlc_tx_upper_layer_data_notifier interface
-  void on_transmitted_sdu(uint32_t max_tx_pdcp_sn) override
+  void on_transmitted_sdu(uint32_t max_tx_pdcp_sn, uint32_t desired_buf_size) override
   {
+    SRSRAN_RTSAN_SCOPED_DISABLER(d);
     // store in list
     highest_transmitted_pdcp_sn_list.push_back(max_tx_pdcp_sn);
+    desired_buf_size_list.push_back(desired_buf_size);
   }
 
   void on_delivered_sdu(uint32_t max_deliv_pdcp_sn) override
   {
+    SRSRAN_RTSAN_SCOPED_DISABLER(d);
     // store in list
     highest_delivered_pdcp_sn_list.push_back(max_deliv_pdcp_sn);
   }
 
   void on_retransmitted_sdu(uint32_t max_retx_pdcp_sn) override
   {
+    SRSRAN_RTSAN_SCOPED_DISABLER(d);
     // store in list
     highest_retransmitted_pdcp_sn_list.push_back(max_retx_pdcp_sn);
   }
 
   void on_delivered_retransmitted_sdu(uint32_t max_deliv_retx_pdcp_sn) override
   {
+    SRSRAN_RTSAN_SCOPED_DISABLER(d);
     // store in list
     highest_delivered_retransmitted_pdcp_sn_list.push_back(max_deliv_retx_pdcp_sn);
   }
@@ -90,6 +98,9 @@ public:
   rlc_am_status_pdu& get_status_pdu() override { return status; }
   uint32_t           get_status_pdu_length() override { return status.get_packed_size(); }
   bool               status_report_required() override { return status_required; }
+
+  // rlc_metrics_notifier
+  void report_metrics(const rlc_metrics& metrics) override {}
 };
 
 /// Fixture class for RLC AM Tx tests
@@ -110,31 +121,35 @@ protected:
     logger.info("Creating RLC Tx AM entity ({} bit)", to_number(sn_size));
 
     // Set Tx config
-    config.sn_field_length = sn_size;
-    config.pdcp_sn_len     = static_cast<pdcp_sn_size>(sn_size); // use the same SN size for PDCP
-    config.t_poll_retx     = 45;
-    config.max_retx_thresh = 4;
-    config.poll_pdu        = 4;
-    config.poll_byte       = 25;
-    config.max_window      = 0;
-    config.queue_size      = 4096;
+    config.sn_field_length  = sn_size;
+    config.pdcp_sn_len      = static_cast<pdcp_sn_size>(sn_size); // use the same SN size for PDCP
+    config.t_poll_retx      = 45;
+    config.max_retx_thresh  = 4;
+    config.poll_pdu         = 4;
+    config.poll_byte        = 25;
+    config.max_window       = 0;
+    config.queue_size       = 4096;
+    config.queue_size_bytes = 4096 * 1500;
 
     // Create test frame
     tester = std::make_unique<rlc_tx_am_test_frame>(config.sn_field_length);
 
+    metrics_agg = std::make_unique<rlc_metrics_aggregator>(
+        gnb_du_id_t{}, du_ue_index_t{}, rb_id_t{}, timer_duration{1000}, tester.get(), ue_worker);
+
     // Create RLC AM TX entity
     rlc = std::make_unique<rlc_tx_am_entity>(gnb_du_id_t::min,
                                              du_ue_index_t::MIN_DU_UE_INDEX,
-                                             srb_id_t::srb0,
+                                             drb_id_t::drb1,
                                              config,
                                              *tester,
                                              *tester,
                                              *tester,
-                                             timer_factory{timers, pcell_worker},
+                                             *metrics_agg,
+                                             pcap,
                                              pcell_worker,
                                              ue_worker,
-                                             true,
-                                             pcap);
+                                             timers);
 
     // Bind AM Rx/Tx interconnect
     rlc->set_status_provider(tester.get());
@@ -159,7 +174,7 @@ protected:
     // Push "n_pdus" SDUs into RLC
     auto sdu_bufs = std::vector<byte_buffer>(n_pdus);
     for (uint32_t i = 0; i < n_pdus; i++) {
-      sdu_bufs[i] = test_helpers::create_pdcp_pdu(config.pdcp_sn_len, i, sdu_size, i);
+      sdu_bufs[i] = test_helpers::create_pdcp_pdu(config.pdcp_sn_len, /* is_srb = */ false, i, sdu_size, i);
 
       // write SDU into upper end
       rlc->handle_sdu(sdu_bufs[i].deep_copy().value(), false); // keep local copy for later comparison
@@ -227,7 +242,7 @@ protected:
     // Push "n_sdus" SDUs into RLC
     auto sdu_bufs = std::vector<byte_buffer>(n_sdus);
     for (uint32_t i = 0; i < n_sdus; i++) {
-      sdu_bufs[i] = test_helpers::create_pdcp_pdu(config.pdcp_sn_len, i, sdu_size, i);
+      sdu_bufs[i] = test_helpers::create_pdcp_pdu(config.pdcp_sn_len, /* is_srb = */ false, i, sdu_size, i);
 
       // write SDU into upper end
       rlc->handle_sdu(sdu_bufs[i].deep_copy().value(), false); // keep local copy for later comparison
@@ -311,21 +326,23 @@ protected:
     pcell_worker.run_pending_tasks();
   }
 
-  srslog::basic_logger&                 logger  = srslog::fetch_basic_logger("TEST", false);
-  rlc_am_sn_size                        sn_size = GetParam();
-  rlc_tx_am_config                      config;
-  timer_manager                         timers;
-  manual_task_worker                    ue_worker{128};
-  manual_task_worker                    pcell_worker{128};
-  std::unique_ptr<rlc_tx_am_test_frame> tester;
-  null_rlc_pcap                         pcap;
-  std::unique_ptr<rlc_tx_am_entity>     rlc;
+  srslog::basic_logger&                   logger  = srslog::fetch_basic_logger("TEST", false);
+  rlc_am_sn_size                          sn_size = GetParam();
+  rlc_tx_am_config                        config;
+  timer_manager                           timers;
+  manual_task_worker                      ue_worker{128};
+  manual_task_worker                      pcell_worker{128};
+  std::unique_ptr<rlc_tx_am_test_frame>   tester;
+  null_rlc_pcap                           pcap;
+  std::unique_ptr<rlc_tx_am_entity>       rlc;
+  std::unique_ptr<rlc_metrics_aggregator> metrics_agg;
 };
 
 TEST_P(rlc_tx_am_test, create_new_entity)
 {
   EXPECT_EQ(rlc->get_buffer_state(), 0);
   EXPECT_EQ(tester->highest_transmitted_pdcp_sn_list.size(), 0);
+  EXPECT_EQ(tester->desired_buf_size_list.size(), 0);
   EXPECT_EQ(tester->highest_delivered_pdcp_sn_list.size(), 0);
   EXPECT_EQ(tester->bsr, 0);
   EXPECT_EQ(tester->bsr_count, 0);
@@ -363,7 +380,7 @@ TEST_P(rlc_tx_am_test, tx_insufficient_space_new_sdu)
   const uint32_t fit_size        = header_min_size + sdu_size;
 
   EXPECT_EQ(rlc->get_buffer_state(), 0);
-  rlc->handle_sdu(test_helpers::create_pdcp_pdu(config.pdcp_sn_len, 0, sdu_size), false);
+  rlc->handle_sdu(test_helpers::create_pdcp_pdu(config.pdcp_sn_len, /* is_srb = */ false, 0, sdu_size, 0), false);
   EXPECT_EQ(rlc->get_buffer_state(), sdu_size + header_min_size);
   pcell_worker.run_pending_tasks();
   EXPECT_EQ(tester->bsr, sdu_size + header_min_size);
@@ -401,7 +418,7 @@ TEST_P(rlc_tx_am_test, tx_insufficient_space_continued_sdu)
   const uint32_t min_size_seg    = header_min_size + header_so_size + 1;
 
   EXPECT_EQ(rlc->get_buffer_state(), 0);
-  rlc->handle_sdu(test_helpers::create_pdcp_pdu(config.pdcp_sn_len, 0, sdu_size), false);
+  rlc->handle_sdu(test_helpers::create_pdcp_pdu(config.pdcp_sn_len, /* is_srb = */ false, 0, sdu_size, 0), false);
   pcell_worker.run_pending_tasks();
   EXPECT_EQ(rlc->get_buffer_state(), sdu_size + header_min_size);
   EXPECT_EQ(tester->bsr, sdu_size + header_min_size);
@@ -457,7 +474,7 @@ TEST_P(rlc_tx_am_test, sdu_discard)
   // Push "n_pdus" SDUs into RLC
   byte_buffer sdu_bufs[n_pdus];
   for (uint32_t i = 0; i < n_pdus; i++) {
-    sdu_bufs[i] = test_helpers::create_pdcp_pdu(config.pdcp_sn_len, i, sdu_size, i);
+    sdu_bufs[i] = test_helpers::create_pdcp_pdu(config.pdcp_sn_len, /* is_srb = */ false, i, sdu_size, i);
 
     // write SDU into upper end
     rlc->handle_sdu(sdu_bufs[i].deep_copy().value(), false); // keep local copy for later comparison
@@ -483,8 +500,8 @@ TEST_P(rlc_tx_am_test, sdu_discard)
   pcell_worker.run_pending_tasks();
   EXPECT_EQ(tester->bsr, expect_mac_bsr);
   EXPECT_EQ(tester->bsr_count, ++n_bsr);
-  EXPECT_EQ(rlc->get_metrics().num_discarded_sdus, 3);
-  EXPECT_EQ(rlc->get_metrics().num_discard_failures, 0);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discarded_sdus, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discard_failures, 0);
 
   // Try discard of invalid SDU
   rlc->discard_sdu(999);
@@ -492,8 +509,8 @@ TEST_P(rlc_tx_am_test, sdu_discard)
   EXPECT_EQ(rlc->get_buffer_state(), expect_buffer_state);
   EXPECT_EQ(tester->bsr, expect_mac_bsr);
   EXPECT_EQ(tester->bsr_count, n_bsr);
-  EXPECT_EQ(rlc->get_metrics().num_discarded_sdus, 3);
-  EXPECT_EQ(rlc->get_metrics().num_discard_failures, 1);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discarded_sdus, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discard_failures, 1);
 
   // Try discard of already discarded SDU
   rlc->discard_sdu(0);
@@ -501,8 +518,8 @@ TEST_P(rlc_tx_am_test, sdu_discard)
   EXPECT_EQ(rlc->get_buffer_state(), expect_buffer_state);
   EXPECT_EQ(tester->bsr, expect_mac_bsr);
   EXPECT_EQ(tester->bsr_count, n_bsr);
-  EXPECT_EQ(rlc->get_metrics().num_discarded_sdus, 3);
-  EXPECT_EQ(rlc->get_metrics().num_discard_failures, 2);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discarded_sdus, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discard_failures, 2);
 
   // Transmit full PDU
   std::vector<uint8_t> pdu_buf;
@@ -518,8 +535,8 @@ TEST_P(rlc_tx_am_test, sdu_discard)
   EXPECT_EQ(rlc->get_buffer_state(), expect_buffer_state);
   EXPECT_EQ(tester->bsr, expect_mac_bsr);
   EXPECT_EQ(tester->bsr_count, n_bsr);
-  EXPECT_EQ(rlc->get_metrics().num_discarded_sdus, 3);
-  EXPECT_EQ(rlc->get_metrics().num_discard_failures, 2);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discarded_sdus, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discard_failures, 2);
 
   // Try discard of already transmitted SDU
   rlc->discard_sdu(1);
@@ -527,8 +544,8 @@ TEST_P(rlc_tx_am_test, sdu_discard)
   EXPECT_EQ(rlc->get_buffer_state(), expect_buffer_state);
   EXPECT_EQ(tester->bsr, expect_mac_bsr);
   EXPECT_EQ(tester->bsr_count, n_bsr);
-  EXPECT_EQ(rlc->get_metrics().num_discarded_sdus, 3);
-  EXPECT_EQ(rlc->get_metrics().num_discard_failures, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discarded_sdus, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discard_failures, 3);
 
   // Transmit full PDU
   pdu_buf.resize(data_pdu_size);
@@ -542,8 +559,8 @@ TEST_P(rlc_tx_am_test, sdu_discard)
   EXPECT_EQ(rlc->get_buffer_state(), expect_buffer_state);
   EXPECT_EQ(tester->bsr, expect_mac_bsr);
   EXPECT_EQ(tester->bsr_count, n_bsr);
-  EXPECT_EQ(rlc->get_metrics().num_discarded_sdus, 3);
-  EXPECT_EQ(rlc->get_metrics().num_discard_failures, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discarded_sdus, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discard_failures, 3);
 
   // Discard remaining SDU
   rlc->discard_sdu(5);
@@ -553,8 +570,8 @@ TEST_P(rlc_tx_am_test, sdu_discard)
   EXPECT_EQ(rlc->get_buffer_state(), expect_buffer_state);
   EXPECT_EQ(tester->bsr, expect_mac_bsr);
   EXPECT_EQ(tester->bsr_count, ++n_bsr);
-  EXPECT_EQ(rlc->get_metrics().num_discarded_sdus, 4);
-  EXPECT_EQ(rlc->get_metrics().num_discard_failures, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discarded_sdus, 4);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discard_failures, 3);
 }
 
 TEST_P(rlc_tx_am_test, sdu_discard_with_pdcp_sn_wraparound)
@@ -569,7 +586,8 @@ TEST_P(rlc_tx_am_test, sdu_discard_with_pdcp_sn_wraparound)
   // Push "n_pdus" SDUs into RLC
   byte_buffer sdu_bufs[n_pdus];
   for (uint32_t i = 0; i < n_pdus; i++) {
-    sdu_bufs[i] = test_helpers::create_pdcp_pdu(config.pdcp_sn_len, pdcp_sn_start + i, sdu_size, i);
+    sdu_bufs[i] =
+        test_helpers::create_pdcp_pdu(config.pdcp_sn_len, /* is_srb = */ false, pdcp_sn_start + i, sdu_size, i);
 
     // write SDU into upper end
     rlc->handle_sdu(sdu_bufs[i].deep_copy().value(), false); // keep local copy for later comparison
@@ -595,8 +613,8 @@ TEST_P(rlc_tx_am_test, sdu_discard_with_pdcp_sn_wraparound)
   pcell_worker.run_pending_tasks();
   EXPECT_EQ(tester->bsr, expect_mac_bsr);
   EXPECT_EQ(tester->bsr_count, ++n_bsr);
-  EXPECT_EQ(rlc->get_metrics().num_discarded_sdus, 3);
-  EXPECT_EQ(rlc->get_metrics().num_discard_failures, 0);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discarded_sdus, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discard_failures, 0);
 
   // Try discard of invalid SDU
   rlc->discard_sdu((pdcp_sn_start + 999) % pdcp_sn_mod);
@@ -604,8 +622,8 @@ TEST_P(rlc_tx_am_test, sdu_discard_with_pdcp_sn_wraparound)
   EXPECT_EQ(rlc->get_buffer_state(), expect_buffer_state);
   EXPECT_EQ(tester->bsr, expect_mac_bsr);
   EXPECT_EQ(tester->bsr_count, n_bsr);
-  EXPECT_EQ(rlc->get_metrics().num_discarded_sdus, 3);
-  EXPECT_EQ(rlc->get_metrics().num_discard_failures, 1);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discarded_sdus, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discard_failures, 1);
 
   // Try discard of already discarded SDU
   rlc->discard_sdu((pdcp_sn_start + 0) % pdcp_sn_mod);
@@ -613,8 +631,8 @@ TEST_P(rlc_tx_am_test, sdu_discard_with_pdcp_sn_wraparound)
   EXPECT_EQ(rlc->get_buffer_state(), expect_buffer_state);
   EXPECT_EQ(tester->bsr, expect_mac_bsr);
   EXPECT_EQ(tester->bsr_count, n_bsr);
-  EXPECT_EQ(rlc->get_metrics().num_discarded_sdus, 3);
-  EXPECT_EQ(rlc->get_metrics().num_discard_failures, 2);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discarded_sdus, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discard_failures, 2);
 
   // Transmit full PDU
   std::vector<uint8_t> pdu_buf;
@@ -630,8 +648,8 @@ TEST_P(rlc_tx_am_test, sdu_discard_with_pdcp_sn_wraparound)
   EXPECT_EQ(rlc->get_buffer_state(), expect_buffer_state);
   EXPECT_EQ(tester->bsr, expect_mac_bsr);
   EXPECT_EQ(tester->bsr_count, n_bsr);
-  EXPECT_EQ(rlc->get_metrics().num_discarded_sdus, 3);
-  EXPECT_EQ(rlc->get_metrics().num_discard_failures, 2);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discarded_sdus, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discard_failures, 2);
 
   // Try discard of already transmitted SDU
   rlc->discard_sdu((pdcp_sn_start + 1) % pdcp_sn_mod);
@@ -639,8 +657,8 @@ TEST_P(rlc_tx_am_test, sdu_discard_with_pdcp_sn_wraparound)
   EXPECT_EQ(rlc->get_buffer_state(), expect_buffer_state);
   EXPECT_EQ(tester->bsr, expect_mac_bsr);
   EXPECT_EQ(tester->bsr_count, n_bsr);
-  EXPECT_EQ(rlc->get_metrics().num_discarded_sdus, 3);
-  EXPECT_EQ(rlc->get_metrics().num_discard_failures, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discarded_sdus, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discard_failures, 3);
 
   // Transmit full PDU
   pdu_buf.resize(data_pdu_size);
@@ -654,8 +672,8 @@ TEST_P(rlc_tx_am_test, sdu_discard_with_pdcp_sn_wraparound)
   EXPECT_EQ(rlc->get_buffer_state(), expect_buffer_state);
   EXPECT_EQ(tester->bsr, expect_mac_bsr);
   EXPECT_EQ(tester->bsr_count, n_bsr);
-  EXPECT_EQ(rlc->get_metrics().num_discarded_sdus, 3);
-  EXPECT_EQ(rlc->get_metrics().num_discard_failures, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discarded_sdus, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discard_failures, 3);
 
   // Discard remaining SDU
   rlc->discard_sdu((pdcp_sn_start + 5) % pdcp_sn_mod);
@@ -665,8 +683,8 @@ TEST_P(rlc_tx_am_test, sdu_discard_with_pdcp_sn_wraparound)
   EXPECT_EQ(rlc->get_buffer_state(), expect_buffer_state);
   EXPECT_EQ(tester->bsr, expect_mac_bsr);
   EXPECT_EQ(tester->bsr_count, ++n_bsr);
-  EXPECT_EQ(rlc->get_metrics().num_discarded_sdus, 4);
-  EXPECT_EQ(rlc->get_metrics().num_discard_failures, 3);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discarded_sdus, 4);
+  EXPECT_EQ(rlc->get_metrics().tx_high.num_discard_failures, 3);
 }
 
 TEST_P(rlc_tx_am_test, invalid_status_report_ack_sn_larger_than_tx_next)
@@ -728,9 +746,12 @@ TEST_P(rlc_tx_am_test, retx_pdu_without_segmentation)
 
   // Verify transmit notification for queued SDUs
   ASSERT_EQ(tester->highest_transmitted_pdcp_sn_list.size(), n_pdus);
+  ASSERT_EQ(tester->desired_buf_size_list.size(), n_pdus);
   for (uint32_t pdcp_sn = 0; pdcp_sn < n_pdus; pdcp_sn++) {
     EXPECT_EQ(tester->highest_transmitted_pdcp_sn_list.front(), pdcp_sn);
+    EXPECT_EQ(tester->desired_buf_size_list.front(), config.queue_size_bytes);
     tester->highest_transmitted_pdcp_sn_list.pop_front();
+    tester->desired_buf_size_list.pop_front();
   }
 
   // Verify delivery notification for fully ACK'ed SDUs
@@ -797,9 +818,12 @@ TEST_P(rlc_tx_am_test, retx_pdu_with_segmentation)
 
   // Verify transmit notification for queued SDUs
   ASSERT_EQ(tester->highest_transmitted_pdcp_sn_list.size(), 5);
+  ASSERT_EQ(tester->desired_buf_size_list.size(), 5);
   for (uint32_t pdcp_sn = 0; pdcp_sn < n_pdus; pdcp_sn++) {
     EXPECT_EQ(tester->highest_transmitted_pdcp_sn_list.front(), pdcp_sn);
+    EXPECT_EQ(tester->desired_buf_size_list.front(), config.queue_size_bytes);
     tester->highest_transmitted_pdcp_sn_list.pop_front();
+    tester->desired_buf_size_list.pop_front();
   }
 
   // Verify delivery notification for fully ACK'ed SDUs
@@ -851,9 +875,12 @@ TEST_P(rlc_tx_am_test, retx_pdu_first_segment_without_segmentation)
 
   // Verify transmit notification for queued SDUs
   ASSERT_EQ(tester->highest_transmitted_pdcp_sn_list.size(), n_pdus);
+  ASSERT_EQ(tester->desired_buf_size_list.size(), n_pdus);
   for (uint32_t pdcp_sn = 0; pdcp_sn < n_pdus; pdcp_sn++) {
     EXPECT_EQ(tester->highest_transmitted_pdcp_sn_list.front(), pdcp_sn);
+    EXPECT_EQ(tester->desired_buf_size_list.front(), config.queue_size_bytes);
     tester->highest_transmitted_pdcp_sn_list.pop_front();
+    tester->desired_buf_size_list.pop_front();
   }
 
   // Verify delivery notification for fully ACK'ed SDUs
@@ -907,9 +934,12 @@ TEST_P(rlc_tx_am_test, retx_pdu_middle_segment_without_segmentation)
 
   // Verify transmit notification for queued SDUs
   ASSERT_EQ(tester->highest_transmitted_pdcp_sn_list.size(), n_pdus);
+  ASSERT_EQ(tester->desired_buf_size_list.size(), n_pdus);
   for (uint32_t pdcp_sn = 0; pdcp_sn < n_pdus; pdcp_sn++) {
     EXPECT_EQ(tester->highest_transmitted_pdcp_sn_list.front(), pdcp_sn);
+    EXPECT_EQ(tester->desired_buf_size_list.front(), config.queue_size_bytes);
     tester->highest_transmitted_pdcp_sn_list.pop_front();
+    tester->desired_buf_size_list.pop_front();
   }
 
   // Verify delivery notification for fully ACK'ed SDUs
@@ -963,9 +993,12 @@ TEST_P(rlc_tx_am_test, retx_pdu_last_segment_without_segmentation)
 
   // Verify transmit notification for queued SDUs
   ASSERT_EQ(tester->highest_transmitted_pdcp_sn_list.size(), n_pdus);
+  ASSERT_EQ(tester->desired_buf_size_list.size(), n_pdus);
   for (uint32_t pdcp_sn = 0; pdcp_sn < n_pdus; pdcp_sn++) {
     EXPECT_EQ(tester->highest_transmitted_pdcp_sn_list.front(), pdcp_sn);
+    EXPECT_EQ(tester->desired_buf_size_list.front(), config.queue_size_bytes);
     tester->highest_transmitted_pdcp_sn_list.pop_front();
+    tester->desired_buf_size_list.pop_front();
   }
 
   // Verify delivery notification for fully ACK'ed SDUs
@@ -1183,9 +1216,12 @@ TEST_P(rlc_tx_am_test, retx_pdu_segment_invalid_so_start_and_so_end)
 
   // Verify transmit notification for queued SDUs
   ASSERT_EQ(tester->highest_transmitted_pdcp_sn_list.size(), n_pdus);
+  ASSERT_EQ(tester->desired_buf_size_list.size(), n_pdus);
   for (uint32_t pdcp_sn = 0; pdcp_sn < n_pdus; pdcp_sn++) {
     EXPECT_EQ(tester->highest_transmitted_pdcp_sn_list.front(), pdcp_sn);
+    EXPECT_EQ(tester->desired_buf_size_list.front(), config.queue_size_bytes);
     tester->highest_transmitted_pdcp_sn_list.pop_front();
+    tester->desired_buf_size_list.pop_front();
   }
 
   // Verify delivery notification for fully ACK'ed SDUs
@@ -1235,9 +1271,12 @@ TEST_P(rlc_tx_am_test, retx_pdu_segment_invalid_so_start_larger_than_so_end)
 
   // Verify transmit notification for queued SDUs
   ASSERT_EQ(tester->highest_transmitted_pdcp_sn_list.size(), n_pdus);
+  ASSERT_EQ(tester->desired_buf_size_list.size(), n_pdus);
   for (uint32_t pdcp_sn = 0; pdcp_sn < n_pdus; pdcp_sn++) {
     EXPECT_EQ(tester->highest_transmitted_pdcp_sn_list.front(), pdcp_sn);
+    EXPECT_EQ(tester->desired_buf_size_list.front(), config.queue_size_bytes);
     tester->highest_transmitted_pdcp_sn_list.pop_front();
+    tester->desired_buf_size_list.pop_front();
   }
 
   // Verify delivery notification for fully ACK'ed SDUs
@@ -1271,9 +1310,12 @@ TEST_P(rlc_tx_am_test, retx_many_pdus_and_notify_mac)
 
   // Verify transmit notification for queued SDUs
   ASSERT_EQ(tester->highest_transmitted_pdcp_sn_list.size(), n_pdus);
+  ASSERT_EQ(tester->desired_buf_size_list.size(), n_pdus);
   for (uint32_t pdcp_sn = 0; pdcp_sn < n_pdus; pdcp_sn++) {
     EXPECT_EQ(tester->highest_transmitted_pdcp_sn_list.front(), pdcp_sn);
+    EXPECT_EQ(tester->desired_buf_size_list.front(), config.queue_size_bytes);
     tester->highest_transmitted_pdcp_sn_list.pop_front();
+    tester->desired_buf_size_list.pop_front();
   }
 
   // Verify delivery notification for fully ACK'ed SDUs is zero
@@ -1444,9 +1486,12 @@ TEST_P(rlc_tx_am_test, retx_insufficient_space)
 
   // Verify transmit notification for queued SDUs
   ASSERT_EQ(tester->highest_transmitted_pdcp_sn_list.size(), n_pdus);
+  ASSERT_EQ(tester->desired_buf_size_list.size(), n_pdus);
   for (uint32_t pdcp_sn = 0; pdcp_sn < n_pdus; pdcp_sn++) {
     EXPECT_EQ(tester->highest_transmitted_pdcp_sn_list.front(), pdcp_sn);
+    EXPECT_EQ(tester->desired_buf_size_list.front(), config.queue_size_bytes);
     tester->highest_transmitted_pdcp_sn_list.pop_front();
+    tester->desired_buf_size_list.pop_front();
   }
 
   // Verify delivery notification for fully ACK'ed SDUs
@@ -1506,9 +1551,12 @@ TEST_P(rlc_tx_am_test, retx_pdu_range_without_segmentation)
 
   // Verify transmit notification for queued SDUs
   ASSERT_EQ(tester->highest_transmitted_pdcp_sn_list.size(), n_pdus);
+  ASSERT_EQ(tester->desired_buf_size_list.size(), n_pdus);
   for (uint32_t pdcp_sn = 0; pdcp_sn < n_pdus; pdcp_sn++) {
     EXPECT_EQ(tester->highest_transmitted_pdcp_sn_list.front(), pdcp_sn);
+    EXPECT_EQ(tester->desired_buf_size_list.front(), config.queue_size_bytes);
     tester->highest_transmitted_pdcp_sn_list.pop_front();
+    tester->desired_buf_size_list.pop_front();
   }
 
   // Verify delivery notification for fully ACK'ed SDUs
@@ -1571,9 +1619,12 @@ TEST_P(rlc_tx_am_test, retx_pdu_range_wraparound)
 
   // Verify transmit notification for queued SDUs
   ASSERT_EQ(tester->highest_transmitted_pdcp_sn_list.size(), n_pdus);
+  ASSERT_EQ(tester->desired_buf_size_list.size(), n_pdus);
   for (uint32_t pdcp_sn = 0; pdcp_sn < n_pdus; pdcp_sn++) {
     EXPECT_EQ(tester->highest_transmitted_pdcp_sn_list.front(), pdcp_sn);
+    EXPECT_EQ(tester->desired_buf_size_list.front(), config.queue_size_bytes);
     tester->highest_transmitted_pdcp_sn_list.pop_front();
+    tester->desired_buf_size_list.pop_front();
   }
 
   // Verify delivery notification for fully ACK'ed SDUs
@@ -1585,6 +1636,7 @@ TEST_P(rlc_tx_am_test, buffer_state_considers_status_report)
 {
   EXPECT_EQ(rlc->get_buffer_state(), 0);
   EXPECT_EQ(tester->highest_transmitted_pdcp_sn_list.size(), 0);
+  EXPECT_EQ(tester->desired_buf_size_list.size(), 0);
 
   // First set the status_required flag without triggering the on_status_report_changed() event
   tester->status_required = true;
@@ -1621,7 +1673,7 @@ TEST_P(rlc_tx_am_test, status_report_priority)
   const uint32_t pdu_size        = header_min_size + sdu_size;
 
   EXPECT_EQ(rlc->get_buffer_state(), 0);
-  rlc->handle_sdu(test_helpers::create_pdcp_pdu(config.pdcp_sn_len, 0, sdu_size), false);
+  rlc->handle_sdu(test_helpers::create_pdcp_pdu(config.pdcp_sn_len, /* is_srb = */ false, 0, sdu_size, 0), false);
   pcell_worker.run_pending_tasks();
   EXPECT_EQ(rlc->get_buffer_state(), pdu_size);
   EXPECT_EQ(tester->bsr, pdu_size);
@@ -1801,7 +1853,7 @@ TEST_P(rlc_tx_am_test, expired_poll_retransmit_timer_sets_polling_bit)
 
   // push SDU to SDU queue so that it is not empty
   uint32_t    n_bsr   = tester->bsr_count;
-  byte_buffer sdu_buf = test_helpers::create_pdcp_pdu(config.pdcp_sn_len, 7, sdu_size, 7);
+  byte_buffer sdu_buf = test_helpers::create_pdcp_pdu(config.pdcp_sn_len, /* is_srb = */ false, 7, sdu_size, 7);
   rlc->handle_sdu(sdu_buf.deep_copy().value(), false); // keep local copy for later comparison
   pcell_worker.run_pending_tasks();
   EXPECT_EQ(rlc->get_buffer_state(), pdu_size);
@@ -2002,12 +2054,19 @@ TEST_P(rlc_tx_am_test, retx_count_trigger_max_retx_without_segmentation)
     pdu_buf.resize(pdu_len);
     EXPECT_EQ(pdu_len, (sdu_size + header_min_size));
 
-    pdu_buf.resize(sdu_size + header_min_size);
-    pdu_len = rlc->pull_pdu(pdu_buf);
-    pdu_buf.resize(pdu_len);
-    EXPECT_EQ(pdu_len, (sdu_size + header_min_size));
+    if (n_retx != config.max_retx_thresh) {
+      pdu_buf.resize(sdu_size + header_min_size);
+      pdu_len = rlc->pull_pdu(pdu_buf);
+      pdu_buf.resize(pdu_len);
+      EXPECT_EQ(pdu_len, (sdu_size + header_min_size));
 
-    EXPECT_EQ(rlc->get_buffer_state(), 0);
+      EXPECT_EQ(rlc->get_buffer_state(), 0);
+    } else {
+      // max_retx already reached, last PDU is not read.
+      pdu_buf.resize(sdu_size + header_min_size);
+      pdu_len = rlc->pull_pdu(pdu_buf);
+      EXPECT_EQ(pdu_len, 0);
+    }
   }
 
   // Finally, max_retx has been reached for both SNs
@@ -2021,7 +2080,7 @@ TEST_P(rlc_tx_am_test, retx_count_trigger_max_retx_without_segmentation)
 std::string test_param_info_to_string(const ::testing::TestParamInfo<rlc_am_sn_size>& info)
 {
   fmt::memory_buffer buffer;
-  fmt::format_to(buffer, "{}bit", to_number(info.param));
+  fmt::format_to(std::back_inserter(buffer), "{}bit", to_number(info.param));
   return fmt::to_string(buffer);
 }
 

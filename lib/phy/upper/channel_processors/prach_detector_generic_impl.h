@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "srsran/adt/expected.h"
 #include "srsran/adt/tensor.h"
 #include "srsran/phy/generic_functions/dft_processor.h"
 #include "srsran/phy/upper/channel_processors/prach_detector.h"
@@ -29,12 +30,12 @@
 
 namespace srsran {
 
-/// Implements a parameter validator for \ref prach_detector_simple_impl.
+/// Implements a parameter validator for the PRACH detector.
 class prach_detector_validator_impl : public prach_detector_validator
 {
 public:
   // See interface for documentation.
-  bool is_valid(const prach_detector::configuration& config) const override;
+  error_type<std::string> is_valid(const prach_detector::configuration& config) const override;
 };
 
 /// \brief Implements a simple PRACH detector.
@@ -50,7 +51,7 @@ public:
   /// \param[in] generator_       PRACH frequency-domain sequence generator.
   /// \param[in] combine_symbols_ Set to true for combining PRACH symbols for each port.
   /// \remark Assertions are triggered if the IDFT sizes are smaller than their sequences or greater than \ref
-  /// MAX_DFT_SIZE.
+  /// MAX_IDFT_SIZE.
   prach_detector_generic_impl(std::unique_ptr<dft_processor>   idft_long_,
                               std::unique_ptr<dft_processor>   idft_short_,
                               std::unique_ptr<prach_generator> generator_,

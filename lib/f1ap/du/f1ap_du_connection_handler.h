@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,6 +23,7 @@
 #pragma once
 
 #include "srsran/f1ap/du/f1ap_du_connection_manager.h"
+#include "srsran/f1ap/f1ap_message_handler.h"
 #include "srsran/f1ap/gateways/f1c_connection_client.h"
 #include "srsran/srslog/logger.h"
 #include "srsran/support/async/manual_event.h"
@@ -43,12 +44,12 @@ public:
                              task_executor&         ctrl_exec_);
   ~f1ap_du_connection_handler();
 
-  SRSRAN_NODISCARD std::unique_ptr<f1ap_message_notifier> connect_to_cu_cp();
+  [[nodiscard]] std::unique_ptr<f1ap_message_notifier> connect_to_cu_cp();
 
   async_task<void> handle_tnl_association_removal();
 
   /// \brief Check if the connection is active.
-  SRSRAN_NODISCARD bool is_connected() const { return connected_flag; }
+  [[nodiscard]] bool is_connected() const { return connected_flag; }
 
 private:
   // Called by the F1-C GW when the F1-C TNL association drops.

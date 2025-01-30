@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,7 +22,7 @@
 
 #include "srsran/phy/upper/vrb_to_prb_mapper.h"
 #include "srsran/adt/span.h"
-#include "srsran/support/math_utils.h"
+#include "srsran/support/math/math_utils.h"
 #include <numeric>
 
 using namespace srsran;
@@ -146,7 +146,7 @@ vrb_to_prb_mapper::create_interleaved_common(unsigned N_start_coreset, unsigned 
 }
 
 vrb_to_prb_mapper
-vrb_to_prb_mapper::create_interleaved_other(unsigned int N_bwp_i_start, unsigned int N_bwp_i_size, unsigned int L_i)
+vrb_to_prb_mapper::create_interleaved_other(unsigned N_bwp_i_start, unsigned N_bwp_i_size, unsigned L_i)
 {
   vrb_to_prb_mapper mapper;
 

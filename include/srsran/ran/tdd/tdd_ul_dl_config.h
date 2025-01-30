@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,10 +22,10 @@
 
 #pragma once
 
-#include "srsran/adt/optional.h"
 #include "srsran/ran/cyclic_prefix.h"
 #include "srsran/ran/resource_allocation/ofdm_symbol_range.h"
 #include "srsran/ran/subcarrier_spacing.h"
+#include <optional>
 
 namespace srsran {
 
@@ -65,6 +65,16 @@ inline unsigned nof_full_dl_slots_per_tdd_period(const tdd_ul_dl_config_common& 
   return cfg.pattern1.nof_dl_slots + (cfg.pattern2.has_value() ? cfg.pattern2->nof_dl_slots : 0U);
 }
 
+/// \brief Calculates number of slots with DL symbols in the TDD UL-DL configuration.
+inline unsigned nof_dl_slots_per_tdd_period(const tdd_ul_dl_config_common& cfg)
+{
+  const auto pattern1_additional_dl_slot = cfg.pattern1.nof_dl_symbols > 0 ? 1 : 0;
+  const auto pattern2_additional_dl_slot =
+      cfg.pattern2.has_value() ? (cfg.pattern2.value().nof_dl_symbols > 0 ? 1 : 0) : 0;
+  return cfg.pattern1.nof_dl_slots + pattern1_additional_dl_slot +
+         (cfg.pattern2.has_value() ? cfg.pattern2->nof_dl_slots + pattern2_additional_dl_slot : 0U);
+}
+
 /// \brief Calculates number of slots with all UL symbols in the TDD UL-DL configuration.
 inline unsigned nof_full_ul_slots_per_tdd_period(const tdd_ul_dl_config_common& cfg)
 {
@@ -82,6 +92,9 @@ bool is_tdd_full_dl_slot(const tdd_ul_dl_config_common& cfg, unsigned slot_index
 
 /// \brief Checks if all symbols in the current slot index are active for UL.
 bool is_tdd_full_ul_slot(const tdd_ul_dl_config_common& cfg, unsigned slot_index);
+
+/// \brief Checks if some symbols in the current slot index, but not all of them, are active for UL.
+bool is_tdd_partial_ul_slot(const tdd_ul_dl_config_common& cfg, unsigned slot_index);
 
 /// \brief Calculates the number of active DL symbols in the current slot_index.
 ofdm_symbol_range get_active_tdd_dl_symbols(const tdd_ul_dl_config_common& cfg, unsigned slot_index, cyclic_prefix cp);

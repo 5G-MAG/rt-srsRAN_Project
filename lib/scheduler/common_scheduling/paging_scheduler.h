@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -24,12 +24,17 @@
 
 #include "../config/cell_configuration.h"
 #include "../pdcch_scheduling/pdcch_resource_allocator.h"
-#include "../support/slot_event_list.h"
+#include "srsran/adt/concurrent_queue.h"
+#include "srsran/adt/mpmc_queue.h"
 #include "srsran/scheduler/config/scheduler_expert_config.h"
+#include "srsran/scheduler/result/pdsch_info.h"
+#include "srsran/scheduler/scheduler_paging_handler.h"
 #include "srsran/srslog/logger.h"
 #include <unordered_map>
 
 namespace srsran {
+
+struct sched_paging_information;
 
 /// Defines Paging scheduler that is used to allocate resources to send paging information to UE in a given slot.
 class paging_scheduler
@@ -52,7 +57,7 @@ public:
   /// \brief Performs paging (if any) scheduling for the current slot.
   ///
   /// \param[out,in] res_grid Resource grid with current allocations and scheduling results.
-  void schedule_paging(cell_resource_allocator& res_grid);
+  void run_slot(cell_resource_allocator& res_grid);
 
   /// Handles Paging information reported by upper layers.
   /// \param[in] paging_info Per UE paging information to be scheduled.
@@ -63,6 +68,10 @@ private:
     sched_paging_information  info;
     paging_retries_count_type retry_count;
   };
+
+  using paging_info_queue = concurrent_queue<sched_paging_information,
+                                             concurrent_queue_policy::lockfree_mpmc,
+                                             concurrent_queue_wait_policy::non_blocking>;
 
   /// \brief Checks paging conditions for a UE in SearchSpace > 0 i.e pagingSearchSpace > 0 in its active BWP config.
   ///
@@ -163,7 +172,7 @@ private:
 
   /// List of notifications from upper layers containing Paging information.
   /// This is used only to avoid data race between threads.
-  slot_event_list<sched_paging_information> new_paging_notifications;
+  paging_info_queue new_paging_notifications;
   /// Contains paging information of UEs yet to be scheduled.
   std::unordered_map<ue_paging_id, ue_paging_info> paging_pending_ues;
   /// Lookup to keep track of scheduled paging UEs at a particular PDSCH time resource index. Index of \c

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -139,6 +139,6 @@ TEST_P(pdcch_type0_css_occasions_fixture, fr2)
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(OFHCompressionTestSuite,
+INSTANTIATE_TEST_SUITE_P(pdcch_type0_css_occasions,
                          pdcch_type0_css_occasions_fixture,
                          ::testing::Combine(::testing::Range(0U, 17U), ::testing::Range(1U, 3U)));

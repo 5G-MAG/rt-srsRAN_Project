@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,25 +22,26 @@
 
 #pragma once
 
-#include "ru_downlink_plane.h"
-#include "ru_error_notifier.h"
-#include "ru_timing_notifier.h"
-#include "ru_uplink_plane.h"
 #include "srsran/phy/support/prach_buffer_context.h"
+#include "srsran/phy/support/shared_resource_grid.h"
 #include "srsran/phy/upper/upper_phy_error_handler.h"
 #include "srsran/phy/upper/upper_phy_rg_gateway.h"
 #include "srsran/phy/upper/upper_phy_rx_symbol_handler.h"
 #include "srsran/phy/upper/upper_phy_rx_symbol_request_notifier.h"
 #include "srsran/phy/upper/upper_phy_timing_handler.h"
+#include "srsran/ru/ru_downlink_plane.h"
+#include "srsran/ru/ru_error_notifier.h"
+#include "srsran/ru/ru_timing_notifier.h"
+#include "srsran/ru/ru_uplink_plane.h"
 
 namespace srsran {
 
 /// Upper PHY - Radio Unit downlink adapter.
-class upper_ru_dl_rg_adapter : public upper_phy_rg_gateway
+class upper_phy_ru_dl_rg_adapter : public upper_phy_rg_gateway
 {
 public:
   // See interface for documentation.
-  void send(const resource_grid_context& context, const resource_grid_reader& grid) override
+  void send(const resource_grid_context& context, shared_resource_grid grid) override
   {
     srsran_assert(dl_handler, "Adapter is not connected.");
     dl_handler->handle_dl_data(context, grid);
@@ -54,7 +55,7 @@ private:
 };
 
 /// Upper PHY - Radio Unit uplink request adapter.
-class upper_ru_ul_request_adapter : public upper_phy_rx_symbol_request_notifier
+class upper_phy_ru_ul_request_adapter : public upper_phy_rx_symbol_request_notifier
 {
 public:
   // See interface for documentation.
@@ -65,7 +66,7 @@ public:
   }
 
   // See interface for documentation.
-  void on_uplink_slot_request(const resource_grid_context& context, resource_grid& grid) override
+  void on_uplink_slot_request(const resource_grid_context& context, const shared_resource_grid& grid) override
   {
     srsran_assert(ul_handler, "Adapter is not connected");
     ul_handler->handle_new_uplink_slot(context, grid);
@@ -79,13 +80,13 @@ private:
 };
 
 /// Upper PHY - Radio Unit uplink adapter.
-class upper_ru_ul_adapter : public ru_uplink_plane_rx_symbol_notifier
+class upper_phy_ru_ul_adapter : public ru_uplink_plane_rx_symbol_notifier
 {
 public:
-  explicit upper_ru_ul_adapter(unsigned nof_sectors) : handlers(nof_sectors) {}
+  explicit upper_phy_ru_ul_adapter(unsigned nof_sectors) : handlers(nof_sectors) {}
 
   // See interface for documentation.
-  void on_new_uplink_symbol(const ru_uplink_rx_symbol_context& context, const resource_grid_reader& grid) override
+  void on_new_uplink_symbol(const ru_uplink_rx_symbol_context& context, const shared_resource_grid& grid) override
   {
     srsran_assert(context.sector < handlers.size(), "Unsupported sector {}", context.sector);
     handlers[context.sector]->handle_rx_symbol({context.sector, context.slot, context.symbol_id}, grid);
@@ -111,10 +112,10 @@ private:
 };
 
 /// Upper PHY - Radio Unit timing adapter.
-class upper_ru_timing_adapter : public ru_timing_notifier
+class upper_phy_ru_timing_adapter : public ru_timing_notifier
 {
 public:
-  explicit upper_ru_timing_adapter(unsigned nof_sectors) : handlers(nof_sectors) {}
+  explicit upper_phy_ru_timing_adapter(unsigned nof_sectors) : handlers(nof_sectors) {}
 
   // See interface for documentation.
   void on_tti_boundary(slot_point slot) override
@@ -156,10 +157,10 @@ private:
 };
 
 /// Upper PHY - Radio Unit error adapter.
-class upper_ru_error_adapter : public ru_error_notifier
+class upper_phy_ru_error_adapter : public ru_error_notifier
 {
 public:
-  explicit upper_ru_error_adapter(unsigned nof_sectors) : handlers(nof_sectors) {}
+  explicit upper_phy_ru_error_adapter(unsigned nof_sectors) : handlers(nof_sectors) {}
 
   // See interface for documentation.
   void on_late_downlink_message(const ru_error_context& context) override

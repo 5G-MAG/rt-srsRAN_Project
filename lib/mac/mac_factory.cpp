@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,7 +22,7 @@
 
 #include "srsran/mac/mac_factory.h"
 #include "mac_impl.h"
-#include "srsran/du_high/du_high_executor_mapper.h"
+#include "srsran/du/du_high/du_high_executor_mapper.h"
 
 using namespace srsran;
 

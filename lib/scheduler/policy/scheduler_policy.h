@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "../slicing/ran_slice_candidate.h"
 #include "ue_allocator.h"
 
 namespace srsran {
@@ -50,6 +51,14 @@ public:
   span<const pdcch_dl_information> get_dl_pdcch_sched_results(du_cell_index_t cell_index) const
   {
     return (*cell_res_grids[cell_index])[0].result.dl.dl_pdcchs;
+  }
+  span<const dl_msg_alloc> get_ue_pdsch_sched_results(du_cell_index_t cell_index, slot_point pdsch_slot) const
+  {
+    return (*cell_res_grids[cell_index])[pdsch_slot].result.dl.ue_grants;
+  }
+  span<const ul_sched_info> get_ue_pusch_sched_results(du_cell_index_t cell_index, slot_point pusch_slot) const
+  {
+    return (*cell_res_grids[cell_index])[pusch_slot].result.ul.puschs;
   }
 
   const cell_resource_allocator& get_grid(du_cell_index_t cell_index) const { return *cell_res_grids[cell_index]; }
@@ -118,18 +127,24 @@ public:
   /// Schedule UE DL grants for a given slot and one or more cells.
   /// \param[out] pdsch_alloc PDSCH grant allocator. This object provides a handle to allocate PDSCH grants in the
   ///                            gNB resource grid.
-  /// \param[in] res_grid view of the current resource grid occupancy state for all gnb cells.
-  /// \param[in] ues List of eligible UEs to be scheduled in the given slot.
-  virtual void
-  dl_sched(ue_pdsch_allocator& pdsch_alloc, const ue_resource_grid_view& res_grid, const ue_repository& ues) = 0;
+  /// \param[in] res_grid View of the current resource grid occupancy state for all gnb cells.
+  /// \param[in] slice_candidate Slice candidate to be scheduled in the given slot.
+  /// \param[in] harq_pending_retx_list List of DL HARQs pending retransmissions.
+  virtual void dl_sched(ue_pdsch_allocator&          pdsch_alloc,
+                        const ue_resource_grid_view& res_grid,
+                        dl_ran_slice_candidate&      slice_candidate,
+                        dl_harq_pending_retx_list    harq_pending_retx_list) = 0;
 
   /// Schedule UE UL grants for a given {slot, cell}.
   /// \param[out] pusch_alloc PUSCH grant allocator. This object provides a handle to allocate PUSCH grants in the
   ///                            gNB resource grid.
-  /// \param[in] res_grid view of the current resource grid occupancy state for all gnb cells.
-  /// \param[in] ues List of eligible UEs to be scheduled in the given slot.
-  virtual void
-  ul_sched(ue_pusch_allocator& pusch_alloc, const ue_resource_grid_view& res_grid, const ue_repository& ues) = 0;
+  /// \param[in] res_grid View of the current resource grid occupancy state for all gnb cells.
+  /// \param[in] slice_candidate Slice candidate to be scheduled in the given slot.
+  /// \param[in] harq_pending_retx_list List of UL HARQs pending retransmissions.
+  virtual void ul_sched(ue_pusch_allocator&          pusch_alloc,
+                        const ue_resource_grid_view& res_grid,
+                        ul_ran_slice_candidate&      slice_candidate,
+                        ul_harq_pending_retx_list    harq_pending_retx_list) = 0;
 };
 
 } // namespace srsran

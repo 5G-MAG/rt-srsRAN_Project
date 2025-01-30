@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -25,12 +25,14 @@
 #include "pdcp_bearer_logger.h"
 #include "pdcp_entity_tx_rx_base.h"
 #include "pdcp_interconnect.h"
+#include "pdcp_metrics_aggregator.h"
 #include "pdcp_pdu.h"
 #include "pdcp_rx_metrics_impl.h"
 #include "srsran/adt/byte_buffer.h"
 #include "srsran/adt/byte_buffer_chain.h"
 #include "srsran/pdcp/pdcp_config.h"
 #include "srsran/pdcp/pdcp_rx.h"
+#include "srsran/security/security_engine.h"
 #include "srsran/support/sdu_window.h"
 #include "srsran/support/timers.h"
 #include "fmt/format.h"
@@ -51,8 +53,9 @@ struct pdcp_rx_state {
 };
 
 struct pdcp_rx_sdu_info {
-  byte_buffer sdu   = {};
-  uint32_t    count = {};
+  byte_buffer                           sdu;
+  uint32_t                              count = 0;
+  std::chrono::system_clock::time_point time_of_arrival;
 };
 
 /// Base class used for receiving PDCP bearers.
@@ -60,8 +63,7 @@ struct pdcp_rx_sdu_info {
 class pdcp_entity_rx final : public pdcp_entity_tx_rx_base,
                              public pdcp_rx_status_provider,
                              public pdcp_rx_lower_interface,
-                             public pdcp_rx_upper_control_interface,
-                             public pdcp_rx_metrics
+                             public pdcp_rx_upper_control_interface
 {
 public:
   pdcp_entity_rx(uint32_t                        ue_index,
@@ -71,12 +73,19 @@ public:
                  pdcp_rx_upper_control_notifier& upper_cn_,
                  timer_factory                   ue_ul_timer_factory_,
                  task_executor&                  ue_ul_executor_,
-                 task_executor&                  crypto_executor_);
+                 task_executor&                  crypto_executor_,
+                 uint32_t                        max_nof_crypto_workers_,
+                 pdcp_metrics_aggregator&        metrics_agg_);
+
+  ~pdcp_entity_rx() override;
+
+  /// \brief Stop handling PDUs and stops timers
+  void stop();
 
   void handle_pdu(byte_buffer_chain buf) override;
 
   /// \brief Triggers re-establishment as specified in TS 38.323, section 5.1.2
-  void reestablish(security::sec_128_as_config sec_cfg_) override;
+  void reestablish(security::sec_128_as_config sec_cfg) override;
 
   // Rx/Tx interconnect
   void set_status_handler(pdcp_tx_status_handler* status_handler_) { status_handler = status_handler_; }
@@ -97,84 +106,36 @@ public:
   /// \param[in] buf Reference to the PDU bytes
   /// \return True if header was read successfully, false otherwise
   bool read_data_pdu_header(pdcp_data_pdu_header& hdr, const byte_buffer& buf) const;
-  void discard_data_header(byte_buffer& buf) const;
-  void extract_mac(byte_buffer& buf, security::sec_mac& mac) const;
 
   /*
    * Security configuration
    */
-  void configure_security(security::sec_128_as_config sec_cfg_) final
-  {
-    srsran_assert((is_srb() && sec_cfg_.domain == security::sec_domain::rrc) ||
-                      (is_drb() && sec_cfg_.domain == security::sec_domain::up),
-                  "Invalid sec_domain={} for {} in {}",
-                  sec_cfg.domain,
-                  rb_type,
-                  rb_id);
-    // The 'NULL' integrity protection algorithm (nia0) is used only for SRBs and for the UE in limited service mode,
-    // see TS 33.501 [11] and when used for SRBs, integrity protection is disabled for DRBs. In case the ′NULL'
-    // integrity protection algorithm is used, 'NULL' ciphering algorithm is also used.
-    // Ref: TS 38.331 Sec. 5.3.1.2
-    if ((sec_cfg_.integ_algo == security::integrity_algorithm::nia0) &&
-        (is_drb() || (is_srb() && sec_cfg_.cipher_algo != security::ciphering_algorithm::nea0))) {
-      logger.log_error(
-          "Integrity algorithm NIA0 is only permitted for SRBs configured with NEA0. is_srb={} NIA{} NEA{}",
-          is_srb(),
-          sec_cfg_.integ_algo,
-          sec_cfg_.cipher_algo);
-    }
-
-    sec_cfg = sec_cfg_;
-    logger.log_info(
-        "Security configured: NIA{} NEA{} domain={}", sec_cfg.integ_algo, sec_cfg.cipher_algo, sec_cfg.domain);
-    if (sec_cfg.k_128_int.has_value()) {
-      logger.log_info("128 K_int: {}", sec_cfg.k_128_int);
-    }
-    logger.log_info("128 K_enc: {}", sec_cfg.k_128_enc);
-  }
-
-  void set_integrity_protection(security::integrity_enabled integrity_enabled_) final
-  {
-    if (integrity_enabled_ == security::integrity_enabled::on) {
-      if (!sec_cfg.k_128_int.has_value()) {
-        logger.log_error("Cannot enable integrity protection: Integrity key is not configured.");
-        return;
-      }
-      if (!sec_cfg.integ_algo.has_value()) {
-        logger.log_error("Cannot enable integrity protection: Integrity algorithm is not configured.");
-        return;
-      }
-    }
-    integrity_enabled = integrity_enabled_;
-    logger.log_info("Set integrity_enabled={}", integrity_enabled);
-  }
-  void set_ciphering(security::ciphering_enabled ciphering_enabled_) final
-  {
-    ciphering_enabled = ciphering_enabled_;
-    logger.log_info("Set ciphering_enabled={}", ciphering_enabled);
-  }
+  void configure_security(security::sec_128_as_config sec_cfg,
+                          security::integrity_enabled integrity_enabled_,
+                          security::ciphering_enabled ciphering_enabled_) override;
 
   /*
    * Testing Helpers
    */
-  void                        set_state(pdcp_rx_state st_) { st = st_; }
-  pdcp_rx_state               get_state() { return st; }
-  security::sec_128_as_config get_sec_config() { return sec_cfg; }
-  bool                        is_reordering_timer_running() { return reordering_timer.is_running(); }
+  void          set_state(pdcp_rx_state st_) { st = st_; }
+  pdcp_rx_state get_state() const { return st; }
+  bool          is_reordering_timer_running() const { return reordering_timer.is_running(); }
 
 private:
   pdcp_bearer_logger   logger;
   const pdcp_rx_config cfg;
+  bool                 stopped = false;
 
-  security::sec_128_as_config  sec_cfg           = {};
-  security::security_direction direction         = security::security_direction::uplink;
-  security::integrity_enabled  integrity_enabled = security::integrity_enabled::off;
-  security::ciphering_enabled  ciphering_enabled = security::ciphering_enabled::off;
+  using sec_engine_vec = std::vector<std::unique_ptr<security::security_engine_rx>>;
+  sec_engine_vec sec_engine_pool;
+
+  security::integrity_enabled integrity_enabled = security::integrity_enabled::off;
+  security::ciphering_enabled ciphering_enabled = security::ciphering_enabled::off;
 
   pdcp_rx_state st = {};
 
   /// Rx window
-  std::unique_ptr<sdu_window<pdcp_rx_sdu_info>> rx_window;
+  sdu_window<pdcp_rx_sdu_info, pdcp_bearer_logger> rx_window;
 
   /// Rx reordering timer
   unique_timer reordering_timer;
@@ -184,8 +145,12 @@ private:
   // Handling of different PDU types
 
   /// \brief Handles a received data PDU.
-  /// \param buf The data PDU to be handled (including header and payload)
-  void handle_data_pdu(byte_buffer buf);
+  /// \param pdu The data PDU to be handled (including header and payload)
+  void handle_data_pdu(byte_buffer pdu);
+
+  void apply_security(pdcp_rx_sdu_info pdu_info);
+
+  void apply_reordering(pdcp_rx_sdu_info pdu_info);
 
   /// \brief Handles a received control PDU.
   /// \param buf The control PDU to be handled (including header and payload)
@@ -195,8 +160,10 @@ private:
   void deliver_all_sdus();
   void discard_all_sdus();
 
-  bool        integrity_verify(byte_buffer_view buf, uint32_t count, const security::sec_mac& mac);
-  byte_buffer cipher_decrypt(byte_buffer_view& msg, uint32_t count);
+  void record_reordering_dealy(std::chrono::system_clock::time_point time_of_arrival);
+
+  /// Apply deciphering and integrity check to the PDU
+  security::security_result apply_deciphering_and_integrity_check(byte_buffer buf, uint32_t count);
 
   /*
    * Notifiers and handlers
@@ -209,11 +176,11 @@ private:
 
   task_executor& ue_ul_executor;
   task_executor& crypto_executor;
+  uint32_t       max_nof_crypto_workers;
 
-  /// Creates the rx_window according to sn_size
-  /// \param sn_size Size of the sequence number (SN)
-  /// \return unique pointer to rx_window instance
-  std::unique_ptr<sdu_window<pdcp_rx_sdu_info>> create_rx_window(pdcp_sn_size sn_size_);
+  pdcp_rx_metrics          metrics;
+  pdcp_metrics_aggregator& metrics_agg;
+  unique_timer             metrics_timer;
 
   void log_state(srslog::basic_levels level) { logger.log(level, "RX entity state. {}", st); }
 };
@@ -234,13 +201,13 @@ namespace fmt {
 template <>
 struct formatter<srsran::pdcp_rx_state> {
   template <typename ParseContext>
-  auto parse(ParseContext& ctx) -> decltype(ctx.begin())
+  auto parse(ParseContext& ctx)
   {
     return ctx.begin();
   }
 
   template <typename FormatContext>
-  auto format(const srsran::pdcp_rx_state& st, FormatContext& ctx) -> decltype(std::declval<FormatContext>().out())
+  auto format(const srsran::pdcp_rx_state& st, FormatContext& ctx) const
   {
     return format_to(ctx.out(), "rx_next={} rx_deliv={} rx_reord={}", st.rx_next, st.rx_deliv, st.rx_reord);
   }

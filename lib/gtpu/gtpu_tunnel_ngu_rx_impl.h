@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,12 +22,12 @@
 
 #pragma once
 
-#include "../support/sdu_window_impl.h"
 #include "gtpu_tunnel_base_rx.h"
 #include "srsran/gtpu/gtpu_config.h"
 #include "srsran/gtpu/gtpu_tunnel_ngu_rx.h"
 #include "srsran/psup/psup_packing.h"
 #include "srsran/ran/cu_types.h"
+#include "srsran/support/sdu_window.h"
 #include "srsran/support/timers.h"
 
 namespace srsran {
@@ -61,19 +61,21 @@ public:
                           gtpu_tunnel_ngu_config::gtpu_tunnel_ngu_rx_config cfg,
                           gtpu_tunnel_ngu_rx_lower_layer_notifier&          rx_lower_,
                           timer_factory                                     ue_dl_timer_factory_) :
-    gtpu_tunnel_base_rx(gtpu_tunnel_log_prefix{ue_index, cfg.local_teid, "DL"}),
+    gtpu_tunnel_base_rx(gtpu_tunnel_log_prefix{ue_index, cfg.local_teid, "DL"}, cfg.test_mode),
     psup_packer(logger.get_basic_logger()),
     lower_dn(rx_lower_),
     config(cfg),
-    rx_window(std::make_unique<sdu_window_impl<gtpu_rx_sdu_info, gtpu_rx_window_size, gtpu_tunnel_logger>>(logger)),
+    rx_window(logger, gtpu_rx_window_size),
     ue_dl_timer_factory(ue_dl_timer_factory_)
   {
     if (config.t_reordering.count() != 0) {
       reordering_timer = ue_dl_timer_factory.create_timer();
       reordering_timer.set(config.t_reordering, reordering_callback{this});
     }
-    logger.log_info(
-        "GTPU NGU Rx configured. local_teid={} t_reodering={}", config.local_teid, config.t_reordering.count());
+    logger.log_info("GTPU NGU Rx configured. local_teid={} t_reodering={} test_mode={}",
+                    config.local_teid,
+                    config.t_reordering.count(),
+                    config.test_mode);
   }
   ~gtpu_tunnel_ngu_rx_impl() override = default;
 
@@ -97,6 +99,14 @@ protected:
   void handle_pdu(gtpu_dissected_pdu&& pdu, const sockaddr_storage& src_addr) final
   {
     if (stopped) {
+      return;
+    }
+
+    if (pdu.test_mode) {
+      gtpu_rx_sdu_info rx_sdu_info;
+      rx_sdu_info.sdu         = std::move(pdu.buf);
+      rx_sdu_info.qos_flow_id = qos_flow_id_t{0x01}; // QoS Flow ID for test DRB.
+      deliver_sdu(rx_sdu_info);
       return;
     }
 
@@ -147,7 +157,11 @@ protected:
 
     // Check out-of-window
     if (!inside_rx_window(sn)) {
-      logger.log_warning("SN falls out of Rx window. sn={} pdu_len={} {}", sn, pdu_len, st);
+      logger.log_warning("SN falls out of Rx window. sn={} pdu_len={} {} reordering_timer_running={}",
+                         sn,
+                         pdu_len,
+                         st,
+                         reordering_timer.is_running());
       gtpu_rx_sdu_info rx_sdu_info = {std::move(rx_sdu), pdu_session_info.qos_flow_id, sn};
       deliver_sdu(rx_sdu_info);
       return;
@@ -162,12 +176,12 @@ protected:
     }
 
     // Check if PDU has been received
-    if (rx_window->has_sn(sn)) {
+    if (rx_window.has_sn(sn)) {
       logger.log_warning("Duplicate PDU dropped. sn={} pdu_len={}", sn, pdu_len);
       return;
     }
 
-    gtpu_rx_sdu_info& rx_sdu_info = rx_window->add_sn(sn);
+    gtpu_rx_sdu_info& rx_sdu_info = rx_window.add_sn(sn);
     rx_sdu_info.sdu               = std::move(rx_sdu);
     rx_sdu_info.qos_flow_id       = pdu_session_info.qos_flow_id;
     rx_sdu_info.sn                = sn;
@@ -211,10 +225,10 @@ protected:
 
   void deliver_all_consecutive_sdus()
   {
-    while (st.rx_deliv != st.rx_next && rx_window->has_sn(st.rx_deliv)) {
-      gtpu_rx_sdu_info& sdu_info = (*rx_window)[st.rx_deliv];
+    while (st.rx_deliv != st.rx_next && rx_window.has_sn(st.rx_deliv)) {
+      gtpu_rx_sdu_info& sdu_info = rx_window[st.rx_deliv];
       deliver_sdu(sdu_info);
-      rx_window->remove_sn(st.rx_deliv);
+      rx_window.remove_sn(st.rx_deliv);
 
       // Update RX_DELIV
       st.rx_deliv = st.rx_deliv + 1;
@@ -234,10 +248,10 @@ protected:
     }
 
     while (st.rx_deliv != st.rx_reord) {
-      if (rx_window->has_sn(st.rx_deliv)) {
-        gtpu_rx_sdu_info& sdu_info = (*rx_window)[st.rx_deliv];
+      if (rx_window.has_sn(st.rx_deliv)) {
+        gtpu_rx_sdu_info& sdu_info = rx_window[st.rx_deliv];
         deliver_sdu(sdu_info);
-        rx_window->remove_sn(st.rx_deliv);
+        rx_window.remove_sn(st.rx_deliv);
       }
 
       // Update RX_DELIV
@@ -269,7 +283,7 @@ private:
   gtpu_rx_state st = {};
 
   /// Rx window
-  std::unique_ptr<sdu_window<gtpu_rx_sdu_info>> rx_window;
+  sdu_window<gtpu_rx_sdu_info, gtpu_tunnel_logger> rx_window;
 
   /// Rx reordering timer
   unique_timer reordering_timer;
@@ -323,13 +337,13 @@ namespace fmt {
 template <>
 struct formatter<srsran::gtpu_rx_state> {
   template <typename ParseContext>
-  auto parse(ParseContext& ctx) -> decltype(ctx.begin())
+  auto parse(ParseContext& ctx)
   {
     return ctx.begin();
   }
 
   template <typename FormatContext>
-  auto format(const srsran::gtpu_rx_state& st, FormatContext& ctx) -> decltype(std::declval<FormatContext>().out())
+  auto format(const srsran::gtpu_rx_state& st, FormatContext& ctx) const
   {
     return format_to(ctx.out(), "rx_deliv={} rx_reord={} rx_next={} ", st.rx_deliv, st.rx_reord, st.rx_next);
   }

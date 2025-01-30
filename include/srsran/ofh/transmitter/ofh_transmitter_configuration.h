@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,12 +22,11 @@
 
 #pragma once
 
-#include "srsran/adt/optional.h"
 #include "srsran/adt/static_vector.h"
 #include "srsran/ofh/compression/iq_compressor.h"
 #include "srsran/ofh/ecpri/ecpri_packet_builder.h"
+#include "srsran/ofh/ethernet/ethernet_frame_builder.h"
 #include "srsran/ofh/ethernet/ethernet_gateway.h"
-#include "srsran/ofh/ethernet/vlan_ethernet_frame_builder.h"
 #include "srsran/ofh/ofh_constants.h"
 #include "srsran/ofh/serdes/ofh_cplane_message_builder.h"
 #include "srsran/ofh/serdes/ofh_uplane_message_builder.h"
@@ -44,7 +43,7 @@ struct transmitter_config {
   /// Radio sector identifier.
   unsigned sector;
   /// Channel bandwidth.
-  bs_channel_bandwidth_fr1 bw;
+  bs_channel_bandwidth bw;
   /// Subcarrier spacing.
   subcarrier_spacing scs;
   /// Cyclic prefix.
@@ -64,9 +63,9 @@ struct transmitter_config {
   /// Source MAC address.
   ether::mac_address mac_src_address;
   /// Tag control information field for C-Plane.
-  uint16_t tci_cp;
+  std::optional<uint16_t> tci_cp;
   /// Tag control information field for U-Plane.
-  uint16_t tci_up;
+  std::optional<uint16_t> tci_up;
   /// Ethernet interface name or identifier.
   std::string interface;
   /// Promiscuous mode flag.
@@ -74,7 +73,7 @@ struct transmitter_config {
   /// MTU size.
   units::bytes mtu_size;
   /// RU working bandwidth.
-  bs_channel_bandwidth_fr1 ru_working_bw;
+  bs_channel_bandwidth ru_working_bw;
   /// Downlink compression parameters.
   ru_compression_params dl_compr_params;
   /// Uplink compression parameters.

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,9 +22,9 @@
 
 #pragma once
 
-#include "coreset.h"
 #include "srsran/adt/static_vector.h"
 #include "srsran/ran/pdcch/aggregation_level.h"
+#include "srsran/ran/pdcch/coreset.h"
 #include "srsran/ran/rnti.h"
 #include "srsran/ran/subcarrier_spacing.h"
 
@@ -41,7 +41,7 @@ using pdcch_candidate_list = static_vector<pdcch_candidate_type, PDCCH_MAX_NOF_C
 /// serving cell, as per TS 38.213, Table 10.1-2.
 inline unsigned max_nof_monitored_pdcch_candidates(subcarrier_spacing scs)
 {
-  const static std::array<uint8_t, 4> max_monitored_pdcch_candidates_per_slot = {44, 36, 22, 20};
+  static const std::array<uint8_t, 4> max_monitored_pdcch_candidates_per_slot = {44, 36, 22, 20};
   return max_monitored_pdcch_candidates_per_slot[to_numerology_value(scs)];
 }
 

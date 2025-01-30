@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,12 +23,12 @@
 #pragma once
 
 #include "srsran/adt/byte_buffer.h"
-#include "srsran/adt/optional.h"
 #include "srsran/adt/static_vector.h"
 #include "srsran/cu_cp/cu_cp_types.h"
 #include "srsran/cu_cp/up_context.h"
 #include "srsran/rrc/meas_types.h"
 #include "srsran/security/security.h"
+#include <optional>
 
 namespace srsran {
 namespace srs_cu_cp {
@@ -40,6 +40,7 @@ struct rrc_ue_transfer_context {
   up_context                            up_ctx;
   static_vector<srb_id_t, MAX_NOF_SRBS> srbs; // List of active SRBs (TODO: add PDCP config).
   byte_buffer                           handover_preparation_info;
+  byte_buffer                           ue_cap_rat_container_list;
   bool                                  is_inter_cu_handover = false;
 };
 

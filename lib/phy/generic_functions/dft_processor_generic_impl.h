@@ -1,8 +1,28 @@
+/*
+ *
+ * Copyright 2021-2025 Software Radio Systems Limited
+ *
+ * This file is part of srsRAN.
+ *
+ * srsRAN is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of
+ * the License, or (at your option) any later version.
+ *
+ * srsRAN is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * A copy of the GNU Affero General Public License can be found in
+ * the LICENSE file in the top-level directory of this distribution
+ * and at http://www.gnu.org/licenses/.
+ *
+ */
 
 #pragma once
 
 #include "srsran/phy/generic_functions/dft_processor.h"
-#include "srsran/srsvec/aligned_vec.h"
 
 namespace srsran {
 
@@ -10,7 +30,8 @@ namespace srsran {
 class generic_dft_N
 {
 public:
-  virtual ~generic_dft_N()                          = default;
+  virtual ~generic_dft_N() = default;
+  /// Computes the N-point of \c in and writes the result in \c out.
   virtual void run(cf_t* out, const cf_t* in) const = 0;
 };
 
@@ -21,9 +42,9 @@ private:
   /// Stores the DFT direction.
   direction dir;
   /// DFT input buffer ownership.
-  srsvec::aligned_vec<cf_t> input;
+  std::vector<cf_t> input;
   /// DFT output buffer ownership.
-  srsvec::aligned_vec<cf_t> output;
+  std::vector<cf_t> output;
   /// Generic FFT.
   std::unique_ptr<generic_dft_N> generic_dft;
 
@@ -39,7 +60,7 @@ public:
   direction get_direction() const override { return dir; }
 
   // See interface for documentation.
-  unsigned int get_size() const override { return input.size(); }
+  unsigned get_size() const override { return input.size(); }
 
   // See interface for documentation.
   span<cf_t> get_input() override { return input; }

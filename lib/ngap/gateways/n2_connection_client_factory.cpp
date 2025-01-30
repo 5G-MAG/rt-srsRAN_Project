@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -221,11 +221,14 @@ private:
 class n2_sctp_gateway_client : public n2_connection_client
 {
 public:
-  n2_sctp_gateway_client(io_broker& broker_, const sctp_network_connector_config& sctp_, dlt_pcap& pcap_) :
+  n2_sctp_gateway_client(io_broker&                           broker_,
+                         task_executor&                       io_rx_executor_,
+                         const sctp_network_connector_config& sctp_,
+                         dlt_pcap&                            pcap_) :
     broker(broker_), sctp_cfg(sctp_), pcap_writer(pcap_)
   {
     // Create SCTP network adapter.
-    sctp_gateway = create_sctp_network_client(sctp_network_client_config{sctp_cfg, broker});
+    sctp_gateway = create_sctp_network_client(sctp_network_client_config{sctp_cfg, broker, io_rx_executor_});
     report_error_if_not(sctp_gateway != nullptr, "Failed to create SCTP gateway client.\n");
   }
 
@@ -244,6 +247,7 @@ public:
         sctp_cfg.connect_address,
         sctp_cfg.connect_port,
         std::make_unique<sctp_to_n2_pdu_notifier>(std::move(cu_cp_rx_pdu_notifier), pcap_writer, logger));
+
     if (sctp_sender == nullptr) {
       logger.error(
           "Failed to establish N2 TNL connection to AMF on {}:{}.\n", sctp_cfg.connect_address, sctp_cfg.connect_port);
@@ -287,12 +291,17 @@ srsran::srs_cu_cp::create_n2_connection_client(const n2_connection_client_config
   // Connection to AMF through SCTP.
   const auto&                           nw_mode = std::get<n2_connection_client_config::network>(params.mode);
   srsran::sctp_network_connector_config sctp_cfg;
-  sctp_cfg.dest_name       = "AMF";
-  sctp_cfg.if_name         = "N2";
-  sctp_cfg.connect_address = nw_mode.amf_address;
-  sctp_cfg.connect_port    = nw_mode.amf_port;
-  sctp_cfg.bind_address    = nw_mode.bind_address;
-  sctp_cfg.bind_interface  = nw_mode.bind_interface;
-  sctp_cfg.ppid            = NGAP_PPID;
-  return std::make_unique<n2_sctp_gateway_client>(nw_mode.broker, sctp_cfg, params.pcap);
+  sctp_cfg.dest_name         = "AMF";
+  sctp_cfg.if_name           = "N2";
+  sctp_cfg.connect_address   = nw_mode.amf_address;
+  sctp_cfg.connect_port      = nw_mode.amf_port;
+  sctp_cfg.bind_address      = nw_mode.bind_address;
+  sctp_cfg.bind_interface    = nw_mode.bind_interface;
+  sctp_cfg.rto_initial       = nw_mode.rto_initial;
+  sctp_cfg.rto_min           = nw_mode.rto_min;
+  sctp_cfg.rto_max           = nw_mode.rto_max;
+  sctp_cfg.init_max_attempts = nw_mode.init_max_attempts;
+  sctp_cfg.max_init_timeo    = nw_mode.max_init_timeo;
+  sctp_cfg.ppid              = NGAP_PPID;
+  return std::make_unique<n2_sctp_gateway_client>(nw_mode.broker, nw_mode.io_rx_executor, sctp_cfg, params.pcap);
 }

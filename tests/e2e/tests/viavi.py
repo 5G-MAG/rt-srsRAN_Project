@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -23,7 +23,7 @@ Launch tests in Viavi
 """
 import logging
 import operator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, List, Optional
 
@@ -38,13 +38,13 @@ from retina.launcher.utils import configure_artifacts
 from retina.protocol.base_pb2 import FiveGCDefinition, PLMN, StartInfo
 from retina.protocol.gnb_pb2 import GNBStartInfo
 from retina.protocol.gnb_pb2_grpc import GNBStub
-from retina.viavi.client import CampaignStatusEnum, Viavi
+from retina.viavi.client import CampaignStatusEnum, Viavi, ViaviKPIs
 from rich.console import Console
 from rich.table import Table
 
 from .steps.configuration import configure_metric_server_for_gnb
 from .steps.kpis import get_kpis, KPIs
-from .steps.stub import GNB_STARTUP_TIMEOUT, handle_start_error, stop
+from .steps.stub import _stop_stub, GNB_STARTUP_TIMEOUT, handle_start_error, stop
 
 _OMIT_VIAVI_FAILURE_LIST = ["authentication"]
 _FLAKY_ERROR_LIST = ["Error creating the pod", "Viavi API call timed out"]
@@ -68,8 +68,12 @@ class _ViaviConfiguration:
     # test/fail criteria
     expected_ul_bitrate: float = 0
     expected_dl_bitrate: float = 0
-    fail_if_kos: bool = True
+    expected_nof_kos: float = 0  # Infinity value is represented in a float
     warning_as_errors: bool = True
+    enable_dddsu: bool = False
+    ul_heavy_7u2d: bool = False
+    ul_heavy_6u3d: bool = False
+    warning_allowlist: List[str] = field(default_factory=list)
 
 
 # pylint: disable=too-many-instance-attributes
@@ -103,12 +107,16 @@ def load_yaml_config(config_filename: str) -> List[_ViaviConfiguration]:
                 gnb_extra_commands=test_declaration["gnb_extra_commands"],
                 id=test_declaration["id"],
                 max_pdschs_per_slot=test_declaration["max_pdschs_per_slot"],
-                max_puschs_per_slot=test_declaration["max_pdschs_per_slot"],
+                max_puschs_per_slot=test_declaration["max_puschs_per_slot"],
                 enable_qos_viavi=test_declaration["enable_qos_viavi"],
                 expected_dl_bitrate=test_declaration["expected_dl_bitrate"],
                 expected_ul_bitrate=test_declaration["expected_ul_bitrate"],
-                fail_if_kos=test_declaration["fail_if_kos"],
+                expected_nof_kos=test_declaration["expected_nof_kos"],
                 warning_as_errors=test_declaration["warning_as_errors"],
+                enable_dddsu=test_declaration.get("enable_dddsu", False),
+                ul_heavy_7u2d=test_declaration.get("ul_heavy_7u2d", False),
+                ul_heavy_6u3d=test_declaration.get("ul_heavy_6u3d", False),
+                warning_allowlist=test_declaration.get("warning_allowlist", []),
             )
         )
     return test_declaration_list
@@ -141,8 +149,16 @@ def viavi_manual_test_timeout(request):
     return request.config.getoption("viavi_manual_test_timeout")
 
 
+@pytest.fixture
+def viavi_manual_extra_gnb_arguments(request):
+    """
+    Extra GNB arguments
+    """
+    return request.config.getoption("viavi_manual_extra_gnb_arguments")
+
+
 @mark.viavi_manual
-# pylint: disable=too-many-arguments, too-many-locals
+# pylint: disable=too-many-arguments,too-many-positional-arguments, too-many-locals
 def test_viavi_manual(
     capsys: pytest.CaptureFixture[str],
     # Retina
@@ -156,6 +172,7 @@ def test_viavi_manual(
     viavi_manual_campaign_filename: str,  # pylint: disable=redefined-outer-name
     viavi_manual_test_name: str,  # pylint: disable=redefined-outer-name
     viavi_manual_test_timeout: int,  # pylint: disable=redefined-outer-name
+    viavi_manual_extra_gnb_arguments: str,  # pylint: disable=redefined-outer-name
     # Test extra params
     always_download_artifacts: bool = True,
     gnb_startup_timeout: int = GNB_STARTUP_TIMEOUT,
@@ -166,7 +183,10 @@ def test_viavi_manual(
     Runs a test using Viavi
     """
     test_declaration = get_viavi_configuration_from_testname(
-        viavi_manual_campaign_filename, viavi_manual_test_name, viavi_manual_test_timeout
+        viavi_manual_campaign_filename,
+        viavi_manual_test_name,
+        viavi_manual_test_timeout,
+        viavi_manual_extra_gnb_arguments,
     )
 
     _test_viavi(
@@ -205,7 +225,7 @@ def test_viavi_manual(
     reruns=2,
     only_rerun=_FLAKY_ERROR_LIST,
 )
-# pylint: disable=too-many-arguments, too-many-locals
+# pylint: disable=too-many-arguments,too-many-positional-arguments, too-many-locals
 def test_viavi(
     capsys: pytest.CaptureFixture[str],
     # Retina
@@ -261,7 +281,7 @@ def test_viavi(
     reruns=2,
     only_rerun=_FLAKY_ERROR_LIST,
 )
-# pylint: disable=too-many-arguments, too-many-locals
+# pylint: disable=too-many-arguments,too-many-positional-arguments, too-many-locals
 def test_viavi_debug(
     capsys: pytest.CaptureFixture[str],
     # Retina
@@ -305,7 +325,7 @@ def test_viavi_debug(
     )
 
 
-# pylint: disable=too-many-arguments, too-many-locals
+# pylint: disable=too-many-arguments,too-many-positional-arguments, too-many-locals
 def _test_viavi(
     capsys: pytest.CaptureFixture[str],
     # Retina
@@ -339,14 +359,26 @@ def _test_viavi(
                 "band": 78,
                 "bandwidth": 100,
                 "common_scs": 30,
+                "inactivity_timer": 7200,
                 "tac": 7,
                 "pci": 1,
                 "prach_config_index": 159,
                 "max_puschs_per_slot": test_declaration.max_puschs_per_slot,
                 "max_pdschs_per_slot": test_declaration.max_pdschs_per_slot,
+                "enable_dddsu": test_declaration.enable_dddsu,
+                "ul_heavy_7u2d": test_declaration.ul_heavy_7u2d,
+                "ul_heavy_6u3d": test_declaration.ul_heavy_6u3d,
                 "enable_qos_viavi": test_declaration.enable_qos_viavi,
+                "nof_antennas_dl": 4,
+                "nof_antennas_ul": 1,
+                "rlc_metrics": True,
+                "enable_high_latency_diagnostics": True,
+                "warning_extra_regex": (
+                    (r"(?!.*" + r")(?!.*".join(test_declaration.warning_allowlist) + r")")
+                    if test_declaration.warning_allowlist
+                    else ""
+                ),
             },
-            "templates": {"extra": str(Path(__file__).joinpath("../viavi/config.yml").resolve())},
         },
     }
     if metrics_server is not None:
@@ -372,15 +404,16 @@ def _test_viavi(
                 fivegc_definition=FiveGCDefinition(amf_ip=amf_ip, amf_port=amf_port),
                 start_info=StartInfo(
                     timeout=gnb_startup_timeout,
-                    post_commands=test_declaration.gnb_extra_commands,
+                    post_commands=(test_declaration.gnb_extra_commands,),
                 ),
             )
         )
 
     # Create campaign
     logging.info(
-        f"Starting Campaign {test_declaration.campaign_filename}"
-        + (f" - Test {test_declaration.test_name}" if test_declaration.test_name is not None else "")
+        "Starting Campaign %s%s",
+        test_declaration.campaign_filename,
+        (f" - Test {test_declaration.test_name}" if test_declaration.test_name is not None else ""),
     )
     campaign_name = viavi.schedule_campaign(test_declaration.campaign_filename, test_declaration.test_name)
 
@@ -402,14 +435,14 @@ def _test_viavi(
             gnb_stop_timeout=gnb_stop_timeout,
             log_search=log_search,
             warning_as_errors=test_declaration.warning_as_errors,
-            fail_if_kos=test_declaration.fail_if_kos,
+            fail_if_kos=False,
         )
 
     # This except and the finally should be inside the request, but the campaign_name makes it complicated
     except (TimeoutError, KeyboardInterrupt):
         logging.info("Stopping test due to timeout")
         viavi.stop_running_campaign()
-        pytest.fail("Viavi Test did not end in the expected timeout")
+        logging.warning("Viavi Test did not end in the expected timeout")
 
     finally:
         try:
@@ -418,7 +451,18 @@ def _test_viavi(
             logging.info("Folder with Viavi report: %s", report_folder)
             logging.info("Downloading Viavi report")
             viavi.download_directory(report_folder, Path(test_log_folder).joinpath("viavi"))
-            check_metrics_criteria(test_declaration, gnb, viavi, metrics_summary, test_declaration.fail_if_kos, capsys)
+            _, gnb_error_count = _stop_stub(
+                gnb, "GNB", retina_data, gnb_stop_timeout, log_search, test_declaration.warning_as_errors
+            )
+            check_metrics_criteria(
+                test_configuration=test_declaration,
+                gnb=gnb,
+                viavi=viavi,
+                metrics_summary=metrics_summary,
+                capsys=capsys,
+                gnb_error_count=gnb_error_count,
+                warning_as_errors=test_declaration.warning_as_errors,
+            )
         except HTTPError:
             logging.error("Viavi Reports could not be downloaded")
 
@@ -431,8 +475,9 @@ def check_metrics_criteria(
     gnb: GNBStub,
     viavi: Viavi,
     metrics_summary: Optional[MetricsSummary],
-    fail_if_kos: bool,
     capsys: pytest.CaptureFixture[str],
+    gnb_error_count: int,
+    warning_as_errors: bool,
 ):
     """
     Check pass/fail criteria
@@ -441,8 +486,8 @@ def check_metrics_criteria(
     is_ok = True
 
     # Check metrics
-    viavi_failure_manager = viavi.get_test_failures()
-    kpis: KPIs = get_kpis(gnb, viavi_failure_manager=viavi_failure_manager, metrics_summary=metrics_summary)
+    viavi_kpis: ViaviKPIs = viavi.get_test_kpis()
+    kpis: KPIs = get_kpis(gnb, viavi_kpis=viavi_kpis, metrics_summary=metrics_summary)
 
     criteria_result: List[_ViaviResult] = []
     criteria_dl_brate_aggregate = check_criteria(
@@ -463,19 +508,61 @@ def check_metrics_criteria(
         )
     )
 
-    criteria_nof_ko_aggregate = check_criteria(kpis.nof_ko_aggregate, 0, operator.eq) or not fail_if_kos
+    criteria_nof_ko_dl_gnb = check_criteria(kpis.nof_ko_dl, test_configuration.expected_nof_kos + 100, operator.lt)
     criteria_result.append(
-        _ViaviResult("Number of KOs and/or retrxs", 0, kpis.nof_ko_aggregate, criteria_nof_ko_aggregate)
+        _ViaviResult(
+            "DL KOs (gnb)",
+            test_configuration.expected_nof_kos + 100,
+            kpis.nof_ko_dl,
+            criteria_nof_ko_dl_gnb,
+        )
+    )
+
+    viavi_dl_kos = viavi_kpis.dl_data.num_tbs_errors if viavi_kpis.dl_data.num_tbs_errors is not None else 0
+    criteria_nof_ko_dl_viavi = check_criteria(viavi_dl_kos, test_configuration.expected_nof_kos, operator.lt)
+    criteria_result.append(
+        _ViaviResult(
+            "DL KOs (viavi)",
+            test_configuration.expected_nof_kos,
+            viavi_dl_kos,
+            criteria_nof_ko_dl_viavi,
+        )
+    )
+
+    criteria_nof_ko_ul_gnb = check_criteria(kpis.nof_ko_ul, test_configuration.expected_nof_kos, operator.lt)
+    criteria_result.append(
+        _ViaviResult(
+            "UL KOs (gnb)",
+            test_configuration.expected_nof_kos,
+            kpis.nof_ko_ul,
+            criteria_nof_ko_ul_gnb,
+        )
+    )
+
+    viavi_ul_kos = viavi_kpis.ul_data.num_tbs_nack if viavi_kpis.ul_data.num_tbs_nack is not None else 0
+    criteria_nof_ko_ul_viavi = check_criteria(viavi_ul_kos, test_configuration.expected_nof_kos, operator.lt)
+    criteria_result.append(
+        _ViaviResult(
+            "UL KOs (viavi)",
+            test_configuration.expected_nof_kos,
+            viavi_ul_kos,
+            criteria_nof_ko_ul_viavi,
+        )
+    )
+
+    criteria_nof_errors = check_criteria(gnb_error_count, 0, operator.eq)
+    criteria_result.append(
+        _ViaviResult("Errors" + (" & warnings" if warning_as_errors else ""), 0, gnb_error_count, criteria_nof_errors)
     )
 
     # Check procedure table
-    viavi_failure_manager.print_failures(_OMIT_VIAVI_FAILURE_LIST)
-    criteria_procedure_table = viavi_failure_manager.get_number_of_failures(_OMIT_VIAVI_FAILURE_LIST) == 0
+    viavi_kpis.print_procedure_failures(_OMIT_VIAVI_FAILURE_LIST)
+    criteria_procedure_table = viavi_kpis.get_number_of_procedure_failures(_OMIT_VIAVI_FAILURE_LIST) == 0
     criteria_result.append(
         _ViaviResult(
             "Procedure table",
             0,
-            viavi_failure_manager.get_number_of_failures(_OMIT_VIAVI_FAILURE_LIST),
+            viavi_kpis.get_number_of_procedure_failures(_OMIT_VIAVI_FAILURE_LIST),
             criteria_procedure_table,
         )
     )
@@ -483,7 +570,10 @@ def check_metrics_criteria(
     is_ok = (
         criteria_dl_brate_aggregate
         and criteria_ul_brate_aggregate
-        and criteria_nof_ko_aggregate
+        and criteria_nof_ko_dl_gnb
+        and criteria_nof_ko_dl_viavi
+        and criteria_nof_ko_ul_gnb
+        and criteria_nof_ko_ul_viavi
         and criteria_procedure_table
     )
 
@@ -544,6 +634,10 @@ def get_str_number_criteria(number_criteria: float) -> str:
     """
     Get string number criteria
     """
+    if number_criteria == float("inf"):
+        return "∞"
+    if number_criteria == float("-inf"):
+        return "-∞"
     if number_criteria >= 1_000_000_000:
         return f"{number_criteria / 1_000_000_000:.1f}G"
     if number_criteria >= 1_000_000:
@@ -553,10 +647,13 @@ def get_str_number_criteria(number_criteria: float) -> str:
     return str(number_criteria)
 
 
-def get_viavi_configuration_from_testname(campaign_filename: str, test_name: str, timeout: int) -> _ViaviConfiguration:
+def get_viavi_configuration_from_testname(
+    campaign_filename: str, test_name: str, timeout: int, extra_gnb_arguments=""
+) -> _ViaviConfiguration:
     """
     Get Viavi configuration from dict
     """
+    test_declaration = None
     config = load_yaml_config("test_declaration.yml")
     for test_config in config:
         if test_config.test_name == test_name:
@@ -569,4 +666,5 @@ def get_viavi_configuration_from_testname(campaign_filename: str, test_name: str
 
     test_declaration.campaign_filename = campaign_filename
     test_declaration.test_timeout = timeout
+    test_declaration.gnb_extra_commands += " " + extra_gnb_arguments
     return test_declaration

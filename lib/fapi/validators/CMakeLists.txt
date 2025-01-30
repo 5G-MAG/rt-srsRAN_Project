@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -28,7 +28,8 @@ set(SOURCES
         uci_pdus.cpp
         ul_prach_pdu.cpp
         ul_pucch_pdu.cpp
-        ul_pusch_pdu.cpp)
+        ul_pusch_pdu.cpp
+        ul_srs_pdu.cpp)
 
 add_library(srsran_fapi_validators STATIC ${SOURCES})
 target_link_libraries(srsran_fapi_validators srslog)

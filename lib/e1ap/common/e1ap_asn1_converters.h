@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -30,7 +30,7 @@
 #include "srsran/ran/cause/e1ap_cause.h"
 #include "srsran/ran/cu_types.h"
 #include "srsran/ran/nr_cgi.h"
-#include "srsran/ran/qos_prio_level.h"
+#include "srsran/ran/qos/qos_prio_level.h"
 #include "srsran/ran/s_nssai.h"
 #include "srsran/sdap/sdap_config.h"
 #include "srsran/security/security.h"
@@ -90,7 +90,7 @@ e1ap_asn1_to_ciphering_algorithm(const asn1::e1ap::ciphering_algorithm_e& asn1_c
       ciph_algo = srsran::security::ciphering_algorithm::nea3;
       break;
     default:
-      report_fatal_error("Invalid ciphering algorithm ({})", asn1_ciph_algo);
+      report_fatal_error("Invalid ciphering algorithm ({})", fmt::underlying(asn1_ciph_algo.value));
   }
 
   return ciph_algo;
@@ -146,7 +146,7 @@ e1ap_asn1_to_integrity_algorithm(const asn1::e1ap::integrity_protection_algorith
       int_algo = srsran::security::integrity_algorithm::nia3;
       break;
     default:
-      report_fatal_error("Invalid integrity protection algorithm ({})", asn1_int_algo);
+      report_fatal_error("Invalid integrity protection algorithm ({})", fmt::underlying(asn1_int_algo.value));
   }
 
   return int_algo;
@@ -158,8 +158,8 @@ e1ap_asn1_to_integrity_algorithm(const asn1::e1ap::integrity_protection_algorith
 inline asn1::e1ap::snssai_s snssai_to_e1ap_asn1(srsran::s_nssai_t snssai)
 {
   asn1::e1ap::snssai_s asn1_snssai;
-  asn1_snssai.sst.from_number(snssai.sst);
-  if (snssai.sd.has_value()) {
+  asn1_snssai.sst.from_number(snssai.sst.value());
+  if (snssai.sd.is_set()) {
     asn1_snssai.sd_present = true;
     asn1_snssai.sd.from_number(snssai.sd.value());
   }
@@ -173,10 +173,10 @@ inline asn1::e1ap::snssai_s snssai_to_e1ap_asn1(srsran::s_nssai_t snssai)
 inline srsran::s_nssai_t e1ap_asn1_to_snssai(asn1::e1ap::snssai_s asn1_snssai)
 {
   srsran::s_nssai_t snssai;
-  snssai.sst = asn1_snssai.sst.to_number();
+  snssai.sst = slice_service_type{(uint8_t)asn1_snssai.sst.to_number()};
 
   if (asn1_snssai.sd_present) {
-    snssai.sd = asn1_snssai.sd.to_number();
+    snssai.sd = slice_differentiator::create(asn1_snssai.sd.to_number()).value();
   }
 
   return snssai;
@@ -252,7 +252,7 @@ inline sdap_hdr_ul_cfg e1ap_asn1_to_sdap_hdr_ul_cfg(asn1::e1ap::sdap_hdr_ul_opts
       hdr_cfg = sdap_hdr_ul_cfg::present;
       break;
     default:
-      srsran_assertion_failure("Invalid SDAP-Header-UL option ({})", asn1_hdr_ul_opts);
+      srsran_assertion_failure("Invalid SDAP-Header-UL option ({})", fmt::underlying(asn1_hdr_ul_opts));
       hdr_cfg = {};
   }
 
@@ -271,7 +271,7 @@ inline sdap_hdr_dl_cfg e1ap_asn1_to_sdap_hdr_dl_cfg(asn1::e1ap::sdap_hdr_dl_opts
       hdr_cfg = sdap_hdr_dl_cfg::present;
       break;
     default:
-      srsran_assertion_failure("Invalid SDAP-Header-DL option ({})", asn1_hdr_dl_opts);
+      srsran_assertion_failure("Invalid SDAP-Header-DL option ({})", fmt::underlying(asn1_hdr_dl_opts));
       hdr_cfg = {};
   }
 
@@ -369,7 +369,7 @@ inline pdcp_sn_size asn1_to_pdcp_sn_size(asn1::e1ap::pdcp_sn_size_e asn1_sn_size
       sn_size = pdcp_sn_size::size18bits;
       break;
     default:
-      report_fatal_error("Unsupported PDCP SN size. PDCP SN size={}", asn1_sn_size);
+      report_fatal_error("Unsupported PDCP SN size. PDCP SN size={}", fmt::underlying(asn1_sn_size.value));
   }
 
   return sn_size;
@@ -430,7 +430,8 @@ inline pdcp_discard_timer asn1_to_pdcp_discard_timer(asn1::e1ap::discard_timer_e
       discard_timer = pdcp_discard_timer::infinity;
       break;
     default:
-      report_fatal_error("Unsupported PDCP discard timer. PDCP discard timer={}", asn1_discard_timer);
+      report_fatal_error("Unsupported PDCP discard timer. PDCP discard timer={}",
+                         fmt::underlying(asn1_discard_timer.value));
   }
   return discard_timer;
 }
@@ -612,7 +613,8 @@ inline pdcp_t_reordering asn1_to_pdcp_t_reordering(asn1::e1ap::t_reordering_e as
       t_reordering = pdcp_t_reordering::ms3000;
       break;
     default:
-      report_fatal_error("Unsupported PDCP t-reordering timer. PDCP t-reordering timer={}", asn1_t_reordering);
+      report_fatal_error("Unsupported PDCP t-reordering timer. PDCP t-reordering timer={}",
+                         fmt::underlying(asn1_t_reordering.value));
   }
 
   return t_reordering;
@@ -994,7 +996,7 @@ inline e1ap_cause_t asn1_to_cause(asn1::e1ap::cause_c e1ap_cause)
       cause = static_cast<cause_misc_t>(e1ap_cause.misc().value);
       break;
     default:
-      report_fatal_error("Cannot convert E1AP ASN.1 cause {} to common type", e1ap_cause.type());
+      report_fatal_error("Cannot convert E1AP ASN.1 cause {} to common type", fmt::underlying(e1ap_cause.type().value));
   }
 
   return cause;
@@ -1111,17 +1113,18 @@ inline void e1ap_asn1_to_flow_map_info(slotted_id_vector<qos_flow_id_t, e1ap_qos
         asn1::e1ap::qos_characteristics_c::types_opts::dyn_5qi) {
       const auto& asn1_dyn_5qi = asn1_flow_map_item.qos_flow_level_qos_params.qos_characteristics.dyn_5qi();
 
-      dyn_5qi_descriptor_t dyn_5qi;
-      dyn_5qi.qos_prio_level                 = uint_to_qos_prio_level(asn1_dyn_5qi.qos_prio_level);
-      dyn_5qi.packet_delay_budget            = asn1_dyn_5qi.packet_delay_budget;
-      dyn_5qi.packet_error_rate.per_exponent = asn1_dyn_5qi.packet_error_rate.per_exponent;
-      dyn_5qi.packet_error_rate.per_scalar   = asn1_dyn_5qi.packet_error_rate.per_scalar;
+      dyn_5qi_descriptor dyn_5qi;
+      dyn_5qi.qos_prio_level      = uint_to_qos_prio_level(asn1_dyn_5qi.qos_prio_level);
+      dyn_5qi.packet_delay_budget = asn1_dyn_5qi.packet_delay_budget;
+      dyn_5qi.per.exponent        = asn1_dyn_5qi.packet_error_rate.per_exponent;
+      dyn_5qi.per.scalar          = asn1_dyn_5qi.packet_error_rate.per_scalar;
 
       if (asn1_dyn_5qi.five_qi_present) {
         dyn_5qi.five_qi = uint_to_five_qi(asn1_dyn_5qi.five_qi);
       }
       if (asn1_dyn_5qi.delay_crit_present) {
-        dyn_5qi.delay_crit = asn1_dyn_5qi.delay_crit.to_string();
+        dyn_5qi.is_delay_critical =
+            asn1_dyn_5qi.delay_crit.value == asn1::e1ap::dyn_5qi_descriptor_s::delay_crit_opts::delay_crit;
       }
       if (asn1_dyn_5qi.averaging_win_present) {
         dyn_5qi.averaging_win = asn1_dyn_5qi.averaging_win;
@@ -1130,11 +1133,11 @@ inline void e1ap_asn1_to_flow_map_info(slotted_id_vector<qos_flow_id_t, e1ap_qos
         dyn_5qi.max_data_burst_volume = asn1_dyn_5qi.max_data_burst_volume;
       }
 
-      flow_map_item.qos_flow_level_qos_params.qos_characteristics.dyn_5qi = dyn_5qi;
+      flow_map_item.qos_flow_level_qos_params.qos_desc = dyn_5qi;
     } else {
       const auto& asn1_non_dyn_5qi = asn1_flow_map_item.qos_flow_level_qos_params.qos_characteristics.non_dyn_5qi();
 
-      non_dyn_5qi_descriptor_t non_dyn_5qi;
+      non_dyn_5qi_descriptor non_dyn_5qi;
       non_dyn_5qi.five_qi = uint_to_five_qi(asn1_non_dyn_5qi.five_qi);
       if (asn1_non_dyn_5qi.qos_prio_level_present) {
         non_dyn_5qi.qos_prio_level = uint_to_qos_prio_level(asn1_non_dyn_5qi.qos_prio_level);
@@ -1146,16 +1149,18 @@ inline void e1ap_asn1_to_flow_map_info(slotted_id_vector<qos_flow_id_t, e1ap_qos
         non_dyn_5qi.max_data_burst_volume = asn1_non_dyn_5qi.max_data_burst_volume;
       }
 
-      flow_map_item.qos_flow_level_qos_params.qos_characteristics.non_dyn_5qi = non_dyn_5qi;
+      flow_map_item.qos_flow_level_qos_params.qos_desc = non_dyn_5qi;
     }
 
     // Add ng ran alloc retention prio.
-    flow_map_item.qos_flow_level_qos_params.ng_ran_alloc_retention_prio.prio_level =
+    flow_map_item.qos_flow_level_qos_params.ng_ran_alloc_retention.prio_level_arp =
         asn1_flow_map_item.qos_flow_level_qos_params.ngra_nalloc_retention_prio.prio_level;
-    flow_map_item.qos_flow_level_qos_params.ng_ran_alloc_retention_prio.pre_emption_cap =
-        asn1_flow_map_item.qos_flow_level_qos_params.ngra_nalloc_retention_prio.pre_emption_cap.to_string();
-    flow_map_item.qos_flow_level_qos_params.ng_ran_alloc_retention_prio.pre_emption_vulnerability =
-        asn1_flow_map_item.qos_flow_level_qos_params.ngra_nalloc_retention_prio.pre_emption_vulnerability.to_string();
+    flow_map_item.qos_flow_level_qos_params.ng_ran_alloc_retention.may_trigger_preemption =
+        asn1_flow_map_item.qos_flow_level_qos_params.ngra_nalloc_retention_prio.pre_emption_cap.value ==
+        asn1::e1ap::pre_emption_cap_opts::may_trigger_pre_emption;
+    flow_map_item.qos_flow_level_qos_params.ng_ran_alloc_retention.is_preemptable =
+        asn1_flow_map_item.qos_flow_level_qos_params.ngra_nalloc_retention_prio.pre_emption_vulnerability.value ==
+        asn1::e1ap::pre_emption_vulnerability_opts::pre_emptable;
 
     // Add gbr qos flow info.
     if (asn1_flow_map_item.qos_flow_level_qos_params.gbr_qos_flow_info_present) {

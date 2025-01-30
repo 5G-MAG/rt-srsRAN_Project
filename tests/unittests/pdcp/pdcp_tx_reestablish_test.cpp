@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -39,7 +39,7 @@ TEST_P(pdcp_tx_reestablish_test, when_srb_reestablish_then_pdus_dropped)
   // Set state of PDCP entiy
   pdcp_tx_state st = {0};
   pdcp_tx->set_state(st);
-  pdcp_tx->configure_security(sec_cfg);
+  pdcp_tx->configure_security(sec_cfg, security::integrity_enabled::on, security::ciphering_enabled::off);
 
   // Write 5 SDU
   int n_pdus = 5;
@@ -64,7 +64,7 @@ TEST_P(pdcp_tx_reestablish_test, when_drb_um_reestablish_then_pdus_and_discard_t
   // Set state of PDCP entiy
   pdcp_tx_state st = {0};
   pdcp_tx->set_state(st);
-  pdcp_tx->configure_security(sec_cfg);
+  pdcp_tx->configure_security(sec_cfg, security::integrity_enabled::on, security::ciphering_enabled::off);
 
   // Write 5 SDU
   int n_pdus = 5;
@@ -88,7 +88,7 @@ TEST_P(pdcp_tx_reestablish_test, when_drb_am_reestablish_then_pdus_retx)
   // Set state of PDCP entiy
   pdcp_tx_state st = {0};
   pdcp_tx->set_state(st);
-  pdcp_tx->configure_security(sec_cfg);
+  pdcp_tx->configure_security(sec_cfg, security::integrity_enabled::on, security::ciphering_enabled::off);
 
   // Write 5 SDU
   int n_pdus = 5;
@@ -147,7 +147,7 @@ TEST_P(pdcp_tx_reestablish_test, when_drb_am_reestablish_then_pdus_retx)
 std::string test_param_info_to_string(const ::testing::TestParamInfo<std::tuple<pdcp_sn_size, unsigned>>& info)
 {
   fmt::memory_buffer buffer;
-  fmt::format_to(buffer, "{}bit", pdcp_sn_size_to_uint(std::get<pdcp_sn_size>(info.param)));
+  fmt::format_to(std::back_inserter(buffer), "{}bit", pdcp_sn_size_to_uint(std::get<pdcp_sn_size>(info.param)));
   return fmt::to_string(buffer);
 }
 

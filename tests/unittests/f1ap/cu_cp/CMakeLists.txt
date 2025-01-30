@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -28,7 +28,6 @@ set(SOURCES
         f1ap_cu_ue_context_modification_procedure_test.cpp
         f1ap_cu_ue_context_release_procedure_test.cpp
         f1ap_cu_test.cpp
-        f1ap_cu_msg_filler_test.cpp
         f1ap_cu_paging_test.cpp)
 
 add_executable(f1ap_cu_test ${SOURCES})

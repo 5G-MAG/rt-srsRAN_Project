@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,6 +23,7 @@
 #pragma once
 
 #include "ofh_data_flow_uplane_downlink_data.h"
+#include "srsran/phy/support/shared_resource_grid.h"
 #include "srsran/support/executors/task_executor.h"
 #include <memory>
 
@@ -34,26 +35,30 @@ class data_flow_uplane_downlink_task_dispatcher : public data_flow_uplane_downli
 {
 public:
   data_flow_uplane_downlink_task_dispatcher(std::unique_ptr<data_flow_uplane_downlink_data> data_flow_uplane_,
-                                            task_executor&                                  executor_) :
-    data_flow_uplane(std::move(data_flow_uplane_)), executor(executor_)
+                                            task_executor&                                  executor_,
+                                            unsigned                                        sector_id_) :
+    data_flow_uplane(std::move(data_flow_uplane_)), executor(executor_), sector_id(sector_id_)
   {
     srsran_assert(data_flow_uplane, "Invalid data flow");
   }
 
   // See interface for documentation.
   void enqueue_section_type_1_message(const data_flow_uplane_resource_grid_context& context,
-                                      const resource_grid_reader&                   grid) override
+                                      const shared_resource_grid&                   grid) override
   {
     if (!executor.execute(
-            [this, context, &grid]() { data_flow_uplane->enqueue_section_type_1_message(context, grid); })) {
+            [this, context, rg = grid.copy()]() { data_flow_uplane->enqueue_section_type_1_message(context, rg); })) {
       srslog::fetch_basic_logger("OFH").warning(
-          "Failed to dispatch message in the downlink data flow User-Plane for slot '{}'", context.slot);
+          "Sector#{}: failed to dispatch message in the downlink data flow User-Plane for slot '{}'",
+          sector_id,
+          context.slot);
     }
   }
 
 private:
   std::unique_ptr<data_flow_uplane_downlink_data> data_flow_uplane;
   task_executor&                                  executor;
+  const unsigned                                  sector_id;
 };
 
 } // namespace ofh

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include "srsran/adt/optional.h"
 #include "srsran/phy/upper/channel_estimation.h"
 #include "srsran/phy/upper/dmrs_mapping.h"
 #include "srsran/phy/upper/log_likelihood_ratio.h"
@@ -70,6 +69,8 @@ public:
     unsigned n_id;
     /// Number of transmit layers.
     unsigned nof_tx_layers;
+    /// Set to true for enabling transform precoding.
+    bool enable_transform_precoding;
     /// Receive antenna port indices the PUSCH transmission is mapped to.
     static_vector<uint8_t, MAX_PORTS> rx_ports;
   };

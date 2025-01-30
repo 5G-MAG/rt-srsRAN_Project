@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,8 +22,8 @@
 
 #pragma once
 
-#include "../../phy/support/resource_grid_dimensions.h"
 #include "srsran/adt/tensor.h"
+#include "srsran/phy/support/resource_grid_dimensions.h"
 #include "srsran/phy/support/resource_grid_reader.h"
 #include "srsran/srsvec/conversion.h"
 #include "srsran/srsvec/copy.h"

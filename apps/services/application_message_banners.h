@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,7 +23,8 @@
 #pragma once
 
 #include "external/fmt/include/fmt/core.h"
-#include "srsran/support/build_info/build_info.h"
+#include "srsran/srslog/logger.h"
+#include "srsran/support/versioning/build_info.h"
 
 namespace srsran {
 namespace app_services {
@@ -48,6 +49,13 @@ public:
   static void announce_app_and_version(std::string_view app_name)
   {
     fmt::print("\n--== srsRAN {} (commit {}) ==--\n\n", app_name, get_build_hash());
+  }
+
+  /// Logs in the given logger application build parameters.
+  static void log_build_info(srslog::basic_logger& logger)
+  {
+    // Log build info
+    logger.info("Built in {} mode using {}", get_build_mode(), get_build_info());
   }
 };
 

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,16 +23,22 @@
 #include "srsran/ofh/ofh_factories.h"
 #include "ofh_sector_impl.h"
 #include "receiver/ofh_receiver_factories.h"
+#include "receiver/ofh_sequence_id_checker_impl.h"
 #include "timing/ofh_timing_manager_impl.h"
 #include "transmitter/ofh_transmitter_factories.h"
 #include "srsran/ofh/ethernet/ethernet_factories.h"
 
 #ifdef DPDK_FOUND
-#include "ethernet/dpdk/dpdk_ethernet_factories.h"
+#include "srsran/ofh/ethernet/dpdk/dpdk_ethernet_factories.h"
 #endif
 
 using namespace srsran;
 using namespace ofh;
+
+std::unique_ptr<sequence_id_checker> ofh::create_sequence_id_checker()
+{
+  return std::make_unique<sequence_id_checker_impl>();
+}
 
 std::unique_ptr<timing_manager> srsran::ofh::create_ofh_timing_manager(const controller_config& config,
                                                                        srslog::basic_logger&    logger,
@@ -46,6 +52,7 @@ std::unique_ptr<timing_manager> srsran::ofh::create_ofh_timing_manager(const con
 static receiver_config generate_receiver_config(const sector_configuration& config)
 {
   receiver_config rx_config;
+  rx_config.sector                             = config.sector_id;
   rx_config.ru_operating_bw                    = config.ru_operating_bw;
   rx_config.scs                                = config.scs;
   rx_config.cp                                 = config.cp;
@@ -55,6 +62,7 @@ static receiver_config generate_receiver_config(const sector_configuration& conf
   rx_config.is_prach_control_plane_enabled     = config.is_prach_control_plane_enabled;
   rx_config.ignore_ecpri_payload_size_field    = config.ignore_ecpri_payload_size_field;
   rx_config.ignore_ecpri_seq_id_field          = config.ignore_ecpri_seq_id_field;
+  rx_config.warn_unreceived_ru_frames          = config.warn_unreceived_ru_frames;
 
   // For the rx eAxCs, configure only those that will be used, so the other eAxCs can be discarded as soon as possible.
   rx_config.prach_eaxc.assign(config.prach_eaxc.begin(), config.prach_eaxc.begin() + config.nof_antennas_ul);
@@ -109,10 +117,11 @@ static std::pair<std::unique_ptr<ether::gateway>, std::unique_ptr<ether::receive
 create_dpdk_txrx(const sector_configuration& sector_cfg, task_executor& rx_executor, srslog::basic_logger& logger)
 {
   ether::gw_config eth_cfg;
-  eth_cfg.interface                   = sector_cfg.interface;
-  eth_cfg.is_promiscuous_mode_enabled = sector_cfg.is_promiscuous_mode_enabled;
-  eth_cfg.mtu_size                    = sector_cfg.mtu_size;
-  eth_cfg.mac_dst_address             = sector_cfg.mac_dst_address;
+  eth_cfg.interface                    = sector_cfg.interface;
+  eth_cfg.is_promiscuous_mode_enabled  = sector_cfg.is_promiscuous_mode_enabled;
+  eth_cfg.is_link_status_check_enabled = sector_cfg.is_link_status_check_enabled;
+  eth_cfg.mtu_size                     = sector_cfg.mtu_size;
+  eth_cfg.mac_dst_address              = sector_cfg.mac_dst_address;
 
   return ether::create_dpdk_txrx(eth_cfg, rx_executor, logger);
 }
@@ -163,12 +172,11 @@ create_txrx(const sector_configuration&                     sector_cfg,
 std::unique_ptr<sector> srsran::ofh::create_ofh_sector(const sector_configuration& sector_cfg,
                                                        sector_dependencies&&       sector_deps)
 {
-  unsigned repository_size = sector_cfg.max_processing_delay_slots * 4;
+  unsigned repository_size = calculate_repository_size(sector_cfg.scs, sector_cfg.max_processing_delay_slots * 4);
 
-  srslog::basic_logger* repo_logger = sector_cfg.warn_unreceived_ru_frames ? sector_deps.logger : nullptr;
-  auto                  cp_repo     = std::make_shared<uplink_cplane_context_repository>(repository_size);
-  auto                  prach_repo  = std::make_shared<prach_context_repository>(repository_size, repo_logger);
-  auto                  slot_repo   = std::make_shared<uplink_context_repository>(repository_size, repo_logger);
+  auto cp_repo    = std::make_shared<uplink_cplane_context_repository>(repository_size);
+  auto prach_repo = std::make_shared<prach_context_repository>(repository_size);
+  auto slot_repo  = std::make_shared<uplink_context_repository>(repository_size);
 
   // Build the ethernet txrx.
   auto eth_txrx = create_txrx(sector_cfg,

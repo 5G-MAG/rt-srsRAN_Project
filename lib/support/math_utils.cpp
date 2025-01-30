@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -20,14 +20,14 @@
  *
  */
 
-#include "srsran/support/math_utils.h"
+#include "srsran/support/math/math_utils.h"
 #include "srsran/support/error_handling.h"
 #include "srsran/support/srsran_assert.h"
 
-/// Number of prime numbers between 2 and 3299 (both included).
-constexpr unsigned NOF_PRIME_NUMBERS = 463;
-
 using namespace srsran;
+
+/// Number of prime numbers between 2 and 3299 (both included).
+static constexpr unsigned NOF_PRIME_NUMBERS = 463;
 
 static constexpr std::array<unsigned, NOF_PRIME_NUMBERS> prime_numbers = {
     2,    3,    5,    7,    11,   13,   17,   19,   23,   29,   31,   37,   41,   43,   47,   53,   59,   61,   67,

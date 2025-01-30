@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,30 +22,14 @@
 
 #pragma once
 
+#include "apps/services/buffer_pool/buffer_pool_appconfig.h"
+#include "apps/services/hal/hal_appconfig.h"
 #include "apps/services/logger/logger_appconfig.h"
-#include "apps/services/os_sched_affinity_manager.h"
-#include "srsran/adt/byte_buffer.h"
-#include "srsran/ran/direct_current_offset.h"
+#include "apps/services/worker_manager/worker_manager_appconfig.h"
 #include "srsran/ran/gnb_id.h"
-#include "srsran/support/executors/unique_thread.h"
 #include <string>
 
 namespace srsran {
-
-/// E2 Agent configuration
-struct e2_appconfig {
-  bool        enable_du_e2           = false;       ///< Whether to enable DU E2 agent
-  std::string ip_addr                = "127.0.0.1"; ///< RIC IP address
-  uint16_t    port                   = 36421;       ///< RIC port
-  std::string bind_addr              = "127.0.0.1"; ///< Local IP address to bind for RIC connection
-  int         sctp_rto_initial       = 120;         ///< SCTP initial RTO value for RIC connection
-  int         sctp_rto_min           = 120;         ///< SCTP RTO min for RIC connection
-  int         sctp_rto_max           = 500;         ///< SCTP RTO max for RIC connection
-  int         sctp_init_max_attempts = 3;           ///< SCTP init max attempts for RIC connection
-  int         sctp_max_init_timeo    = 500;         ///< SCTP max init timeout for RIC connection
-  bool        e2sm_kpm_enabled       = false;       ///< Whether to enable KPM service module
-  bool        e2sm_rc_enabled        = false;       ///< Whether to enable RC service module
-};
 
 struct cu_up_appconfig {
   unsigned gtpu_queue_size          = 2048;
@@ -55,56 +39,8 @@ struct cu_up_appconfig {
 
 /// Metrics report configuration.
 struct metrics_appconfig {
-  struct pdcp_metrics {
-    unsigned report_period = 0; // PDCP report period in ms
-  } pdcp;
-  /// JSON metrics reporting.
-  bool        enable_json_metrics      = false;
-  std::string addr                     = "127.0.0.1";
-  uint16_t    port                     = 55555;
-  bool        autostart_stdout_metrics = false;
-  unsigned    stdout_metrics_period    = 1000; // Statistics report period in milliseconds
-};
-
-struct buffer_pool_appconfig {
-  std::size_t nof_segments = 1048576;
-  std::size_t segment_size = byte_buffer_segment_pool_default_segment_size();
-};
-
-/// CPU affinities configuration for the gNB app.
-struct cpu_affinities_appconfig {
-  /// CPUs isolation.
-  std::optional<os_sched_affinity_bitmask> isolated_cpus;
-  /// Low priority workers CPU affinity mask.
-  os_sched_affinity_config low_priority_cpu_cfg = {sched_affinity_mask_types::low_priority,
-                                                   {},
-                                                   sched_affinity_mask_policy::mask};
-};
-
-/// Non real time thread configuration for the gNB.
-struct non_rt_threads_appconfig {
-  /// Number of non real time threads for processing of CP and UP data in the upper layers
-  unsigned nof_non_rt_threads = 4;
-};
-
-/// Expert threads configuration of the gNB app.
-struct expert_threads_appconfig {
-  /// Non real time thread configuration of the gNB app.
-  non_rt_threads_appconfig non_rt_threads;
-};
-
-/// Expert configuration of the gNB app.
-struct expert_execution_appconfig {
-  /// gNB CPU affinities.
-  cpu_affinities_appconfig affinities;
-  /// Expert thread configuration of the gNB app.
-  expert_threads_appconfig threads;
-};
-
-/// HAL configuration of the gNB app.
-struct hal_appconfig {
-  /// EAL configuration arguments.
-  std::string eal_args;
+  std::string addr = "127.0.0.1";
+  uint16_t    port = 55555;
 };
 
 /// Monolithic gnb application configuration.
@@ -119,8 +55,6 @@ struct gnb_appconfig {
   gnb_id_t gnb_id = {411, 22};
   /// Node name.
   std::string ran_node_name = "srsgnb01";
-  /// E2 configuration.
-  e2_appconfig e2_cfg;
   /// Buffer pool configuration.
   buffer_pool_appconfig buffer_pool_config;
   /// Expert configuration.

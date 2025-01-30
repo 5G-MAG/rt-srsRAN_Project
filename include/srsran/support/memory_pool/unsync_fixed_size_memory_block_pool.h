@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include "memory_block_list.h"
+#include "srsran/support/memory_pool/memory_block_list.h"
 
 namespace srsran {
 
@@ -90,6 +90,42 @@ private:
 
   std::vector<uint8_t>   allocated_memory;
   free_memory_block_list block_free_list;
+};
+
+template <typename T>
+class unsync_fixed_size_object_pool
+{
+  static_assert(sizeof(T) >= free_memory_block_list::min_memory_block_align(), "sizeof(T) is too small");
+
+  struct pool_deleter {
+    pool_deleter() = default;
+    pool_deleter(unsync_fixed_size_memory_block_pool& parent_) : parent(&parent_) {}
+    void operator()(T* ptr)
+    {
+      if (ptr != nullptr) {
+        parent->deallocate_node(ptr);
+      }
+    }
+    unsync_fixed_size_memory_block_pool* parent;
+  };
+
+public:
+  using ptr = std::unique_ptr<T, pool_deleter>;
+
+  unsync_fixed_size_object_pool(unsigned nof_objs) : mem_pool(nof_objs, sizeof(T)) {}
+
+  template <typename... Args>
+  ptr create(Args&&... args)
+  {
+    void* node = mem_pool.allocate_node(sizeof(T));
+    if (node == nullptr) {
+      return nullptr;
+    }
+    return ptr{new (node) T{std::forward<Args>(args)...}, pool_deleter{mem_pool}};
+  }
+
+private:
+  unsync_fixed_size_memory_block_pool mem_pool;
 };
 
 } // namespace srsran

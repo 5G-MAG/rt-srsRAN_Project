@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -33,10 +33,7 @@ class iq_compressor_dummy : public iq_compressor
 {
 public:
   // See interface for documentation.
-  void
-  compress(span<compressed_prb> compressed_prbs, span<const cf_t> iq_data, const ru_compression_params& params) override
-  {
-  }
+  void compress(span<uint8_t> buffer, span<const cbf16_t> iq_data, const ru_compression_params& params) override {}
 };
 
 } // namespace testing

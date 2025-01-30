@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -21,19 +21,18 @@
  */
 
 #include "srsran/hal/dpdk/bbdev/bbdev_acc_factory.h"
-#include "bbdev.h"
 
 using namespace srsran;
 using namespace dpdk;
 
+#ifndef SRSRAN_HAS_ENTERPRISE
+
 std::shared_ptr<bbdev_acc> srsran::dpdk::create_bbdev_acc(const bbdev_acc_configuration& cfg,
                                                           srslog::basic_logger&          logger)
 {
-  // bbdev device start procedure.
-  expected<::rte_bbdev_info> info = bbdev_start(cfg, logger);
-  if (not info.has_value()) {
-    return nullptr;
-  }
+  logger.error("[bbdev] bbdev accelerator creation failed. Cause: hardware-acceleration is not supported.");
 
-  return std::make_shared<bbdev_acc>(cfg, info.value(), logger);
+  return nullptr;
 }
+
+#endif // SRSRAN_HAS_ENTERPRISE

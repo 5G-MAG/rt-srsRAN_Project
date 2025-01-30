@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -19,6 +19,7 @@
  * and at http://www.gnu.org/licenses/.
  *
  */
+
 #pragma once
 
 #include "gtpu_tunnel_logger.h"
@@ -244,6 +245,8 @@ struct gtpu_dissected_pdu {
   gtpu_header hdr;
   /// Total header length (including all extension headers); marks the start of the T-PDU.
   size_t hdr_len = 0;
+  /// Indicator for implementation classes whether this is a test PDU or not.
+  bool test_mode = false;
 };
 
 bool gtpu_read_teid(uint32_t& teid, const byte_buffer& pdu, srslog::basic_logger& logger);
@@ -316,14 +319,13 @@ namespace fmt {
 template <>
 struct formatter<srsran::gtpu_header::gtpu_flags> {
   template <typename ParseContext>
-  auto parse(ParseContext& ctx) -> decltype(ctx.begin())
+  auto parse(ParseContext& ctx)
   {
     return ctx.begin();
   }
 
   template <typename FormatContext>
-  auto format(const srsran::gtpu_header::gtpu_flags& flags, FormatContext& ctx)
-      -> decltype(std::declval<FormatContext>().out())
+  auto format(const srsran::gtpu_header::gtpu_flags& flags, FormatContext& ctx) const
   {
     return format_to(ctx.out(),
                      "v={} pt={} e={} s={} pn={}",
@@ -338,13 +340,13 @@ struct formatter<srsran::gtpu_header::gtpu_flags> {
 template <>
 struct formatter<srsran::gtpu_header> {
   template <typename ParseContext>
-  auto parse(ParseContext& ctx) -> decltype(ctx.begin())
+  auto parse(ParseContext& ctx)
   {
     return ctx.begin();
   }
 
   template <typename FormatContext>
-  auto format(const srsran::gtpu_header& hdr, FormatContext& ctx) -> decltype(std::declval<FormatContext>().out())
+  auto format(const srsran::gtpu_header& hdr, FormatContext& ctx) const
   {
     return format_to(ctx.out(), "{} len={} teid={:#x}", hdr.flags, hdr.length, hdr.teid);
   }
@@ -353,14 +355,13 @@ struct formatter<srsran::gtpu_header> {
 template <>
 struct formatter<srsran::gtpu_extension_header_type> {
   template <typename ParseContext>
-  auto parse(ParseContext& ctx) -> decltype(ctx.begin())
+  auto parse(ParseContext& ctx)
   {
     return ctx.begin();
   }
 
   template <typename FormatContext>
-  auto format(const srsran::gtpu_extension_header_type& ext_type, FormatContext& ctx)
-      -> decltype(std::declval<FormatContext>().out())
+  auto format(const srsran::gtpu_extension_header_type& ext_type, FormatContext& ctx) const
   {
     return format_to(ctx.out(), "{}", to_string(ext_type));
   }
@@ -369,13 +370,13 @@ struct formatter<srsran::gtpu_extension_header_type> {
 template <>
 struct formatter<srsran::gtpu_ie_teid_i> {
   template <typename ParseContext>
-  auto parse(ParseContext& ctx) -> decltype(ctx.begin())
+  auto parse(ParseContext& ctx)
   {
     return ctx.begin();
   }
 
   template <typename FormatContext>
-  auto format(const srsran::gtpu_ie_teid_i& ie, FormatContext& ctx) -> decltype(std::declval<FormatContext>().out())
+  auto format(const srsran::gtpu_ie_teid_i& ie, FormatContext& ctx) const
   {
     return format_to(ctx.out(), "teid_i={:#x}", ie.teid_i);
   }
@@ -384,14 +385,13 @@ struct formatter<srsran::gtpu_ie_teid_i> {
 template <>
 struct formatter<srsran::gtpu_ie_gtpu_peer_address> {
   template <typename ParseContext>
-  auto parse(ParseContext& ctx) -> decltype(ctx.begin())
+  auto parse(ParseContext& ctx)
   {
     return ctx.begin();
   }
 
   template <typename FormatContext>
-  auto format(const srsran::gtpu_ie_gtpu_peer_address& ie, FormatContext& ctx)
-      -> decltype(std::declval<FormatContext>().out())
+  auto format(const srsran::gtpu_ie_gtpu_peer_address& ie, FormatContext& ctx) const
   {
     if (std::holds_alternative<srsran::gtpu_ie_gtpu_peer_address::ipv4_addr_t>(ie.gtpu_peer_address)) {
       auto& addr = std::get<srsran::gtpu_ie_gtpu_peer_address::ipv4_addr_t>(ie.gtpu_peer_address);
@@ -425,14 +425,13 @@ struct formatter<srsran::gtpu_ie_gtpu_peer_address> {
 template <>
 struct formatter<srsran::gtpu_msg_error_indication> {
   template <typename ParseContext>
-  auto parse(ParseContext& ctx) -> decltype(ctx.begin())
+  auto parse(ParseContext& ctx)
   {
     return ctx.begin();
   }
 
   template <typename FormatContext>
-  auto format(const srsran::gtpu_msg_error_indication& err_ind, FormatContext& ctx)
-      -> decltype(std::declval<FormatContext>().out())
+  auto format(const srsran::gtpu_msg_error_indication& err_ind, FormatContext& ctx) const
   {
     return format_to(ctx.out(), "{} {}", err_ind.teid_i, err_ind.gtpu_peer_address);
   }

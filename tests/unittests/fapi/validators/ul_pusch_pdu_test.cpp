@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -43,7 +43,7 @@ TEST_P(validate_pusch_pdu_field, WithValue)
                validate_ul_pusch_pdu,
                srsran::fapi::message_type_id::ul_tti_request,
                ul_pdu_type::PUSCH);
-};
+}
 
 INSTANTIATE_TEST_SUITE_P(RNTI,
                          validate_pusch_pdu_field,

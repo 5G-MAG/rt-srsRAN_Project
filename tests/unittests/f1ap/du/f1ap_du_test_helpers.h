@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,19 +22,19 @@
 
 #pragma once
 
-#include "lib/du_manager/converters/f1ap_configuration_helpers.h"
+#include "lib/du/du_high/du_manager/converters/f1ap_configuration_helpers.h"
 #include "srsran/adt/slotted_array.h"
 #include "srsran/asn1/f1ap/f1ap_ies.h"
-#include "srsran/f1ap/common/f1ap_common.h"
-#include "srsran/f1ap/common/f1ap_message.h"
 #include "srsran/f1ap/du/f1ap_du.h"
 #include "srsran/f1ap/du/f1ap_du_factory.h"
+#include "srsran/f1ap/f1ap_message.h"
 #include "srsran/f1ap/gateways/f1c_connection_client.h"
 #include "srsran/f1u/du/f1u_rx_sdu_notifier.h"
 #include "srsran/support/async/async_no_op_task.h"
 #include "srsran/support/async/fifo_async_task_scheduler.h"
 #include "srsran/support/executors/manual_task_worker.h"
 #include <gtest/gtest.h>
+#include <queue>
 
 namespace srsran::srs_du {
 
@@ -61,10 +61,11 @@ public:
   f1ap_du*                  f1ap;
 
   // DU manager -> F1AP.
-  f1ap_ue_creation_request                      next_ue_creation_req;
-  std::optional<f1ap_ue_creation_response>      last_ue_creation_response;
-  f1ap_ue_configuration_request                 next_ue_cfg_req;
-  std::optional<f1ap_ue_configuration_response> last_ue_cfg_response;
+  f1ap_ue_creation_request                               next_ue_creation_req;
+  std::optional<f1ap_ue_creation_response>               last_ue_creation_response;
+  f1ap_ue_configuration_request                          next_ue_cfg_req;
+  std::optional<f1ap_ue_configuration_response>          last_ue_cfg_response;
+  std::optional<std::pair<du_ue_index_t, du_ue_index_t>> last_reestablishment_ue_indexes;
 
   // F1AP procedures.
   std::optional<f1ap_ue_context_creation_request> last_ue_context_creation_req;
@@ -73,6 +74,7 @@ public:
   f1ap_ue_context_update_response                 next_ue_context_update_response;
   std::optional<f1ap_ue_delete_request>           last_ue_delete_req;
   std::optional<du_ue_index_t>                    last_ue_cfg_applied;
+  std::optional<std::vector<du_ue_index_t>>       last_ues_to_reset;
 
   explicit dummy_f1ap_du_configurator(timer_factory& timers_) : timers(timers_), task_loop(128), ue_sched(this) {}
 
@@ -83,6 +85,12 @@ public:
   void schedule_async_task(async_task<void>&& task) override { task_loop.schedule(std::move(task)); }
 
   void on_f1c_disconnection() override {}
+
+  async_task<void> request_reset(const std::vector<du_ue_index_t>& ues_to_reset) override
+  {
+    last_ues_to_reset = ues_to_reset;
+    return launch_no_op_task();
+  }
 
   du_ue_index_t find_free_ue_index() override { return next_ue_creation_req.ue_index; }
 
@@ -121,7 +129,10 @@ public:
 
   async_task<void> request_ue_drb_deactivation(du_ue_index_t ue_index) override { return launch_no_op_task(); }
 
-  void notify_reestablishment_of_old_ue(du_ue_index_t new_ue_index, du_ue_index_t old_ue_index) override {}
+  void notify_reestablishment_of_old_ue(du_ue_index_t new_ue_index, du_ue_index_t old_ue_index) override
+  {
+    last_reestablishment_ue_indexes = std::make_pair(new_ue_index, old_ue_index);
+  }
 
   /// \brief Retrieve task scheduler specific to a given UE.
   f1ap_ue_task_scheduler& get_ue_handler(du_ue_index_t ue_index) override { return ue_sched; }
@@ -145,15 +156,8 @@ f1_setup_request_message generate_f1_setup_request_message();
 /// \brief Generate F1AP ASN.1 DRB AM Setup configuration.
 asn1::f1ap::drbs_to_be_setup_item_s generate_drb_am_setup_item(drb_id_t drbid);
 
-/// \brief Generate an F1AP UE Context Setup Request message with specified list of DRBs.
-f1ap_message generate_ue_context_setup_request(const std::initializer_list<drb_id_t>& drbs_to_add);
-
 /// \brief Generate F1AP ASN.1 DRB AM Setup configuration.
 asn1::f1ap::drbs_to_be_setup_mod_item_s generate_drb_am_mod_item(drb_id_t drbid);
-
-/// \brief Generate an F1AP UE Context Modification Request message with specified list of DRBs.
-f1ap_message generate_ue_context_modification_request(const std::initializer_list<drb_id_t>& drbs_to_add,
-                                                      const std::initializer_list<drb_id_t>& drbs_to_rem = {});
 
 /// \brief Generate an F1AP UE Context Release Command message.
 f1ap_message generate_ue_context_release_command();
@@ -167,13 +171,26 @@ f1ap_message generate_dl_rrc_message_transfer(gnb_du_ue_f1ap_id_t du_ue_id,
 class dummy_f1c_connection_client : public srs_du::f1c_connection_client
 {
 public:
-  f1ap_message last_tx_f1ap_pdu;
+  bool                        tx_pdus_sent() const { return not tx_f1ap_pdus.empty(); }
+  const f1ap_message&         last_tx_pdu() const { return tx_f1ap_pdus.back(); }
+  std::optional<f1ap_message> pop_tx_pdu()
+  {
+    std::optional<f1ap_message> ret;
+    if (tx_f1ap_pdus.empty()) {
+      return ret;
+    }
+    ret = tx_f1ap_pdus.front();
+    tx_f1ap_pdus.pop_front();
+    return ret;
+  }
+  void clear_tx_pdus() { tx_f1ap_pdus.clear(); }
 
   std::unique_ptr<f1ap_message_notifier>
   handle_du_connection_request(std::unique_ptr<f1ap_message_notifier> du_rx_pdu_notifier) override;
 
 private:
   std::unique_ptr<f1ap_message_notifier> du_rx_pdu_notifier;
+  std::deque<f1ap_message>               tx_f1ap_pdus;
 };
 
 class dummy_f1c_rx_sdu_notifier : public f1c_rx_sdu_notifier

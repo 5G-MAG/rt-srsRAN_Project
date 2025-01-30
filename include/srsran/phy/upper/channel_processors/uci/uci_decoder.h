@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,8 +22,8 @@
 
 #pragma once
 
-#include "uci_status.h"
 #include "srsran/adt/span.h"
+#include "srsran/phy/upper/channel_processors/uci/uci_status.h"
 #include "srsran/phy/upper/log_likelihood_ratio.h"
 #include "srsran/ran/sch/modulation_scheme.h"
 
@@ -53,6 +53,7 @@ public:
   /// \brief Decodes Uplink Control Information carried in either PUCCH or PUSCH.
   /// \param[out] message View of the decoded message.
   /// \param[in]  llr     The received soft bits, as a sequence of log-likelihood ratios.
+  /// \param[in]  config  The UCI decoder configuration.
   /// \return The decoding status.
   virtual uci_status
   decode(span<uint8_t> message, span<const log_likelihood_ratio> llr, const configuration& config) = 0;

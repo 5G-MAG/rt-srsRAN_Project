@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -42,7 +42,7 @@ prach_scheduler::prach_scheduler(const cell_configuration& cfg_) :
   static const unsigned nof_symbols_per_slot = NOF_OFDM_SYM_PER_SLOT_NORMAL_CP;
 
   // Convert list of PRACH subframe occasions to bitmap.
-  for (const unsigned pos : prach_cfg.subframe) {
+  for (const unsigned pos : prach_cfg.slots) {
     prach_subframe_occasion_bitmap.set(pos, true);
   }
 
@@ -72,7 +72,11 @@ prach_scheduler::prach_scheduler(const cell_configuration& cfg_) :
     const unsigned prach_nof_prbs =
         prach_frequency_mapping_get(info.scs, cell_cfg.ul_cfg_common.init_ul_bwp.generic_params.scs).nof_rb_ra;
     // This is the start of the PRBs dedicated to PRACH.
-    const uint8_t      prb_start = rach_cfg_common().rach_cfg_generic.msg1_frequency_start + id_fd_ra * prach_nof_prbs;
+    const uint8_t prb_start = rach_cfg_common().rach_cfg_generic.msg1_frequency_start + id_fd_ra * prach_nof_prbs;
+    // NOTE: prach_to_pusch_guardband is added to every PRACH occasion, but only at the end of it. We don't consider the
+    // prach_to_pusch_guardband to compute the next PRACH occasion starting_PRB; the purpose of this guardband is to
+    // avoid overlapping with PUSCH (placed on the PRBs with higher index compared to the PRACH occasion) when we fill
+    // the resource grid.
     const prb_interval prach_prbs{prb_start, prb_start + prach_nof_prbs + prach_to_pusch_guardband};
     const crb_interval crbs = prb_to_crb(cell_cfg.ul_cfg_common.init_ul_bwp.generic_params, prach_prbs);
 
@@ -154,7 +158,9 @@ void prach_scheduler::allocate_slot_prach_pdus(cell_resource_allocator& res_grid
     }
   }
 
-  if (sl.sfn() % prach_cfg.x != prach_cfg.y) {
+  bool prach_occasion_sfn = std::any_of(
+      prach_cfg.y.begin(), prach_cfg.y.end(), [this, sl](uint8_t y) { return sl.sfn() % prach_cfg.x != y; });
+  if (prach_occasion_sfn) {
     // PRACH is not enabled in this SFN.
     return;
   }

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -19,8 +19,9 @@
  * and at http://www.gnu.org/licenses/.
  *
  */
+
 #include "srsran/srsvec/accumulate.h"
-#include "simd.h"
+#include "srsran/srsvec/simd.h"
 #include "srsran/support/srsran_assert.h"
 #include <numeric>
 

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,7 +22,6 @@
 
 #pragma once
 
-#include "rrc_ue_config.h"
 #include "srsran/cu_cp/cu_cp_types.h"
 #include "srsran/ran/gnb_id.h"
 #include "srsran/rrc/rrc_ue_config.h"
@@ -47,7 +46,7 @@ struct rrc_cfg_t {
   /// Force re-establishment fallback.
   bool force_reestablishment_fallback = false;
   /// Timeout for RRC procedures.
-  unsigned rrc_procedure_timeout_ms = 360;
+  std::chrono::milliseconds rrc_procedure_timeout_ms{360};
 };
 
 } // namespace srs_cu_cp

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,7 +22,7 @@
 
 #include "srsran/f1ap/gateways/f1c_local_connector_factory.h"
 #include "srsran/asn1/f1ap/f1ap.h"
-#include "srsran/f1ap/common/f1ap_message.h"
+#include "srsran/f1ap/f1ap_message.h"
 #include "srsran/f1ap/gateways/f1c_network_client_factory.h"
 #include "srsran/f1ap/gateways/f1c_network_server_factory.h"
 #include "srsran/pcap/dlt_pcap.h"
@@ -87,6 +87,9 @@ public:
 
     // Create direct connection between CU-CP and DU notifier.
     auto cu_notifier = cu_cp_du_mng->handle_new_du_connection(std::move(du_notifier));
+    if (cu_notifier == nullptr) {
+      return nullptr;
+    }
 
     // Decorate CU-CP RX notifier with pcap writing.
     if (pcap_writer.is_write_enabled()) {
@@ -108,7 +111,8 @@ private:
 class f1c_sctp_connector_impl final : public f1c_local_connector
 {
 public:
-  f1c_sctp_connector_impl(const f1c_local_sctp_connector_config& cfg) : broker(cfg.broker), pcap_writer(cfg.pcap)
+  f1c_sctp_connector_impl(const f1c_local_sctp_connector_config& cfg) :
+    broker(cfg.broker), io_rx_executor(cfg.io_rx_executor), pcap_writer(cfg.pcap)
   {
     // Create SCTP server.
     sctp_network_gateway_config sctp;
@@ -117,7 +121,7 @@ public:
     sctp.bind_address = "127.0.0.1";
     // Use any bind port available.
     sctp.bind_port = 0;
-    server         = create_f1c_gateway_server(f1c_cu_sctp_gateway_config{sctp, broker, pcap_writer});
+    server = create_f1c_gateway_server(f1c_cu_sctp_gateway_config{sctp, broker, cfg.io_rx_executor, pcap_writer});
   }
 
   void attach_cu_cp(srs_cu_cp::cu_cp_f1c_handler& cu_f1c_handler_) override
@@ -132,7 +136,8 @@ public:
     sctp_client.connect_port    = server->get_listen_port().value();
     sctp_client.ppid            = F1AP_PPID;
     // Note: We only need to save the PCAPs in one side of the connection.
-    client = create_f1c_gateway_client(f1c_du_sctp_gateway_config{sctp_client, broker, *null_pcap_writer});
+    client =
+        create_f1c_gateway_client(f1c_du_sctp_gateway_config{sctp_client, broker, io_rx_executor, *null_pcap_writer});
   }
 
   std::optional<uint16_t> get_listen_port() const override { return server->get_listen_port(); }
@@ -146,6 +151,7 @@ public:
 
 private:
   io_broker&                                        broker;
+  task_executor&                                    io_rx_executor;
   dlt_pcap&                                         pcap_writer;
   std::unique_ptr<dlt_pcap>                         null_pcap_writer = create_null_dlt_pcap();
   std::unique_ptr<srs_cu_cp::f1c_connection_server> server;

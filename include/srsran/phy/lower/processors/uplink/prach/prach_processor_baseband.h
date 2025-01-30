@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -41,11 +41,11 @@ public:
 
   /// Collects the parameters that describe a symbol context.
   struct symbol_context {
-    // Current slot.
+    /// Current slot.
     slot_point slot;
-    // Current symbol index within the slot.
+    /// Current symbol index within the slot.
     unsigned symbol;
-    // Sector identifier.
+    /// Sector identifier.
     unsigned sector;
   };
 

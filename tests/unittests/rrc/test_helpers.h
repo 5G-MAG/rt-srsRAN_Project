@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -44,7 +44,7 @@ public:
   srb_id_t    last_srb_id;
 };
 
-class dummy_rrc_ue_ngap_adapter : public rrc_ue_nas_notifier, public rrc_ue_control_notifier
+class dummy_rrc_ue_ngap_adapter : public rrc_ue_ngap_notifier
 {
 public:
   void set_ue_context_release_outcome(bool outcome) { ue_context_release_outcome = outcome; }
@@ -62,7 +62,7 @@ public:
 
   void on_inter_cu_ho_rrc_recfg_complete_received(const ue_index_t           ue_index,
                                                   const nr_cell_global_id_t& cgi,
-                                                  const unsigned             tac) override
+                                                  const tac_t                tac) override
   {
     logger.info("ue={}: Received inter CU handover related RRC Reconfiguration Complete", ue_index);
   }
@@ -81,7 +81,7 @@ public:
 
   bool next_ue_setup_response = true;
 
-  bool on_ue_setup_request() override { return next_ue_setup_response; }
+  bool on_ue_setup_request(plmn_identity plmn) override { return next_ue_setup_response; }
 
   rrc_ue_reestablishment_context_response on_rrc_reestablishment_request(pci_t old_pci, rnti_t old_c_rnti) override
   {
@@ -148,7 +148,8 @@ public:
   }
 
   std::optional<rrc_meas_cfg>
-  on_measurement_config_request(nr_cell_identity nci, std::optional<rrc_meas_cfg> current_meas_config = {}) override
+  on_measurement_config_request(nr_cell_identity            nci,
+                                std::optional<rrc_meas_cfg> current_meas_config = std::nullopt) override
   {
     std::optional<rrc_meas_cfg> meas_cfg;
     return meas_cfg;

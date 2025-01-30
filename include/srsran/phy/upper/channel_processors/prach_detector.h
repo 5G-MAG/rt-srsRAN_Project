@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "srsran/adt/expected.h"
 #include "srsran/phy/support/prach_buffer.h"
 #include "srsran/phy/upper/channel_processors/prach_detection_result.h"
 #include "srsran/ran/prach/prach_format_type.h"
@@ -71,7 +72,7 @@ public:
   ///
   /// An assertion is triggered if the sum of start preamble index and number of preambles exceeds 64.
   ///
-  /// \param[in] signal Baseband signal buffer.
+  /// \param[in] input  Baseband signal buffer.
   /// \param[in] config PRACH configuration for the slot.
   /// \return The detection result.
   virtual prach_detection_result detect(const prach_buffer& input, const configuration& config) = 0;
@@ -85,8 +86,8 @@ public:
   virtual ~prach_detector_validator() = default;
 
   /// \brief Validates PRACH detector configuration parameters.
-  /// \return True if the parameters contained in \c config are supported, false otherwise.
-  virtual bool is_valid(const prach_detector::configuration& config) const = 0;
+  /// \return A success if the parameters contained in \c config are supported, an error message otherwise.
+  virtual error_type<std::string> is_valid(const prach_detector::configuration& config) const = 0;
 };
 
 } // namespace srsran

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -21,18 +21,16 @@
  */
 
 #include "cu_up_test_helpers.h"
+#include "lib/cu_up/cu_up_impl.h"
 #include "lib/e1ap/cu_up/e1ap_cu_up_asn1_helpers.h"
 #include "srsran/asn1/e1ap/e1ap.h"
-#include "srsran/cu_up/cu_up_factory.h"
 #include "srsran/pdcp/pdcp_sn_util.h"
 #include "srsran/support/executors/task_worker.h"
 #include "srsran/support/io/io_broker_factory.h"
 #include <arpa/inet.h>
 #include <chrono>
-#include <fcntl.h>
 #include <gtest/gtest.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <unistd.h>
 
 using namespace srsran;
@@ -104,31 +102,28 @@ protected:
     srslog::fetch_basic_logger("GTPU").set_level(srslog::basic_levels::debug);
     srslog::fetch_basic_logger("E1AP").set_level(srslog::basic_levels::debug);
 
-    // create worker thread and executer
+    // create worker thread and executor
     worker   = std::make_unique<task_worker>("thread", 128, os_thread_realtime_priority::no_realtime());
     executor = make_task_executor_ptr(*worker);
 
-    exec_pool    = std::make_unique<dummy_cu_up_executor_pool>(executor.get());
+    exec_pool    = std::make_unique<dummy_cu_up_executor_mapper>(executor.get());
     app_timers   = std::make_unique<timer_manager>(256);
     f1u_gw       = std::make_unique<dummy_f1u_gateway>(f1u_bearer);
     broker       = create_io_broker(io_broker_type::epoll);
     upf_addr_str = "127.0.0.1";
+
+    // Set default UDP configs
+    cu_up_udp_cfg.bind_port    = 0;           // Random free port selected by the OS.
+    cu_up_udp_cfg.bind_address = "127.0.0.2"; // NG-U bind address
   }
 
-  cu_up_configuration get_default_cu_up_config()
+  cu_up_config get_default_cu_up_config()
   {
     // create config
-    cu_up_configuration cfg;
-    cfg.ctrl_executor                = executor.get();
-    cfg.ue_exec_pool                 = exec_pool.get();
-    cfg.io_ul_executor               = executor.get();
-    cfg.e1ap.e1_conn_client          = &e1ap_client;
-    cfg.f1u_gateway                  = f1u_gw.get();
-    cfg.ngu_gw                       = ngu_gw.get();
-    cfg.timers                       = app_timers.get();
-    cfg.qos[uint_to_five_qi(9)]      = {};
-    cfg.gtpu_pcap                    = &dummy_pcap;
-    cfg.net_cfg.n3_bind_port         = 0; // Random free port selected by the OS.
+    cu_up_config cfg;
+
+    cfg.qos[uint_to_five_qi(9)] = {};
+
     cfg.n3_cfg.gtpu_reordering_timer = std::chrono::milliseconds(0);
     cfg.n3_cfg.warn_on_drop          = false;
     cfg.statistics_report_period     = std::chrono::seconds(1);
@@ -136,17 +131,23 @@ protected:
     return cfg;
   }
 
-  void init(const cu_up_configuration& cfg)
+  cu_up_dependencies get_default_cu_up_dependencies()
   {
-    udp_network_gateway_config udp_cfg{};
-    udp_cfg.bind_interface = cfg.net_cfg.n3_bind_interface;
-    udp_cfg.bind_address   = cfg.net_cfg.n3_bind_addr;
-    udp_cfg.bind_port      = cfg.net_cfg.n3_bind_port;
-    ngu_gw                 = create_udp_ngu_gateway(udp_cfg, *broker, *executor);
+    cu_up_dependencies deps;
+    deps.gtpu_pcap      = &dummy_pcap;
+    deps.exec_mapper    = exec_pool.get();
+    deps.e1_conn_client = &e1ap_client;
+    deps.f1u_gateway    = f1u_gw.get();
+    ngu_gw              = create_udp_gtpu_gateway(cu_up_udp_cfg, *broker, *executor, *executor);
+    deps.ngu_gws.push_back(ngu_gw.get());
+    deps.timers = app_timers.get();
+    return deps;
+  }
 
-    auto cfg_copy   = cfg;
-    cfg_copy.ngu_gw = ngu_gw.get();
-    cu_up           = create_cu_up(cfg_copy);
+  void init(const cu_up_config& cfg, cu_up_dependencies&& deps)
+  {
+    auto cfg_copy = cfg;
+    cu_up         = std::make_unique<srs_cu_up::cu_up>(cfg_copy, std::move(deps));
   }
 
   void TearDown() override
@@ -157,14 +158,16 @@ protected:
 
   std::unique_ptr<timer_manager> app_timers;
 
-  dummy_cu_cp_handler                         e1ap_client;
-  dummy_inner_f1u_bearer                      f1u_bearer;
-  std::unique_ptr<dummy_f1u_gateway>          f1u_gw;
-  std::unique_ptr<io_broker>                  broker;
-  std::unique_ptr<ngu_gateway>                ngu_gw;
-  std::unique_ptr<dummy_cu_up_executor_pool>  exec_pool;
-  std::unique_ptr<srs_cu_up::cu_up_interface> cu_up;
-  srslog::basic_logger&                       test_logger = srslog::fetch_basic_logger("TEST");
+  dummy_cu_cp_handler                          e1ap_client;
+  dummy_inner_f1u_bearer                       f1u_bearer;
+  std::unique_ptr<dummy_f1u_gateway>           f1u_gw;
+  std::unique_ptr<io_broker>                   broker;
+  std::unique_ptr<gtpu_gateway>                ngu_gw;
+  std::unique_ptr<dummy_cu_up_executor_mapper> exec_pool;
+  std::unique_ptr<srs_cu_up::cu_up>            cu_up;
+  srslog::basic_logger&                        test_logger = srslog::fetch_basic_logger("TEST");
+
+  udp_network_gateway_config cu_up_udp_cfg{};
 
   std::unique_ptr<task_worker>   worker;
   std::unique_ptr<task_executor> executor;
@@ -183,7 +186,47 @@ protected:
         bearer_context_setup, asn1_bearer_context_setup_msg.pdu.init_msg().value.bearer_context_setup_request());
 
     // Setup bearer
-    cu_up->handle_bearer_context_setup_request(bearer_context_setup);
+    cu_up->get_cu_up_manager()->handle_bearer_context_setup_request(bearer_context_setup);
+  }
+
+  struct upf_info_t {
+    int         sock_fd = -1;
+    sockaddr_in upf_addr;
+  };
+
+  upf_info_t init_upf()
+  {
+    int sock_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock_fd < 0) {
+      return {sock_fd, {}};
+    }
+
+    int         upf_port = 0; // Random free port selected by the OS: Avoid port conflicts with other tests.
+    sockaddr_in upf_addr;
+    upf_addr.sin_family      = AF_INET;
+    upf_addr.sin_port        = htons(upf_port);
+    upf_addr.sin_addr.s_addr = inet_addr(upf_addr_str.c_str());
+
+    int ret = 0;
+
+    ret = bind(sock_fd, (sockaddr*)&upf_addr, sizeof(upf_addr));
+    if (ret < 0) {
+      fmt::print(stderr, "Failed to bind socket to `{}:{}` - {}\n", upf_addr_str, upf_port, strerror(errno));
+      return {ret, {}};
+    }
+
+    // Find out the port that was assigned
+    socklen_t upf_addr_len = sizeof(upf_addr);
+    ret                    = getsockname(sock_fd, (struct sockaddr*)&upf_addr, &upf_addr_len);
+    if (ret < 0) {
+      fmt::print(stderr, "Failed to read port of socket bound to `{}:0` - {}", upf_addr_str, strerror(errno));
+      return {ret, {}};
+    }
+    if (upf_addr_len != sizeof(upf_addr)) {
+      fmt::print(stderr, "Mismatching upf_addr_len after getsockname()");
+      return {-1, {}};
+    }
+    return {sock_fd, upf_addr};
   }
 };
 
@@ -192,38 +235,73 @@ protected:
 //////////////////////////////////////////////////////////////////////////////////////
 
 /// Test the E1AP connection
+
 TEST_F(cu_up_test, when_e1ap_connection_established_then_e1ap_connected)
 {
-  init(get_default_cu_up_config());
+  init(get_default_cu_up_config(), get_default_cu_up_dependencies());
 
   // Connect E1AP
-  cu_up->on_e1ap_connection_establish();
+  cu_up->get_cu_up_manager()->on_e1ap_connection_establish();
 
   // check that E1AP is in connected state
-  ASSERT_TRUE(cu_up->e1ap_is_connected());
+  ASSERT_TRUE(cu_up->get_cu_up_manager()->e1ap_is_connected());
 }
 
 //////////////////////////////////////////////////////////////////////////////////////
 /* User Data Flow                                                                   */
 //////////////////////////////////////////////////////////////////////////////////////
-
 TEST_F(cu_up_test, dl_data_flow)
 {
-  cu_up_configuration cfg = get_default_cu_up_config();
-  test_logger.debug("Using network_interface_config: {}", cfg.net_cfg);
-  init(cfg);
+  cu_up_config cfg = get_default_cu_up_config();
 
+  // Initialize UPF simulator on a random port.
+  upf_info_t upf_info = init_upf();
+  ASSERT_GE(upf_info.sock_fd, 0);
+  cfg.n3_cfg.upf_port = ntohs(upf_info.upf_addr.sin_port);
+
+  cu_up_dependencies dependencies = get_default_cu_up_dependencies();
+
+  // Initialize CU-UP
+  init(cfg, std::move(dependencies));
+
+  // Create DRB
   create_drb();
 
-  int sock_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-  ASSERT_GE(sock_fd, 0);
+  // We send a UL message to set desired buffer size in DL bearer
+  // UL message 1
+  nru_ul_message nru_msg1     = {};
+  const uint8_t  t_pdu_arr1[] = {
+       0x80, 0x00, 0x00, 0x45, 0x00, 0x00, 0x54, 0xe8, 0x83, 0x40, 0x00, 0x40, 0x01, 0xfa, 0x00, 0xac, 0x10, 0x00,
+       0x03, 0xac, 0x10, 0x00, 0x01, 0x08, 0x00, 0x2c, 0xbe, 0xb4, 0xa4, 0x00, 0x01, 0xd3, 0x45, 0x61, 0x63, 0x00,
+       0x00, 0x00, 0x00, 0x1a, 0x20, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
+       0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28,
+       0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37};
+  span<const uint8_t> t_pdu_span1  = {t_pdu_arr1};
+  byte_buffer         t_pdu_buf1   = byte_buffer::create(t_pdu_span1).value();
+  nru_msg1.t_pdu                   = byte_buffer_chain::create(std::move(t_pdu_buf1)).value();
+  nru_dl_data_delivery_status ddds = {};
+  ddds.desired_buffer_size_for_drb = 1 << 20; // 1MBi RLC SDU size
+  nru_msg1.data_delivery_status    = ddds;
 
+  f1u_bearer.handle_pdu(std::move(nru_msg1));
+
+  test_logger.info("Waiting UL PDU. This is required to update DDDS");
+
+  // We wait here for the UL PDU to arrive, to make sure the DDDS has been processed.
+  // receive message 1
+  std::array<uint8_t, 128> rx_buf;
+  int                      ret;
+  ret = recv(upf_info.sock_fd, rx_buf.data(), rx_buf.size(), 0);
+
+  test_logger.info("Processed UL PDU. DDDS is updated");
+
+  // Now that the disered buffer size is updated, we push DL PDUs
   sockaddr_in cu_up_addr;
   cu_up_addr.sin_family      = AF_INET;
   cu_up_addr.sin_port        = htons(cu_up->get_n3_bind_port().value());
-  cu_up_addr.sin_addr.s_addr = inet_addr(cfg.net_cfg.n3_bind_addr.c_str());
+  cu_up_addr.sin_addr.s_addr = inet_addr(cu_up_udp_cfg.bind_address.c_str());
 
-  // teid=2, qfi=1
+  // DL PDU teid=2, qfi=1
   const uint8_t gtpu_ping_vec[] = {
       0x34, 0xff, 0x00, 0x5c, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x85, 0x01, 0x00, 0x01, 0x00, 0x45,
       0x00, 0x00, 0x54, 0x9b, 0xfb, 0x00, 0x00, 0x40, 0x01, 0x56, 0x5a, 0xc0, 0xa8, 0x04, 0x01, 0xc0, 0xa8,
@@ -232,29 +310,30 @@ TEST_F(cu_up_test, dl_data_flow)
       0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28,
       0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37};
 
-  int ret = 0;
-
   // send message 1
-  ret = sendto(sock_fd, gtpu_ping_vec, sizeof(gtpu_ping_vec), 0, (sockaddr*)&cu_up_addr, sizeof(cu_up_addr));
-  ASSERT_GE(ret, 0) << "Failed to send message via sock_fd=" << sock_fd << " to `" << cfg.net_cfg.n3_bind_addr << ":"
-                    << cu_up->get_n3_bind_port().value() << "` - " << strerror(errno);
+  ret = sendto(upf_info.sock_fd, gtpu_ping_vec, sizeof(gtpu_ping_vec), 0, (sockaddr*)&cu_up_addr, sizeof(cu_up_addr));
+  ASSERT_GE(ret, 0) << "Failed to send message via sock_fd=" << upf_info.sock_fd << " to `"
+                    << cu_up_udp_cfg.bind_address << ":" << cu_up->get_n3_bind_port().value() << "` - "
+                    << strerror(errno);
 
   // send message 2
-  ret = sendto(sock_fd, gtpu_ping_vec, sizeof(gtpu_ping_vec), 0, (sockaddr*)&cu_up_addr, sizeof(cu_up_addr));
-  ASSERT_GE(ret, 0) << "Failed to send message via sock_fd=" << sock_fd << " to `" << cfg.net_cfg.n3_bind_addr << ":"
-                    << cu_up->get_n3_bind_port().value() << "` - " << strerror(errno);
-
-  close(sock_fd);
+  ret = sendto(upf_info.sock_fd, gtpu_ping_vec, sizeof(gtpu_ping_vec), 0, (sockaddr*)&cu_up_addr, sizeof(cu_up_addr));
+  ASSERT_GE(ret, 0) << "Failed to send message via sock_fd=" << upf_info.sock_fd << " to `"
+                    << cu_up_udp_cfg.bind_address << ":" << cu_up->get_n3_bind_port().value() << "` - "
+                    << strerror(errno);
+  close(upf_info.sock_fd);
 
   // check reception of message 1
-  nru_dl_message          sdu1         = f1u_bearer.wait_tx_sdu();
-  std::optional<uint32_t> sdu1_pdcp_sn = get_pdcp_sn(sdu1.t_pdu, pdcp_sn_size::size18bits, test_logger);
+  nru_dl_message          sdu1 = f1u_bearer.wait_tx_sdu();
+  std::optional<uint32_t> sdu1_pdcp_sn =
+      get_pdcp_sn(sdu1.t_pdu, pdcp_sn_size::size18bits, /* is_srb = */ false, test_logger);
   ASSERT_TRUE(sdu1_pdcp_sn.has_value());
   EXPECT_EQ(sdu1_pdcp_sn.value(), 0);
 
   // check reception of message 2
-  nru_dl_message          sdu2         = f1u_bearer.wait_tx_sdu();
-  std::optional<uint32_t> sdu2_pdcp_sn = get_pdcp_sn(sdu2.t_pdu, pdcp_sn_size::size18bits, test_logger);
+  nru_dl_message          sdu2 = f1u_bearer.wait_tx_sdu();
+  std::optional<uint32_t> sdu2_pdcp_sn =
+      get_pdcp_sn(sdu2.t_pdu, pdcp_sn_size::size18bits, /* is_srb = */ false, test_logger);
   ASSERT_TRUE(sdu2_pdcp_sn.has_value());
   EXPECT_EQ(sdu2_pdcp_sn.value(), 1);
 
@@ -265,35 +344,15 @@ TEST_F(cu_up_test, dl_data_flow)
 
 TEST_F(cu_up_test, ul_data_flow)
 {
-  cu_up_configuration cfg = get_default_cu_up_config();
+  cu_up_config cfg = get_default_cu_up_config();
 
   //> Test preamble: listen on a free port
-
-  int sock_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-  ASSERT_GE(sock_fd, 0);
-
-  int         upf_port = 0; // Random free port selected by the OS: Avoid port conflicts with other tests.
-  sockaddr_in upf_addr;
-  upf_addr.sin_family      = AF_INET;
-  upf_addr.sin_port        = htons(upf_port);
-  upf_addr.sin_addr.s_addr = inet_addr(upf_addr_str.c_str());
-
-  int ret = 0;
-
-  ret = bind(sock_fd, (sockaddr*)&upf_addr, sizeof(upf_addr));
-  ASSERT_GE(ret, 0) << "Failed to bind socket to `" << upf_addr_str << ":" << upf_port << "` - " << strerror(errno);
-
-  // Find out the port that was assigned
-  socklen_t upf_addr_len = sizeof(upf_addr);
-  ret                    = getsockname(sock_fd, (struct sockaddr*)&upf_addr, &upf_addr_len);
-  ASSERT_EQ(upf_addr_len, sizeof(upf_addr)) << "Mismatching upf_addr_len after getsockname()";
-  ASSERT_GE(ret, 0) << "Failed to read port of socket bound to `" << upf_addr_str << ":0` - " << strerror(errno);
+  upf_info_t upf_info = init_upf();
+  cfg.n3_cfg.upf_port = ntohs(upf_info.upf_addr.sin_port);
 
   //> Test main part: create CU-UP and transmit data
-
-  cfg.net_cfg.upf_port = ntohs(upf_addr.sin_port);
-  test_logger.debug("Using network_interface_config: {}", cfg.net_cfg);
-  init(cfg);
+  cu_up_dependencies dependencies = get_default_cu_up_dependencies();
+  init(cfg, std::move(dependencies));
 
   create_drb();
 
@@ -332,14 +391,20 @@ TEST_F(cu_up_test, ul_data_flow)
   uint16_t gtpu_hdr_len = 16;
 
   // receive message 1
-  ret = recv(sock_fd, rx_buf.data(), rx_buf.size(), 0);
+  int ret = recv(upf_info.sock_fd, rx_buf.data(), rx_buf.size(), 0);
   ASSERT_EQ(ret, exp_len);
   EXPECT_TRUE(std::equal(t_pdu_span1.begin() + f1u_hdr_len, t_pdu_span1.end(), rx_buf.begin() + gtpu_hdr_len));
 
   // receive message 2
-  ret = recv(sock_fd, rx_buf.data(), rx_buf.size(), 0);
+  ret = recv(upf_info.sock_fd, rx_buf.data(), rx_buf.size(), 0);
   ASSERT_EQ(ret, exp_len);
   EXPECT_TRUE(std::equal(t_pdu_span2.begin() + f1u_hdr_len, t_pdu_span2.end(), rx_buf.begin() + gtpu_hdr_len));
 
-  close(sock_fd);
+  close(upf_info.sock_fd);
+}
+
+int main(int argc, char** argv)
+{
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

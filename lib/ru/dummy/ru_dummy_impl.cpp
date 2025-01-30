@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -24,7 +24,7 @@
 #include "srsran/ran/subcarrier_spacing.h"
 #include "srsran/ru/ru_dummy_configuration.h"
 #include "srsran/support/error_handling.h"
-#include "srsran/support/math_utils.h"
+#include "srsran/support/math/math_utils.h"
 #include "srsran/support/srsran_assert.h"
 #include <chrono>
 #include <cstdint>
@@ -42,12 +42,11 @@ static inline uint64_t get_current_system_slot(std::chrono::microseconds slot_du
   return (time_since_epoch / slot_duration) % nof_slots_per_system_frame;
 }
 
-ru_dummy_impl::ru_dummy_impl(const srsran::ru_dummy_configuration& config, ru_dummy_dependencies dependencies) noexcept
-  :
+ru_dummy_impl::ru_dummy_impl(const ru_dummy_configuration& config, ru_dummy_dependencies dependencies) noexcept :
   logger(*dependencies.logger),
   executor(*dependencies.executor),
   timing_notifier(*dependencies.timing_notifier),
-  slot_duration(1000 / pow2(to_numerology_value(config.scs))),
+  slot_duration(static_cast<unsigned>(config.time_scaling * 1000.0 / pow2(to_numerology_value(config.scs)))),
   max_processing_delay_slots(config.max_processing_delay_slots),
   current_slot(config.scs, config.max_processing_delay_slots)
 {
@@ -94,7 +93,16 @@ void ru_dummy_impl::stop()
 
 void ru_dummy_impl::print_metrics()
 {
-  fmt::print("No statistics implemented.");
+  fmt::print("| {:^11} | {:^11} | {:^11} | {:^11} | {:^11} | {:^11} |\n",
+             "DL Count",
+             "DL Late",
+             "UL Count",
+             "UL Late",
+             "PRACH Count",
+             "PRACH Late");
+  for (auto& sector : sectors) {
+    sector.print_metrics();
+  }
 }
 
 void ru_dummy_impl::loop()

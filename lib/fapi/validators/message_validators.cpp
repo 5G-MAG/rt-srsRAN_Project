@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -30,7 +30,8 @@
 #include "ul_prach_pdu.h"
 #include "ul_pucch_pdu.h"
 #include "ul_pusch_pdu.h"
-#include "srsran/support/format_utils.h"
+#include "ul_srs_pdu.h"
+#include "srsran/support/format/fmt_to_c_str.h"
 
 using namespace srsran;
 using namespace fapi;
@@ -140,14 +141,14 @@ static bool validate_pdu_cw_index(unsigned value, validator_report& report)
   return validate_field(MIN_VALUE, MAX_VALUE, value, "CW index", message_type_id::tx_data_request, report);
 }
 
-/// Validates the payload property of a custom Tx_Data.request TBS-TLV, as per SCF-222 v4.0 section 3.4.6.
-static bool validate_tlv_custom_payload(const uint8_t* payload, validator_report& report)
+/// Validates the payload property of a Tx_Data.request message, as per SCF-222 v4.0 section 3.4.6.
+static bool validate_pdu_payload(const shared_transport_block& buffer, validator_report& report)
 {
-  if (payload != nullptr) {
+  if (!buffer.get_buffer().empty()) {
     return true;
   }
 
-  report.append(0U, "TLV payload custom", message_type_id::tx_data_request);
+  report.append(0, "PDU Payload", message_type_id::tx_data_request);
   return false;
 }
 
@@ -162,7 +163,7 @@ error_type<validator_report> srsran::fapi::validate_tx_data_request(const tx_dat
 
   for (const auto& pdu : msg.pdus) {
     success &= validate_pdu_cw_index(pdu.cw_index, report);
-    success &= validate_tlv_custom_payload(pdu.tlv_custom.payload, report);
+    success &= validate_pdu_payload(pdu.pdu, report);
   }
 
   // Build the result.
@@ -481,7 +482,7 @@ error_type<validator_report> srsran::fapi::validate_srs_indication(const srs_ind
     success &= validate_rnti(to_value(pdu.rnti), message_type_id::srs_indication, report);
     success &= validate_timing_advance_offset(pdu.timing_advance_offset, message_type_id::srs_indication, report);
     success &= validate_timing_advance_offset_ns(pdu.timing_advance_offset_ns, message_type_id::srs_indication, report);
-    success &= validate_srs_usage(static_cast<unsigned>(pdu.srs_usage), report);
+    success &= validate_srs_usage(static_cast<unsigned>(pdu.usage), report);
     success &= validate_report_type(pdu.report_type, report);
   }
 
@@ -736,6 +737,9 @@ error_type<validator_report> srsran::fapi::validate_ul_tti_request(const ul_tti_
       case ul_pdu_type::PUSCH:
         success &= validate_ul_pusch_pdu(pdu.pusch_pdu, report);
         break;
+      case ul_pdu_type::SRS:
+        success &= validate_ul_srs_pdu(pdu.srs_pdu, report);
+        break;
       default:
         srsran_assert(0, "Invalid pdu_type");
         break;
@@ -761,7 +765,7 @@ static const char* get_uci_pdu_type_string(uci_pdu_type pdu_id)
     case uci_pdu_type::PUCCH_format_2_3_4:
       return "PUCCH Format 2/3/4";
     default:
-      srsran_assert(0, "Invalid UCI.indication PDU={}", pdu_id);
+      srsran_assert(0, "Invalid UCI.indication PDU={}", fmt::underlying(pdu_id));
       break;
   }
   return "";
@@ -780,7 +784,7 @@ static const char* get_ul_tti_pdu_type_string(ul_pdu_type pdu_id)
     case ul_pdu_type::SRS:
       return "SRS";
     default:
-      srsran_assert(0, "Invalid UL_TTI.request PDU={}", pdu_id);
+      srsran_assert(0, "Invalid UL_TTI.request PDU={}", fmt::underlying(pdu_id));
       break;
   }
   return "";
@@ -799,7 +803,7 @@ static const char* get_dl_tti_pdu_type_string(dl_pdu_type pdu_id)
     case dl_pdu_type::SSB:
       return "SSB";
     default:
-      srsran_assert(0, "Invalid DL_TTI.request PDU={}", pdu_id);
+      srsran_assert(0, "Invalid DL_TTI.request PDU={}", fmt::underlying(pdu_id));
       break;
   }
   return "";
@@ -833,7 +837,7 @@ static const char* get_pdu_type_string(message_type_id msg_id, unsigned pdu_id)
     case message_type_id::ul_tti_request:
       return get_ul_tti_pdu_type_string(static_cast<ul_pdu_type>(pdu_id));
     default:
-      srsran_assert(0, "Invalid FAPI message type={}", msg_id);
+      srsran_assert(0, "Invalid FAPI message type={}", fmt::underlying(msg_id));
       break;
   }
   return "";
@@ -882,7 +886,7 @@ static const char* get_message_type_string(message_type_id msg_id)
     case message_type_id::ul_tti_request:
       return "UL_TTI.request";
     default:
-      srsran_assert(0, "Invalid FAPI message type={}", msg_id);
+      srsran_assert(0, "Invalid FAPI message type={}", fmt::underlying(msg_id));
       break;
   }
   return "";
@@ -890,7 +894,7 @@ static const char* get_message_type_string(message_type_id msg_id)
 
 static void log_pdu_and_range_report(fmt::memory_buffer& buffer, const validator_report::error_report& report)
 {
-  fmt::format_to(buffer,
+  fmt::format_to(std::back_inserter(buffer),
                  "\t- PDU type={}, property={}, value={}, expected value=[{}-{}]\n",
                  get_pdu_type_string(report.message_type, report.pdu_type.value()),
                  report.property_name,
@@ -901,7 +905,7 @@ static void log_pdu_and_range_report(fmt::memory_buffer& buffer, const validator
 
 static void log_pdu_report(fmt::memory_buffer& buffer, const validator_report::error_report& report)
 {
-  fmt::format_to(buffer,
+  fmt::format_to(std::back_inserter(buffer),
                  "\t- PDU type={}, property={}, value={}\n",
                  get_pdu_type_string(report.message_type, report.pdu_type.value()),
                  report.property_name,
@@ -910,7 +914,7 @@ static void log_pdu_report(fmt::memory_buffer& buffer, const validator_report::e
 
 static void log_range_report(fmt::memory_buffer& buffer, const validator_report::error_report& report)
 {
-  fmt::format_to(buffer,
+  fmt::format_to(std::back_inserter(buffer),
                  "\t- Property={}, value={}, expected value=[{}-{}]\n",
                  report.property_name,
                  report.value,
@@ -920,13 +924,13 @@ static void log_range_report(fmt::memory_buffer& buffer, const validator_report:
 
 static void log_basic_report(fmt::memory_buffer& buffer, const validator_report::error_report& report)
 {
-  fmt::format_to(buffer, "\t- Property={}, value={}\n", report.property_name, report.value);
+  fmt::format_to(std::back_inserter(buffer), "\t- Property={}, value={}\n", report.property_name, report.value);
 }
 
 void srsran::fapi::log_validator_report(const validator_report& report, srslog::basic_logger& logger)
 {
   fmt::memory_buffer str_buffer;
-  fmt::format_to(str_buffer,
+  fmt::format_to(std::back_inserter(str_buffer),
                  "Detected {} error(s) in message type '{}' in slot={}.{}:\n",
                  report.reports.size(),
                  get_message_type_string(report.reports.front().message_type),

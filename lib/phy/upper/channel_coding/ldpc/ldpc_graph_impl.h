@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -137,11 +137,6 @@ public:
   /// Returns a reference to the selected row of ldpc_graph_impl::adjacency_matrix.
   const ldpc::BG_adjacency_row_t& get_adjacency_row(unsigned m) const { return (*adjacency_matrix)[m]; }
 
-  const std::vector<std::tuple<uint16_t, uint16_t, uint16_t>>& get_parity_check_sparse() const
-  {
-    return parity_check_sparse;
-  }
-
 private:
   /// Base graph.
   ldpc_base_graph_type base_graph;
@@ -158,8 +153,6 @@ private:
 
   /// Parity check matrix of the graph (BG representation).
   ldpc::BG_matrix_t parity_check_matrix;
-
-  std::vector<std::tuple<uint16_t, uint16_t, uint16_t>> parity_check_sparse;
 
   /// Adjacency matrix of the base graph (sparse representation).
   const ldpc::BG_adjacency_matrix_t* adjacency_matrix;

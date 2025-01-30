@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -18,7 +18,10 @@
 # and at http://www.gnu.org/licenses/.
 #
 
+add_subdirectory(pdcch)
+add_subdirectory(pdsch)
 add_subdirectory(pusch)
+add_subdirectory(pucch)
 add_subdirectory(uci)
 
 add_library(srsran_pbch_encoder STATIC pbch_encoder_impl.cpp)
@@ -27,57 +30,21 @@ target_link_libraries(srsran_pbch_encoder srsran_channel_coding srsran_sequence_
 add_library(srsran_pbch_modulator STATIC pbch_modulator_impl.cpp)
 target_link_libraries(srsran_pbch_modulator srsran_channel_modulation srsran_sequence_generators srsvec)
 
-add_library(srsran_pdcch_encoder STATIC pdcch_encoder_impl.cpp)
-target_link_libraries(srsran_pdcch_encoder srsran_channel_coding srsvec)
-
-add_library(srsran_pdcch_modulator STATIC pdcch_modulator_impl.cpp)
-target_link_libraries(srsran_pdcch_modulator srsvec)
-
-add_library(srsran_pdcch_processor STATIC pdcch_processor_impl.cpp)
-target_link_libraries(srsran_pdcch_processor srsran_ran)
-
-add_library(srsran_pdsch_encoder STATIC
-        pdsch_encoder_impl.cpp
-        pdsch_encoder_hw_impl.cpp)
-target_link_libraries(srsran_pdsch_encoder srsran_channel_coding)
-
-add_library(srsran_pdsch_modulator STATIC pdsch_modulator_impl.cpp)
-target_link_libraries(srsran_pdsch_modulator srsran_channel_modulation srsran_sequence_generators srsvec srsran_upper_phy_support)
-
-add_library(srsran_pdsch_processor STATIC
-        pdsch_codeblock_processor.cpp
-        pdsch_processor_concurrent_impl.cpp
-        pdsch_processor_impl.cpp
-        pdsch_processor_lite_impl.cpp
-        pdsch_processor_validator_impl.cpp)
-target_link_libraries(srsran_pdsch_processor srsran_upper_phy_support srsran_channel_modulation)
-
 add_library(srsran_prach_detector STATIC
         prach_detector_generic_impl.cpp
+        prach_detector_generic_thresholds.cpp
         prach_generator_impl.cpp
         prach_detector_phy_validator_impl.cpp)
 target_link_libraries(srsran_prach_detector srsran_ran srsvec)
 
-add_library(srsran_pucch_processor STATIC pucch_processor_impl.cpp)
-
-add_library(srsran_pucch_detector STATIC
-        pucch_detector_format0.cpp
-        pucch_detector_impl.cpp)
-
 add_library(srsran_ssb_processor STATIC ssb_processor_impl.cpp)
 target_link_libraries(srsran_ssb_processor srsran_sequence_generators srsran_signal_processors)
-
-add_library(srsran_pucch_demodulator STATIC pucch_demodulator_impl.cpp)
 
 add_library(srsran_channel_processors STATIC channel_processor_factories.cpp)
 target_link_libraries(srsran_channel_processors
         srsran_pbch_encoder
         srsran_pbch_modulator
-        srsran_pdcch_encoder
-        srsran_pdcch_modulator
         srsran_pdcch_processor
-        srsran_pdsch_encoder
-        srsran_pdsch_modulator
         srsran_pdsch_processor
         srsran_prach_detector
         srsran_pucch_demodulator
@@ -90,11 +57,7 @@ target_link_libraries(srsran_channel_processors
 add_to_exported_libs(srsran_channel_processors
         srsran_pbch_encoder
         srsran_pbch_modulator
-        srsran_pdcch_encoder
-        srsran_pdcch_modulator
         srsran_pdcch_processor
-        srsran_pdsch_encoder
-        srsran_pdsch_modulator
         srsran_pdsch_processor
         srsran_prach_detector
         srsran_pucch_demodulator

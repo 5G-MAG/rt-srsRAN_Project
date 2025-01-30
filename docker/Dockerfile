@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -23,15 +23,15 @@
 # OS_VERSION            Ubuntu OS version
 # LIB                   uhd or dpdk (lowercase)
 # LIB_VERSION           UHD or DPDK version number
-# ARCH                  gcc/clang compatible arch
-# NUM_CORES             Number or empty for all
+# MARCH                 gcc/clang compatible arch
+# NUM_JOBS             Number or empty for all
 # EXTRA_CMAKE_ARGS      Extra flags for srsRAN Project
 
 ARG OS_VERSION=24.04
 ARG LIB=uhd
-ARG LIB_VERSION=4.6.0.0
-ARG ARCH=native
-ARG NUM_CORES=""
+ARG LIB_VERSION=4.7.0.0
+ARG MARCH=native
+ARG NUM_JOBS=""
 
 ##################
 # Stage 1: Build #
@@ -47,29 +47,33 @@ ADD . /src
 # Install srsRAN build dependencies
 ARG LIB
 RUN /src/docker/scripts/install_dependencies.sh build && \
-    /src/docker/scripts/install_${LIB}_dependencies.sh build
+    /src/docker/scripts/install_${LIB}_dependencies.sh build && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git
 
 ARG LIB_VERSION
-ARG ARCH
-ARG NUM_CORES
+ARG MARCH
+ARG NUM_JOBS
 
 # Compile UHD/DPDK
-RUN /src/docker/scripts/build_${LIB}.sh ${LIB_VERSION} ${ARCH} ${NUM_CORES}
+RUN /src/docker/scripts/build_${LIB}.sh ${LIB_VERSION} ${MARCH} ${NUM_JOBS}
 
-# Compile srsRAN Project
+# Compile srsRAN Project and install it in the OS
 ARG EXTRA_CMAKE_ARGS=""
-RUN if [ -z "$NUM_CORES" ]; then NUM_CORES=$(nproc); fi && \
+RUN if [ -z "$NUM_JOBS" ]; then NUM_JOBS=$(nproc); fi && \
     LIB_UPPER=$(echo $LIB | tr '[:lower:]' '[:upper:]') && \
     export ${LIB_UPPER}_DIR="/opt/${LIB}/${LIB_VERSION}" && \
-    /src/docker/scripts/builder.sh \
-    -m -j${NUM_CORES} \
-    -DBUILD_TESTS=False \
-    -DENABLE_${LIB_UPPER}=On \
-    -DCMAKE_CXX_FLAGS="-march=${ARCH}" \
-    ${EXTRA_CMAKE_ARGS} /src
-
-# Install in the OS filesystem to later copy into the next stage
-RUN cd /src/build && make install
+    if [ "$LIB_UPPER" = "UHD" ]; then TARGETS="srsdu_split_8 gnb_split_8"; else TARGETS="srsdu_split_7_2 gnb_split_7_2"; fi \
+    && \
+    /src/docker/scripts/builder.sh -m "-j${NUM_JOBS} srscu $TARGETS ru_emulator" \
+    -DBUILD_TESTS=False -DENABLE_${LIB_UPPER}=On -DMARCH=${MARCH} -DCMAKE_INSTALL_PREFIX=/opt/srs \
+    ${EXTRA_CMAKE_ARGS} /src \
+    && \
+    mkdir -p /opt/srs/bin /opt/srs/share/srsran && \
+    cp /src/build/apps/cu/srscu                 /opt/srs/bin/srscu       && \
+    cp /src/build/apps/du_split_*/srsdu         /opt/srs/bin/srsdu       && \
+    cp /src/build/apps/gnb_split_*/gnb          /opt/srs/bin/gnb         && \
+    cp /src/build/apps/examples/ofh/ru_emulator /opt/srs/bin/ru_emulator && \
+    cp /src/configs/*.yml /opt/srs/share/srsran/
 
 ################
 # Stage 2: Run #
@@ -81,12 +85,14 @@ ARG LIB
 ARG LIB_VERSION
 
 # Copy srsRAN binaries and libraries installed in previous stage
-COPY --from=builder /opt/${LIB}/${LIB_VERSION} /usr/local
-COPY --from=builder /usr/local /usr/local
+COPY --from=builder /opt/${LIB}/${LIB_VERSION} /opt/${LIB}/${LIB_VERSION}
+COPY --from=builder /opt/srs /usr/local
 
 # Copy the install dependencies scripts
 ADD docker/scripts/install_${LIB}_dependencies.sh /usr/local/etc/install_lib_dependencies.sh
 ADD docker/scripts/install_dependencies.sh /usr/local/etc/install_srsran_dependencies.sh
+ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/${LIB}/${LIB_VERSION}/lib/:/opt/${LIB}/${LIB_VERSION}/lib/x86_64-linux-gnu/:/opt/${LIB}/${LIB_VERSION}/lib/aarch64-linux-gnu/
+ENV PATH=$PATH:/opt/${LIB}/${LIB_VERSION}/bin/
 
 # Install srsran and lib runtime dependencies
 RUN /usr/local/etc/install_srsran_dependencies.sh run && \

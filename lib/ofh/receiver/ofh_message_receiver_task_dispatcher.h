@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,6 +23,7 @@
 #pragma once
 
 #include "ofh_message_receiver.h"
+#include "srsran/srslog/srslog.h"
 #include "srsran/support/executors/task_executor.h"
 
 namespace srsran {
@@ -32,8 +33,8 @@ namespace ofh {
 class ofh_message_receiver_task_dispatcher : public message_receiver
 {
 public:
-  ofh_message_receiver_task_dispatcher(message_receiver& msg_receiver_, task_executor& executor_) :
-    msg_receiver(msg_receiver_), executor(executor_)
+  ofh_message_receiver_task_dispatcher(message_receiver& msg_receiver_, task_executor& executor_, unsigned sector_) :
+    msg_receiver(msg_receiver_), executor(executor_), sector(sector_)
   {
   }
 
@@ -41,7 +42,7 @@ public:
   void on_new_frame(ether::unique_rx_buffer buffer) override
   {
     if (!executor.execute([this, buff = std::move(buffer)]() mutable { msg_receiver.on_new_frame(std::move(buff)); })) {
-      srslog::fetch_basic_logger("OFH").warning("Failed to dispatch receiver task");
+      srslog::fetch_basic_logger("OFH").warning("Failed to dispatch receiver task for sector#{}", sector);
     }
   }
 
@@ -51,6 +52,7 @@ public:
 private:
   message_receiver& msg_receiver;
   task_executor&    executor;
+  const unsigned    sector;
 };
 
 } // namespace ofh

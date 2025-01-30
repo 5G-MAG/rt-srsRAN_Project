@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -45,7 +45,7 @@
 #include "srsran/phy/lower/lower_phy_rx_symbol_context.h"
 #include "srsran/radio/radio_factory.h"
 #include "srsran/support/executors/task_worker.h"
-#include "srsran/support/math_utils.h"
+#include "srsran/support/math/math_utils.h"
 #include "srsran/support/signal_handling.h"
 #include <atomic>
 #include <getopt.h>
@@ -76,7 +76,7 @@ static srslog::basic_levels log_level = srslog::basic_levels::warning;
 /// Program parameters.
 static subcarrier_spacing                        scs                        = subcarrier_spacing::kHz15;
 static unsigned                                  max_processing_delay_slots = 4;
-static cyclic_prefix                             cp                         = cyclic_prefix::NORMAL;
+static cyclic_prefix                             cy_prefix                  = cyclic_prefix::NORMAL;
 static double                                    dl_center_freq             = 3489.42e6;
 static double                                    ssb_center_freq            = 3488.16e6;
 static double                                    tx_gain                    = 60.0;
@@ -122,7 +122,7 @@ static const auto profiles = to_array<configuration_profile>({
      []() {
        // Do nothing.
      }},
-    {"b200_50MHz",
+    {"b200_50MHz_15kHz",
      "Single channel B200 USRP 50MHz bandwidth.",
      []() {
        device_arguments = "type=b200";
@@ -130,13 +130,42 @@ static const auto profiles = to_array<configuration_profile>({
        bw_rb            = 270;
        otw_format       = radio_configuration::over_the_wire_format::SC12;
      }},
-    {"x300_50MHz",
+    {"b200_50MHz_120kHz",
+     "Single channel B200 USRP 50MHz bandwidth.",
+     []() {
+       device_arguments = "type=b200";
+       srate            = sampling_rate::from_MHz(61.44);
+       bw_rb            = 32;
+       ssb_pattern      = ssb_pattern_case::D;
+       scs              = to_subcarrier_spacing(ssb_pattern);
+       otw_format       = radio_configuration::over_the_wire_format::SC12;
+       dl_center_freq   = 3.5e9;
+       ssb_center_freq  = 3.5e9;
+       rx_freq          = 3.5e9;
+       tx_gain          = 80;
+     }},
+    {"x300_50MHz_15kHz",
      "Single channel X3x0 USRP 50MHz bandwidth.",
      []() {
        device_arguments = "type=x300";
        srate            = sampling_rate::from_MHz(92.16);
        tx_gain          = 10;
        rx_gain          = 10;
+     }},
+    {"x300_100MHz_120kHz",
+     "Single channel X3x0 USRP 100MHz bandwidth.",
+     []() {
+       device_arguments = "type=x300";
+       srate            = sampling_rate::from_MHz(184.32);
+       bw_rb            = 66;
+       ssb_pattern      = ssb_pattern_case::D;
+       scs              = to_subcarrier_spacing(ssb_pattern);
+       otw_format       = radio_configuration::over_the_wire_format::SC16;
+       dl_center_freq   = 3.5e9;
+       ssb_center_freq  = 3.5e9;
+       rx_freq          = 3.5e9;
+       tx_gain          = 30;
+       rx_gain          = 5;
      }},
     {"n310_50MHz",
      "Single channel N310 USRP 50MHz bandwidth.",
@@ -188,7 +217,7 @@ static const auto profiles = to_array<configuration_profile>({
          // parallel execution.
          for (unsigned channel_id = 0; channel_id != nof_ports * nof_sectors; ++channel_id) {
            fmt::memory_buffer buffer;
-           fmt::format_to(buffer, "inproc://{}#{}", getpid(), channel_id);
+           fmt::format_to(std::back_inserter(buffer), "inproc://{}#{}", getpid(), channel_id);
            tx_channel_args.emplace_back(to_string(buffer));
            rx_channel_args.emplace_back(to_string(buffer));
          }
@@ -221,7 +250,7 @@ static const auto profiles = to_array<configuration_profile>({
          // parallel execution.
          for (unsigned channel_id = 0; channel_id != nof_ports * nof_sectors; ++channel_id) {
            fmt::memory_buffer buffer;
-           fmt::format_to(buffer, "inproc://{}#{}", getpid(), channel_id);
+           fmt::format_to(std::back_inserter(buffer), "inproc://{}#{}", getpid(), channel_id);
            tx_channel_args.emplace_back(to_string(buffer));
            rx_channel_args.emplace_back(to_string(buffer));
          }
@@ -239,11 +268,8 @@ static const auto profiles = to_array<configuration_profile>({
 });
 
 /// Global instances.
-static std::mutex                             stop_execution_mutex;
-static std::atomic<bool>                      stop               = {false};
-static std::unique_ptr<lower_phy>             lower_phy_instance = nullptr;
-static std::unique_ptr<radio_session>         radio              = nullptr;
-static std::unique_ptr<upper_phy_ssb_example> upper_phy          = nullptr;
+static std::mutex        stop_execution_mutex;
+static std::atomic<bool> stop = {false};
 
 static void stop_execution()
 {
@@ -257,22 +283,16 @@ static void stop_execution()
 
   // Signal program to stop.
   stop = true;
-
-  // Stop radio. It stops blocking the radio transmit and receive operations. The timing handler prevents the PHY from
-  // free running.
-  if (radio != nullptr) {
-    radio->stop();
-  }
 }
 
 /// Function to call when the application is interrupted.
-static void interrupt_signal_handler()
+static void interrupt_signal_handler(int signal)
 {
   stop_execution();
 }
 
 /// Function to call when the application is going to be forcefully shutdown.
-static void cleanup_signal_handler()
+static void cleanup_signal_handler(int signal)
 {
   srslog::flush();
 }
@@ -289,7 +309,7 @@ static void usage(std::string_view prog)
   fmt::print("\t-T Set thread profile (single, dual, quad). [Default {}]\n", thread_profile_name);
   fmt::print("\t-C Set clock source (internal, external, gpsdo). [Default {}]\n", clock_source);
   fmt::print("\t-S Set sync source (internal, external, gpsdo). [Default {}]\n", sync_source);
-  fmt::print("\t-v Logging level. [Default {}]\n", log_level);
+  fmt::print("\t-v Logging level. [Default {}]\n", fmt::underlying(log_level));
   fmt::print("\t-c Enable amplitude clipping. [Default {}]\n", enable_clipping);
   fmt::print("\t-b Baseband gain back-off prior to clipping (in dB). [Default {}]\n", baseband_backoff_dB);
   fmt::print("\t-d Fill the resource grid with random data [Default {}]\n", enable_random_data);
@@ -445,6 +465,7 @@ lower_phy_configuration create_lower_phy_configuration(task_executor*           
                                                        lower_phy_metrics_notifier*   metrics_notifier,
                                                        lower_phy_rx_symbol_notifier* rx_symbol_notifier,
                                                        lower_phy_timing_notifier*    timing_notifier,
+                                                       baseband_gateway&             bb_gateway,
                                                        srslog::basic_logger*         logger)
 {
   lower_phy_configuration phy_config;
@@ -454,9 +475,9 @@ lower_phy_configuration create_lower_phy_configuration(task_executor*           
   phy_config.time_alignment_calibration     = 0;
   phy_config.system_time_throttling         = 0.0F;
   phy_config.ta_offset                      = n_ta_offset::n0;
-  phy_config.cp                             = cp;
+  phy_config.cp                             = cy_prefix;
   phy_config.dft_window_offset              = 0.5F;
-  phy_config.bb_gateway                     = &radio->get_baseband_gateway(0);
+  phy_config.bb_gateway                     = &bb_gateway;
   phy_config.rx_symbol_notifier             = rx_symbol_notifier;
   phy_config.timing_notifier                = timing_notifier;
   phy_config.error_notifier                 = error_notifier;
@@ -509,9 +530,9 @@ int main(int argc, char** argv)
   // Make sure parameters are valid.
   report_fatal_error_if_not(
       srate.is_valid(scs), "Sampling rate ({}) must be multiple of {}kHz.", srate, scs_to_khz(scs));
-  report_fatal_error_if_not(cp.is_valid(scs, srate.get_dft_size(scs)),
+  report_fatal_error_if_not(cy_prefix.is_valid(scs, srate.get_dft_size(scs)),
                             "The cyclic prefix ({}) numerology ({}) and sampling rate ({}) combination is invalid .",
-                            cp.to_string(),
+                            cy_prefix.to_string(),
                             to_numerology_value(scs),
                             srate);
 
@@ -589,7 +610,7 @@ int main(int argc, char** argv)
   radio_notifier_spy notification_handler(log_level);
 
   // Create radio.
-  radio = factory->create(radio_config, *async_task_executor, notification_handler);
+  std::unique_ptr<radio_session> radio = factory->create(radio_config, *async_task_executor, notification_handler);
   srsran_assert(radio, "Failed to create radio.");
 
   // Create symbol handler.
@@ -608,6 +629,7 @@ int main(int argc, char** argv)
   phy_rx_symbol_request_adapter phy_rx_symbol_req_adapter;
 
   // Create lower physical layer.
+  std::unique_ptr<lower_phy> lower_phy_instance = nullptr;
   {
     // Prepare lower physical layer configuration.
     lower_phy_configuration phy_config = create_lower_phy_configuration(rx_task_executor.get(),
@@ -619,6 +641,7 @@ int main(int argc, char** argv)
                                                                         &metrics_adapter,
                                                                         &rx_symbol_adapter,
                                                                         &timing_adapter,
+                                                                        radio->get_baseband_gateway(0),
                                                                         &logger);
     lower_phy_instance                 = create_lower_phy(phy_config);
     srsran_assert(lower_phy_instance, "Failed to create lower physical layer.");
@@ -626,8 +649,14 @@ int main(int argc, char** argv)
 
   double scs_Hz = static_cast<double>(1000U * scs_to_khz(scs));
 
+  subcarrier_spacing ref_scs = subcarrier_spacing::kHz15;
+  if (ssb_pattern > ssb_pattern_case::C) {
+    ref_scs = subcarrier_spacing::kHz60;
+  }
+  double ref_scs_Hz = scs_to_khz(ref_scs) * 1000;
+
   // Ratio between the resource grid SCS and 15kHz SCS.
-  unsigned ratio_scs_over_15kHz = pow2(to_numerology_value(scs));
+  unsigned ratio_scs_over_ref = pow2(to_numerology_value(scs) - to_numerology_value(ref_scs));
   // Frequency of Point A in Hz.
   double dl_pointA_freq_Hz = dl_center_freq - scs_Hz * NRE * bw_rb / 2;
   // Frequency of the lowest SS/PBCH block subcarrier.
@@ -635,20 +664,20 @@ int main(int argc, char** argv)
   // Frequency offset from Point A to the lowest SS/PBCH block subcarrier in Hz.
   double ssb_offset_pointA_Hz = ssb_lowest_freq_Hz - dl_pointA_freq_Hz;
   // Frequency offset from Point A to the lowest SS/PBCH block subcarrier in 15kHz subcarriers (only valid for FR1).
-  unsigned ssb_offset_pointA_subc_15kHz = static_cast<unsigned>(ssb_offset_pointA_Hz / 15e3);
+  unsigned ssb_offset_pointA_subc_ref = static_cast<unsigned>(ssb_offset_pointA_Hz / ref_scs_Hz);
   // Make sure it is possible to map the SS/PBCH block in the grid.
-  srsran_assert(ssb_offset_pointA_subc_15kHz % ratio_scs_over_15kHz == 0,
+  srsran_assert(ssb_offset_pointA_subc_ref % ratio_scs_over_ref == 0,
                 "The combination of DL center frequency {} MHz and SSB center frequency {} MHz results in a fractional "
                 "offset of {}kHz SCS between Point A and the lowest SS/PBCH block lowest subcarrier.",
                 dl_center_freq,
                 ssb_center_freq,
                 scs_to_khz(scs));
   // SSB frequency offset to Point A as a number of RBs.
-  ssb_offset_to_pointA ssb_offset_pointA_subc_rb = ssb_offset_pointA_subc_15kHz / NRE;
+  ssb_offset_to_pointA ssb_offset_pointA_subc_rb = ssb_offset_pointA_subc_ref / NRE;
   // Round down the offset to Point A to match CRB boundaries.
-  ssb_offset_pointA_subc_rb = (ssb_offset_pointA_subc_rb.to_uint() / ratio_scs_over_15kHz) * ratio_scs_over_15kHz;
+  ssb_offset_pointA_subc_rb = (ssb_offset_pointA_subc_rb.to_uint() / ratio_scs_over_ref) * ratio_scs_over_ref;
   // Remainder SSB frequency offset from Point A after rounding.
-  ssb_subcarrier_offset subcarrier_offset = ssb_offset_pointA_subc_15kHz - ssb_offset_pointA_subc_rb.to_uint() * NRE;
+  ssb_subcarrier_offset subcarrier_offset = ssb_offset_pointA_subc_ref - ssb_offset_pointA_subc_rb.to_uint() * NRE;
 
   upper_phy_ssb_example::configuration upper_phy_sample_config;
   upper_phy_sample_config.log_level                    = log_level;
@@ -671,7 +700,7 @@ int main(int argc, char** argv)
   upper_phy_sample_config.enable_ul_processing         = enable_ul_processing;
   upper_phy_sample_config.enable_prach_processing      = enable_prach_processing;
   upper_phy_sample_config.data_modulation              = data_mod_scheme;
-  upper_phy                                            = upper_phy_ssb_example::create(upper_phy_sample_config);
+  std::unique_ptr<upper_phy_ssb_example> upper_phy     = upper_phy_ssb_example::create(upper_phy_sample_config);
   srsran_assert(upper_phy, "Failed to create upper physical layer.");
 
   // Connect adapters.
@@ -698,6 +727,12 @@ int main(int argc, char** argv)
   // Stop execution.
   stop_execution();
 
+  // Stop radio. It stops blocking the radio transmit and receive operations. The timing handler prevents the PHY from
+  // free running.
+  if (radio != nullptr) {
+    radio->stop();
+  }
+
   // Stop the timing handler. It stops blocking notifier and allows the PHY to free run.
   upper_phy->stop();
 
@@ -713,6 +748,11 @@ int main(int argc, char** argv)
 
   // Prints radio notification summary (number of overflow, underflow and other events).
   notification_handler.print();
+
+  // Destroy physical layer components in the correct order.
+  lower_phy_instance.reset();
+  upper_phy.reset();
+  radio.reset();
 
   return 0;
 }

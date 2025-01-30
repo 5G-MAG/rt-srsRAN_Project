@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -24,9 +24,7 @@
 
 #include "cell_scheduler.h"
 #include "config/sched_config_manager.h"
-#include "logging/scheduler_event_logger.h"
 #include "logging/scheduler_metrics_handler.h"
-#include "logging/scheduler_result_logger.h"
 #include "ue_scheduling/ue_scheduler.h"
 #include "srsran/scheduler/config/scheduler_expert_config.h"
 #include "srsran/scheduler/mac_scheduler.h"
@@ -65,10 +63,10 @@ public:
   void handle_rach_indication(const rach_indication_message& msg) override;
   void handle_crc_indication(const ul_crc_indication& crc) override;
   void handle_uci_indication(const uci_indication& uci) override;
+  void handle_srs_indication(const srs_indication& srs) override;
 
 private:
   const scheduler_expert_config expert_params;
-  sched_configuration_notifier& config_notifier;
 
   srslog::basic_logger& logger;
 

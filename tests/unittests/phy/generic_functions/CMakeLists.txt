@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -24,15 +24,13 @@ set(TEST_DATA_DIR ${CMAKE_CURRENT_BINARY_DIR}/test_data)
 set_directory_properties(PROPERTIES LABELS "phy")
 
 add_subdirectory(precoding)
+add_subdirectory(transform_precoding)
 
 add_executable(dft_processor_test dft_processor_test.cpp)
 target_link_libraries(dft_processor_test srslog srsran_generic_funcs)
 
 add_test(dft_processor_generic_test dft_processor_test -F generic -R 10)
-if (ENABLE_FFTW AND FFTW3F_FOUND)
-    add_test(dft_processor_fftw_test dft_processor_test -F fftw -R 10)
-    add_definitions("-DENABLE_FFTW")
-endif (ENABLE_FFTW AND FFTW3F_FOUND)
+add_test(dft_processor_fftw_test dft_processor_test -F fftw -R 10)
 
 if (USE_PHY_TESTVECTORS)
     add_executable(dft_processor_vectortest dft_processor_vectortest.cpp)

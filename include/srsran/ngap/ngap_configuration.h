@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "srsran/cu_cp/cu_cp_configuration.h"
 #include "srsran/cu_cp/cu_cp_types.h"
 #include "srsran/ran/gnb_id.h"
 #include <chrono>
@@ -34,12 +35,10 @@ namespace srs_cu_cp {
 
 /// \brief NGAP configuration
 struct ngap_configuration {
-  gnb_id_t               gnb_id{0, 22};
-  std::string            ran_node_name;
-  plmn_identity          plmn = plmn_identity::test_value();
-  unsigned               tac;
-  std::vector<s_nssai_t> slice_configurations;
-  std::chrono::seconds   pdu_session_setup_timeout; // timeout for pdu session setup in seconds
+  gnb_id_t                             gnb_id{0, 22};
+  std::string                          ran_node_name;
+  std::vector<supported_tracking_area> supported_tas;
+  std::chrono::seconds                 request_pdu_session_timeout; // timeout for requesting a pdu session in seconds
 };
 
 } // namespace srs_cu_cp

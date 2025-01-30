@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -18,13 +18,13 @@
 # and at http://www.gnu.org/licenses/.
 #
 
+# Do not build by default.
+set_directory_properties(PROPERTIES EXCLUDE_FROM_ALL TRUE)
+
 add_subdirectory(asn1)
 add_subdirectory(cu_cp)
 add_subdirectory(cu_up)
 add_subdirectory(du)
-add_subdirectory(du_high)
-add_subdirectory(du_low)
-add_subdirectory(du_manager)
 add_subdirectory(e1ap)
 add_subdirectory(e2)
 add_subdirectory(f1ap)
@@ -33,12 +33,13 @@ add_subdirectory(fapi)
 add_subdirectory(fapi_adaptor)
 add_subdirectory(gateways)
 add_subdirectory(gtpu)
-add_subdirectory(instrumentation)
 if (DPDK_FOUND)
     add_subdirectory(hal)
 endif (DPDK_FOUND)
+add_subdirectory(instrumentation)
 add_subdirectory(mac)
 add_subdirectory(ngap)
+add_subdirectory(nrppa)
 add_subdirectory(nru)
 add_subdirectory(ofh)
 add_subdirectory(pcap)

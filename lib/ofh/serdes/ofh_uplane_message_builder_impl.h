@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -41,12 +41,13 @@ public:
   }
 
   // See interface for documentation.
-  unsigned build_message(span<uint8_t> buffer, span<const cf_t> iq_data, const uplane_message_params& params) override;
+  unsigned
+  build_message(span<uint8_t> buffer, span<const cbf16_t> iq_data, const uplane_message_params& params) override;
 
 private:
   /// Serializes IQ data from a resource grid.
   void serialize_iq_data(network_order_binary_serializer& serializer,
-                         span<const cf_t>                 iq_data,
+                         span<const cbf16_t>              iq_data,
                          unsigned                         nof_prbs,
                          const ru_compression_params&     params);
 

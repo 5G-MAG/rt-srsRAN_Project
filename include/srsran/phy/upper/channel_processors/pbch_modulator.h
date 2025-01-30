@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -32,7 +32,7 @@ namespace srsran {
 
 class resource_grid_writer;
 
-/// Describes a PBCH modulator interface
+/// PBCH modulator interface.
 class pbch_modulator
 {
 public:

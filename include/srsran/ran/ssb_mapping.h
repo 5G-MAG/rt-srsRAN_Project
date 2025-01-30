@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,14 +22,14 @@
 
 #pragma once
 
-#include "band_helper.h"
 #include "srsran/phy/constants.h"
+#include "srsran/ran/band_helper.h"
 #include "srsran/ran/frequency_range.h"
 #include "srsran/ran/resource_allocation/rb_interval.h"
 #include "srsran/ran/slot_point.h"
 #include "srsran/ran/ssb_properties.h"
 #include "srsran/ran/subcarrier_spacing.h"
-#include "srsran/support/math_utils.h"
+#include "srsran/support/math/math_utils.h"
 #include <array>
 #include <cassert>
 
@@ -169,9 +169,6 @@ inline unsigned ssb_get_k_first(frequency_range       fr,
   // Calculate actual result.
   return (k_first_15kHz * 15) / ssb_scs_kHz;
 }
-
-/// Calculates SSB pattern from SSB subcarrier spacing and DL ARFCN.
-ssb_pattern_case ssb_get_ssb_pattern(subcarrier_spacing ssb_scs, unsigned dl_arfcn);
 
 /// \brief Calculates L_max, ie max number of SSB occasions per SSB period. Possible values are {4, 8, 64}.
 /// \remark See TS 38.213, Section 4.1.

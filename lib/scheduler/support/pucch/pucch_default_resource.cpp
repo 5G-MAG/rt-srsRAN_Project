@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -24,7 +24,7 @@
 
 using namespace srsran;
 
-unsigned srsran::get_pucch_default_resource_index(unsigned int n_cce, unsigned int nof_cce, unsigned int delta_pri)
+unsigned srsran::get_pucch_default_resource_index(unsigned n_cce, unsigned nof_cce, unsigned delta_pri)
 {
   return (2 * n_cce) / nof_cce + 2 * delta_pri;
 }

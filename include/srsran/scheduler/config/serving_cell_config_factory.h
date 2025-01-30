@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -22,12 +22,12 @@
 
 #pragma once
 
-#include "cell_config_builder_params.h"
-#include "serving_cell_config.h"
 #include "srsran/ran/csi_rs/csi_meas_config.h"
 #include "srsran/ran/pdcch/aggregation_level.h"
 #include "srsran/ran/sib/system_info_config.h"
 #include "srsran/ran/tdd/tdd_ul_dl_config.h"
+#include "srsran/scheduler/config/cell_config_builder_params.h"
+#include "srsran/scheduler/config/serving_cell_config.h"
 
 namespace srsran {
 namespace config_helpers {
@@ -36,7 +36,9 @@ namespace config_helpers {
 struct cell_config_builder_params_extended : public cell_config_builder_params {
   cell_config_builder_params_extended(const cell_config_builder_params& source = {});
 
-  std::optional<unsigned> ssb_arfcn; /// Absolute frequency of the SSB.
+  /// \brief Absolute frequency of the SSB as ARFCN. This is the ARFCN of the \c SS_ref (or SSB central frequency).
+  /// \c SS_ref is defined is per TS 38.104, Section 5.4.3.1 and 5.4.3.2.
+  std::optional<unsigned> ssb_arfcn;
   unsigned                cell_nof_crbs;
   subcarrier_spacing      ssb_scs;
 };

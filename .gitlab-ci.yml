@@ -1,5 +1,5 @@
 #
-# Copyright 2021-2024 Software Radio Systems Limited
+# Copyright 2021-2025 Software Radio Systems Limited
 #
 # This file is part of srsRAN
 #
@@ -36,6 +36,9 @@ include:
   - project: softwareradiosystems/ci/tools
     ref: "20"
     file: .gitlab/ci-shared/tools/test_reporter.yml
+  - project: softwareradiosystems/ci/tools
+    ref: "20"
+    file: .gitlab/ci-shared/tools/tagger.yml
   - local: .gitlab/ci/builders/version.yml
   - local: .gitlab/ci/build.yml
   - local: .gitlab/ci/trx.yml
@@ -50,15 +53,21 @@ stages:
   - rf
   - manual
   - documentation
+  # release
+  - pre private
   - private
+  - post private
   - public
+  - post public
   - release
+  - post release
 
 variables:
   SLACK_CHANNEL_OK: "#ci_gnb"
   SLACK_CHANNEL_FAIL: "#ci_gnb"
   SLACK_CHANNEL_INFO_MSG: "#ci_gnb_verbose"
   AUTOREBASER_PRS_IN_QUEUE: 1
+  MR_PLUGIN_REF: main
 
 ################################################################################
 ## CI
@@ -67,22 +76,23 @@ job cleaner:
   extends: .job cleaner
   timeout: 4h
   rules:
-    - if: $CI_DESCRIPTION =~ /Nightly Build Unit Tests/
+    - if: $CI_DESCRIPTION =~ /Nightly Build Unit Tests Plugin/
 
 pr reminder:
   extends: .pr reminder
   rules:
     - if: $NOTIFY_SLACK != "true"
       when: never
-    - if: $CI_DESCRIPTION =~ /Nightly Build Unit Tests/
+    - if: $CI_DESCRIPTION =~ /Nightly Build Unit Tests Plugin/
 
 trigger builder:
   stage: ci
   rules:
+    - if: $CI_MERGE_REQUEST_LABELS =~ /ci-no-builder/
+      when: never
     - if: $ON_MR
       changes:
         paths:
-          - .gitlab/ci/src_cache.yml
           - .gitlab/ci/builders.yml
           - .gitlab/ci/builders/**/*
           - docker/scripts/**/*
@@ -93,6 +103,8 @@ trigger builder:
 trigger docker:
   stage: ci
   rules:
+    - if: $CI_MERGE_REQUEST_LABELS =~ /ci-no-docker/
+      when: never
     - if: $ON_MR
       changes:
         paths:
@@ -100,7 +112,7 @@ trigger docker:
           - docker/**/*.{yml,env,json,toml,py,sh,csv,py,toml}
           - docker/**/Dockerfile
           - .gdbinit
-    - if: $CI_DESCRIPTION =~ /Nightly Build Unit Tests/
+    - if: $CI_DESCRIPTION =~ /Nightly Build Unit Tests Plugin/
       variables:
         CI_DESCRIPTION: $CI_DESCRIPTION
     - if: $CI_DESCRIPTION =~ /Weekly/
@@ -112,19 +124,35 @@ trigger docker:
   variables:
     PY_DIR: docker/metrics_server
 
-helm:
+matlab nightly:
+  stage: ci
+  rules:
+    - if: $CI_DESCRIPTION =~ /Nightly Build Unit Tests Plugin/
+      variables:
+        ON_SCHEDULE: "true"
+        CI_DESCRIPTION: Nightly
+        SRSRAN_COMMIT: $CI_COMMIT_SHA
+        NOTIFY_SLACK: "true"
+  inherit:
+    variables: false
+  trigger:
+    project: softwareradiosystems/srsgnb_matlab
+    branch: master
+
+matlab weekly:
   stage: ci
   rules:
     - if: $CI_DESCRIPTION =~ /Weekly/
       variables:
-        CI_DESCRIPTION: Synchronization with srsGNB
+        ON_SCHEDULE: "true"
+        CI_DESCRIPTION: Weekly
+        SRSRAN_COMMIT: $CI_COMMIT_SHA
         NOTIFY_SLACK: "true"
+  inherit:
+    variables: false
   trigger:
-    project: softwareradiosystems/ci/srsgnb_k8s
-    branch: main
-  needs:
-    - job: trigger docker
-      artifacts: false
+    project: softwareradiosystems/srsgnb_matlab
+    branch: master
 
 ################################################################################
 ## Static
@@ -159,13 +187,13 @@ full-code-format:
     - if: $ON_MR
       changes:
         - .clang-format
-    - if: $CI_DESCRIPTION =~ /Nightly Build Unit Tests/
+    - if: $CI_DESCRIPTION =~ /Nightly Build Unit Tests Plugin/
 
 .codechecker:
   image: ${CR_REGISTRY_URI}/srsgnb/codechecker:${DOCKER_BUILDER_VERSION}
   stage: static
   tags:
-    - ${AMD64_TAG}
+    - amd64
   needs:
     - job: builder version
       optional: false
@@ -196,12 +224,17 @@ full-code-format:
       -*lib/phy/generic_functions/fftx/lib_fftx_dftbat_srcs
       -*lib/phy/generic_functions/fftx/lib_fftx_idftbat_srcs" >/tmp/codechecker_skip
     - |
+      if [[ $CI_MERGE_REQUEST_LABELS != *"ci-no-plugin"* && -n $PLUGIN_BRANCH ]]; then
+        git submodule add https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_SHELL_SSH_HOST}/${PLUGIN_REPO}.git ${PLUGIN_PATH}
+        git submodule set-branch --branch ${PLUGIN_BRANCH} ${PLUGIN_PATH}
+      fi
+    - |
       export CC=/usr/bin/clang
       export CXX=/usr/bin/clang++
       mkdir -p build
       cd build || exit
-      cmake -DASSERT_LEVEL=PARANOID -DAUTO_DETECT_ISA=False -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DBUILD_TESTS=False ..
-      make srsran_build_info # needed to generate hashes.h
+      cmake -DASSERT_LEVEL=PARANOID -DMARCH=x86-64-v3 -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DBUILD_TESTS=False ..
+      make srsran_versioning # needed to generate hashes.h
     - |
       monitor_child_process() {
           while true; do
@@ -237,6 +270,7 @@ clang-tidy:
       when: manual
       allow_failure: false
   variables:
+    PLUGIN_BRANCH: $MR_PLUGIN_REF
     ANALYZER: clang-tidy
     ANALYZER_ARGS: --analyzer-config clang-tidy:take-config-from-directory=true --tidy-config .clang-tidy
     ARTIFACT_EXTRA_PATH: "/index.html"
@@ -269,42 +303,43 @@ clangsa:
     ANALYZER_ARGS: --ctu
   timeout: 8 hours
 
-.coverity_base:
-  image: $CR_REGISTRY_URI/coverity_image/2022.6.0:1.0.0
-  stage: static
-  needs: []
-  variables:
-    KUBERNETES_CPU_REQUEST: 6
-    KUBERNETES_CPU_LIMIT: 6
-    KUBERNETES_MEMORY_REQUEST: 12Gi
-    KUBERNETES_MEMORY_LIMIT: 12Gi
-  tags:
-    - ${AMD64_TAG}
-  interruptible: false
-  script:
-    - |
-      mkdir -p build
-      cd build
-      cmake ..
-      cov-build --dir cov-int make -j${KUBERNETES_CPU_REQUEST}
-      tar czvf srsgnb.tgz cov-int
-      ver=$(git rev-parse HEAD)
-    - |
-      curl --form token=$COV_TOKEN \
-        --form email=${COVERITY_EMAIL} \
-        --form file=@srsgnb.tgz \
-        --form version=$ver \
-        --form description="${DESCRIPTION}" \
-        https://scan.coverity.com/builds?project=${PROJECT_NAME}
+# .coverity_base:
+#   image: $CR_REGISTRY_URI/coverity_image/2022.6.0:1.0.0
+#   stage: static
+#   needs: []
+#   variables:
+#     KUBERNETES_CPU_REQUEST: 6
+#     KUBERNETES_CPU_LIMIT: 6
+#     KUBERNETES_MEMORY_REQUEST: 12Gi
+#     KUBERNETES_MEMORY_LIMIT: 12Gi
+#   tags:
+#     - amd64
+#   interruptible: false
+#   timeout: 2 hours
+#   script:
+#     - |
+#       mkdir -p build
+#       cd build
+#       cmake ..
+#       cov-build --dir cov-int make -j${KUBERNETES_CPU_REQUEST}
+#       tar czvf srsgnb.tgz cov-int
+#       ver=$(git rev-parse HEAD)
+#     - |
+#       curl --form token=$COV_TOKEN \
+#         --form email=${COVERITY_EMAIL} \
+#         --form file=@srsgnb.tgz \
+#         --form version=$ver \
+#         --form description="${DESCRIPTION}" \
+#         https://scan.coverity.com/builds?project=${PROJECT_NAME}
 
-coverity-dev:
-  extends: .coverity_base
-  rules:
-    - if: $CI_DESCRIPTION =~ /Weekly/
-  before_script:
-    - export PROJECT_NAME="srsRAN_5G"
-    - export DESCRIPTION="srsRAN Project dev build"
-    - export COV_TOKEN="${COVERITY_TOKEN_DEV}"
+# coverity-dev:
+#   extends: .coverity_base
+#   rules:
+#     - if: $CI_DESCRIPTION =~ /Weekly/
+#   before_script:
+#     - export PROJECT_NAME="srsRAN_5G"
+#     - export DESCRIPTION="srsRAN Project dev build"
+#     - export COV_TOKEN="${COVERITY_TOKEN_DEV}"
 
 e2e tests tox:
   stage: static
@@ -380,10 +415,10 @@ unit coverage:
     - |
       export metric_prefix=""
       if [[ $ON_MR == "true" ]]; then metric_prefix="_pr"; fi
-      echo "coverage${metric_prefix},pipeline=${CI_PIPELINE_ID},os=${OS} value=${coverage_value}" >> build_time_metrics.txt
+      echo "coverage${metric_prefix},pipeline=${CI_PIPELINE_ID},os=${OS} value=${coverage_value}" >> build/build_time_metrics.txt
     - |
       influx write --host $INFLUXDB_URL --token $INFLUXDB_TOKEN --org $INFLUXDB_ORG \
-        --bucket ci --file build_time_metrics.txt
+        --bucket ci --file build/build_time_metrics.txt
   coverage: /^\s*Line coverage:\s*\d+.\d+\%/
   artifacts: &unit_coverage_artifacts
     paths:
@@ -404,7 +439,7 @@ unit coverage:
 unit coverage dev:
   extends: unit coverage
   rules:
-    - if: $CI_DESCRIPTION =~ /Nightly Build Unit Tests/
+    - if: $CI_DESCRIPTION =~ /Nightly Build Unit Tests Plugin/
       variables:
         coverage_report: full
       when: always # Even if previous stages/required jobs fail
@@ -415,7 +450,7 @@ unit coverage dev:
 pages:
   stage: documentation
   rules:
-    - if: $CI_DESCRIPTION =~ /ightly Build + Unit Tests/
+    - if: $CI_DESCRIPTION =~ /Nightly Build Unit Tests Plugin/
       when: always # Even if previous stages/required jobs fail
       allow_failure: true
   image: ${GITLAB_REGISTRY_URI}/${CI_TOOLS_REPO}/doxygen:1.9.8-1.2023.7
@@ -435,6 +470,14 @@ pages:
       cd ..
     - mkdir public/doxygen
     - rsync -a build/docs/html/ public/doxygen/
+    - |
+      # Remove bigger file if size is bigger than 900MB
+      while [ $(du -s public | awk '{print $1}') -gt 921600 ]; do
+        file_to_remove=$(find public -type f ! -name "*.html" ! -name "*.js" -exec ls -l {} + | sort -k5 -n -r | awk 'NR==1' | awk '{print $NF}')
+        file_size=$(du -h "$file_to_remove" | awk '{print $1}')
+        echo "Removing file: $file_to_remove (Size: $file_size)"
+        rm -f "$file_to_remove"
+      done
   after_script:
     - |
       if [ $CI_JOB_STATUS = "failed" ]; then
@@ -457,14 +500,31 @@ pages:
 # Release dryrun
 ################################################################################
 update agpl main dryrun:
-  extends: .update agpl main
+  extends: update private branch
   stage: .post
   rules:
-    - if: $CI_DESCRIPTION =~ /Nightly Build Unit Tests/
+    - if: $CI_DESCRIPTION =~ /Nightly Build Unit Tests Plugin/
       when: always
-      variables:
-        MODE: "dryrun"
+  variables:
+    PRIVATE_BRANCH: agpl_main
+    HEADERS: "true"
+    MODE: "dryrun"
   needs: []
+
+create-tags:
+  extends: .create-tag
+  stage: .post
+  rules:
+    - if: $CI_DESCRIPTION =~ /Nightly Build Unit Tests Plugin/
+      when: delayed
+      start_in: 3 hours
+  script:
+    - |
+      for name in $TAG_NAME_ARRAY; do
+        create_tag "${name}_$(date -u +"%Y.%m.%d")"
+      done
+  needs: []
+  retry: 2
 
 ################################################################################
 # Enable / Disable pipelines

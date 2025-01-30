@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -28,6 +28,7 @@
 #include <mutex>
 
 namespace srsran {
+/// Finite state machine for the ZeroMQ-based radio transmit channel.
 class radio_zmq_tx_channel_fsm
 {
 private:

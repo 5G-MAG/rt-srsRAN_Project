@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -23,11 +23,13 @@
 #include "e1ap_cu_up_impl.h"
 #include "../common/log_helpers.h"
 #include "cu_up/procedures/bearer_context_modification_procedure.h"
+#include "cu_up/procedures/bearer_context_release_procedure.h"
 #include "cu_up/procedures/e1ap_cu_up_event_manager.h"
 #include "e1ap_cu_up_asn1_helpers.h"
 #include "procedures/e1ap_cu_up_setup_procedure.h"
 #include "srsran/e1ap/common/e1ap_message.h"
 #include "srsran/ran/bcd_helper.h"
+#include "srsran/support/format/fmt_to_c_str.h"
 #include "srsran/support/timers.h"
 #include <memory>
 
@@ -51,10 +53,10 @@ private:
 
 } // namespace
 
-e1ap_cu_up_impl::e1ap_cu_up_impl(e1_connection_client& e1_client_handler_,
-                                 e1ap_cu_up_notifier&  cu_up_notifier_,
-                                 timer_manager&        timers_,
-                                 task_executor&        cu_up_exec_) :
+e1ap_cu_up_impl::e1ap_cu_up_impl(e1_connection_client&        e1_client_handler_,
+                                 e1ap_cu_up_manager_notifier& cu_up_notifier_,
+                                 timer_manager&               timers_,
+                                 task_executor&               cu_up_exec_) :
   logger(srslog::fetch_basic_logger("CU-UP-E1")),
   cu_up_notifier(cu_up_notifier_),
   timers(timers_),
@@ -90,7 +92,8 @@ void e1ap_cu_up_impl::handle_bearer_context_inactivity_notification(
     const e1ap_bearer_context_inactivity_notification& msg)
 {
   if (!ue_ctxt_list.contains(msg.ue_index)) {
-    logger.error("ue={}: Dropping BearerContextInactivityNotification. UE does not exist", msg.ue_index);
+    logger.error("ue={}: Dropping BearerContextInactivityNotification. UE does not exist",
+                 fmt::underlying(msg.ue_index));
     return;
   }
 
@@ -268,38 +271,27 @@ void e1ap_cu_up_impl::handle_bearer_context_modification_request(const asn1::e1a
 
 void e1ap_cu_up_impl::handle_bearer_context_release_command(const asn1::e1ap::bearer_context_release_cmd_s& msg)
 {
-  e1ap_bearer_context_release_command bearer_context_release_cmd = {};
-
   if (!ue_ctxt_list.contains(int_to_gnb_cu_up_ue_e1ap_id(msg->gnb_cu_up_ue_e1ap_id))) {
+    // create failure message for early returns
+    e1ap_message e1ap_msg;
+    e1ap_msg.pdu.set_unsuccessful_outcome();
+    e1ap_msg.pdu.unsuccessful_outcome().load_info_obj(ASN1_E1AP_ID_BEARER_CONTEXT_RELEASE);
+    // TODO fill other values
+
     logger.error("No UE context for the received gnb_cu_up_ue_e1ap_id={} available", msg->gnb_cu_up_ue_e1ap_id);
+    pdu_notifier->on_new_message(e1ap_msg);
     return;
   }
 
-  e1ap_ue_context& ue_ctxt = ue_ctxt_list[int_to_gnb_cu_up_ue_e1ap_id(msg->gnb_cu_up_ue_e1ap_id)];
+  e1ap_ue_context& ue_ctxt  = ue_ctxt_list[int_to_gnb_cu_up_ue_e1ap_id(msg->gnb_cu_up_ue_e1ap_id)];
+  ue_index_t       ue_index = ue_ctxt.ue_ids.ue_index;
 
-  bearer_context_release_cmd.ue_index = ue_ctxt.ue_ids.ue_index;
-  bearer_context_release_cmd.cause    = asn1_to_cause(msg->cause);
-
-  // Forward message to CU-UP
-  cu_up_notifier.on_bearer_context_release_command_received(bearer_context_release_cmd);
-
-  // Remove UE context
+  // Remove UE context at E1AP before switching to UE execution context to avoid concurrent access of ue_ctxt_list
   ue_ctxt_list.remove_ue(ue_ctxt.ue_ids.ue_index);
 
-  e1ap_message e1ap_msg;
-  e1ap_msg.pdu.set_successful_outcome();
-  e1ap_msg.pdu.successful_outcome().load_info_obj(ASN1_E1AP_ID_BEARER_CONTEXT_RELEASE);
-  e1ap_msg.pdu.successful_outcome().value.bearer_context_release_complete()->gnb_cu_cp_ue_e1ap_id =
-      msg->gnb_cu_cp_ue_e1ap_id;
-  e1ap_msg.pdu.successful_outcome().value.bearer_context_release_complete()->gnb_cu_up_ue_e1ap_id =
-      msg->gnb_cu_up_ue_e1ap_id;
-
-  // send response
-  logger.debug("ue={} cu_up_ue_e1ap_id={} cu_cp_ue_e1ap_id={}: Sending BearerContextReleaseComplete",
-               bearer_context_release_cmd.ue_index,
-               msg->gnb_cu_up_ue_e1ap_id,
-               msg->gnb_cu_cp_ue_e1ap_id);
-  pdu_notifier->on_new_message(e1ap_msg);
+  // Handle the release procedure
+  cu_up_notifier.on_schedule_ue_async_task(
+      ue_index, launch_async<bearer_context_release_procedure>(ue_index, msg, *pdu_notifier, cu_up_notifier, logger));
 }
 
 void e1ap_cu_up_impl::handle_successful_outcome(const asn1::e1ap::successful_outcome_s& outcome)

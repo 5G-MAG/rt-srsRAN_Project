@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -42,7 +42,7 @@ TEST_P(validate_slot_indication_field, WithValue)
                build_valid_slot_indication,
                validate_slot_indication,
                srsran::fapi::message_type_id::slot_indication);
-};
+}
 
 INSTANTIATE_TEST_SUITE_P(SFN,
                          validate_slot_indication_field,

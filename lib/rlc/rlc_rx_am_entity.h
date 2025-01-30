@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -30,6 +30,7 @@
 #include "srsran/support/sdu_window.h"
 #include "srsran/support/timers.h"
 #include "fmt/format.h"
+#include <atomic>
 #include <set>
 
 namespace srsran {
@@ -56,6 +57,8 @@ struct rlc_rx_am_sdu_info {
   bool has_gap = false;
   /// Buffer for either a full SDU or a set of SDU segments.
   std::variant<byte_buffer_slice, segment_set_t> sdu_data;
+  /// Time of arrival of the first segment of the SDU.
+  std::chrono::steady_clock::time_point time_of_arrival;
 };
 
 /// \brief Rx state variables
@@ -107,7 +110,7 @@ private:
   const uint32_t am_window_size;
 
   /// Rx window
-  std::unique_ptr<sdu_window<rlc_rx_am_sdu_info>> rx_window;
+  sdu_window<rlc_rx_am_sdu_info, rlc_bearer_logger> rx_window;
   /// Indicates the rx_window has not been changed, i.e. no need to rebuild status report.
   static const bool rx_window_not_changed = false;
   /// Indicates the rx_window has been changed, i.e. need to rebuild status report.
@@ -116,19 +119,16 @@ private:
   /// Pre-allocated status reports for (re)-building, caching, and sharing with TX entity
   std::array<rlc_am_status_pdu, 3> status_buf;
 
-  /// Status report for (re)-building
-  rlc_am_status_pdu* status_builder = &status_buf[0];
-  /// Status report for caching
-  rlc_am_status_pdu* status_cached = &status_buf[1];
-  /// Status report for sharing
-  rlc_am_status_pdu* status_shared = &status_buf[2];
+  /// Status report owned by writer for (re)-building
+  rlc_am_status_pdu* status_owned_by_writer = &status_buf[0];
+  /// Status report for exchange that is accessed by writer and reader
+  std::atomic<rlc_am_status_pdu*> status_for_exchange = &status_buf[1];
+  /// Status report owned by reader for transmission
+  rlc_am_status_pdu* status_owned_by_reader = &status_buf[2];
 
   /// Size of the cached status report
   std::atomic<uint32_t> status_report_size;
   std::atomic<bool>     status_prohibit_timer_is_running{false};
-
-  /// Mutex for controlled access to the cached status report, e.g. read by the Tx entity in a different executor
-  std::mutex status_report_mutex;
 
   /// \brief t-StatusProhibit
   /// This timer is used by the receiving side of an AM RLC entity in order to prohibit transmission of a STATUS PDU
@@ -147,23 +147,28 @@ private:
 
   pcap_rlc_pdu_context pcap_context;
 
+  bool stopped = false;
+
 public:
   rlc_rx_am_entity(gnb_du_id_t                       gnb_du_id,
                    du_ue_index_t                     ue_index,
                    rb_id_t                           rb_id,
                    const rlc_rx_am_config&           config,
                    rlc_rx_upper_layer_data_notifier& upper_dn_,
-                   timer_factory                     timers,
-                   task_executor&                    ue_executor,
-                   bool                              metrics_enabled,
-                   rlc_pcap&                         pcap_);
+                   rlc_metrics_aggregator&           metrics_agg_,
+                   rlc_pcap&                         pcap_,
+                   task_executor&                    ue_executor_,
+                   timer_manager&                    timers);
 
   void stop() final
   {
     // Stop all timers. Any queued handlers of timers that just expired before this call are canceled automatically
-    status_prohibit_timer.stop();
-    reassembly_timer.stop();
-  };
+    if (not stopped) {
+      status_prohibit_timer.stop();
+      reassembly_timer.stop();
+      stopped = true;
+    }
+  }
 
   // Rx/Tx interconnect
   void set_status_handler(rlc_tx_am_status_handler* status_handler_) { status_handler = status_handler_; }
@@ -308,11 +313,6 @@ private:
   /// \param timeout_id The timer ID
   void on_expired_reassembly_timer();
 
-  /// Creates the rx_window according to sn_size
-  /// \param sn_size Size of the sequence number (SN)
-  /// \return unique pointer to rx_window instance
-  std::unique_ptr<sdu_window<rlc_rx_am_sdu_info>> create_rx_window(rlc_am_sn_size sn_size);
-
   void log_state(srslog::basic_levels level) { logger.log(level, "RX entity state. {}", st); }
 };
 
@@ -323,21 +323,21 @@ namespace fmt {
 template <>
 struct formatter<srsran::rlc_rx_am_sdu_info> {
   template <typename ParseContext>
-  auto parse(ParseContext& ctx) -> decltype(ctx.begin())
+  auto parse(ParseContext& ctx)
   {
     return ctx.begin();
   }
 
   template <typename FormatContext>
-  auto format(const srsran::rlc_rx_am_sdu_info& info, FormatContext& ctx)
-      -> decltype(std::declval<FormatContext>().out())
+  auto format(const srsran::rlc_rx_am_sdu_info& info, FormatContext& ctx) const
   {
     if (std::holds_alternative<srsran::byte_buffer_slice>(info.sdu_data)) {
       // full SDU
       const srsran::byte_buffer_slice& payload = std::get<srsran::byte_buffer_slice>(info.sdu_data);
       return format_to(
           ctx.out(), "has_gap={} fully_received={} sdu_len={}", info.has_gap, info.fully_received, payload.length());
-    } else if (std::holds_alternative<srsran::rlc_rx_am_sdu_info::segment_set_t>(info.sdu_data)) {
+    }
+    if (std::holds_alternative<srsran::rlc_rx_am_sdu_info::segment_set_t>(info.sdu_data)) {
       // segmented SDU
       const srsran::rlc_rx_am_sdu_info::segment_set_t& segments =
           std::get<srsran::rlc_rx_am_sdu_info::segment_set_t>(info.sdu_data);
@@ -355,13 +355,13 @@ struct formatter<srsran::rlc_rx_am_sdu_info> {
 template <>
 struct formatter<srsran::rlc_rx_am_state> {
   template <typename ParseContext>
-  auto parse(ParseContext& ctx) -> decltype(ctx.begin())
+  auto parse(ParseContext& ctx)
   {
     return ctx.begin();
   }
 
   template <typename FormatContext>
-  auto format(const srsran::rlc_rx_am_state& st, FormatContext& ctx) -> decltype(std::declval<FormatContext>().out())
+  auto format(const srsran::rlc_rx_am_state& st, FormatContext& ctx) const
   {
     return format_to(ctx.out(),
                      "rx_next={} rx_next_status_trigger={} rx_highest_status={} rx_next_highest={}",

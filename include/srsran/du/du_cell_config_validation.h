@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -26,6 +26,7 @@
 #include "srsran/support/config/validator_result.h"
 
 namespace srsran {
+namespace srs_du {
 
 /// \brief Checks whether the provided DU cell configuration is valid.
 ///
@@ -33,4 +34,5 @@ namespace srsran {
 /// \return in case an invalid parameter is detected, returns a string containing an error message.
 validator_result is_du_cell_config_valid(const du_cell_config& cell_cfg);
 
+} // namespace srs_du
 } // namespace srsran

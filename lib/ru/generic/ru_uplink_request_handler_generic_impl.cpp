@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -24,6 +24,7 @@
 #include "srsran/phy/lower/lower_phy_request_handler.h"
 #include "srsran/phy/support/prach_buffer_context.h"
 #include "srsran/phy/support/resource_grid_context.h"
+#include "srsran/phy/support/shared_resource_grid.h"
 
 using namespace srsran;
 
@@ -36,7 +37,7 @@ void ru_uplink_request_handler_generic_impl::handle_prach_occasion(const prach_b
 }
 
 void ru_uplink_request_handler_generic_impl::handle_new_uplink_slot(const resource_grid_context& context,
-                                                                    resource_grid&               grid)
+                                                                    const shared_resource_grid&  grid)
 {
   srsran_assert(context.sector < low_phy_handler.size(), "Invalid sector {}", context.sector);
 

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -42,7 +42,7 @@ TEST_P(validate_rach_indication_field, with_value)
                build_valid_rach_indication,
                validate_rach_indication,
                srsran::fapi::message_type_id::rach_indication);
-};
+}
 
 INSTANTIATE_TEST_SUITE_P(sfn,
                          validate_rach_indication_field,

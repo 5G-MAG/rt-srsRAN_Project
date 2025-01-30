@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -32,12 +32,13 @@
 #include "srsran/support/sdu_window.h"
 #include "srsran/support/timers.h"
 #include "fmt/format.h"
+#include <mutex>
 
 namespace srsran {
 
 /// Container to hold a SDU for transmission, the progress in case of segmentation, and associated meta data
 struct rlc_tx_am_sdu_info {
-  byte_buffer                           sdu     = {};    ///< SDU buffer
+  byte_buffer                           sdu;             ///< SDU buffer
   bool                                  is_retx = false; ///< Determines whether this SDU is a PDCP retransmission
   std::optional<uint32_t>               pdcp_sn;         ///< Optional PDCP sequence number
   std::chrono::system_clock::time_point time_of_arrival;
@@ -96,9 +97,6 @@ private:
   rlc_retx_queue retx_queue;
   uint32_t       retx_sn = INVALID_RLC_SN; // SN of the most recent ReTx since last status report
 
-  // Mutexes
-  std::mutex mutex;
-
   /// TX counter modulus
   const uint32_t     mod;
   constexpr uint32_t tx_mod_base(uint32_t x) const { return (x - st.tx_next_ack) % mod; }
@@ -107,7 +105,7 @@ private:
   const uint32_t am_window_size;
 
   /// TX window
-  std::unique_ptr<sdu_window<rlc_tx_am_sdu_info>> tx_window;
+  sdu_window<rlc_tx_am_sdu_info, rlc_bearer_logger> tx_window;
 
   /// Recycler for discarded PDUs (from tx_window) that shall be deleted by a different executor off the critical path
   rlc_pdu_recycler pdu_recycler;
@@ -137,6 +135,10 @@ private:
   /// latest buffer state upon execution.
   std::atomic_flag pending_buffer_state = ATOMIC_FLAG_INIT;
 
+  bool stopped = false;
+
+  bool max_retx_reached = false;
+
 public:
   rlc_tx_am_entity(gnb_du_id_t                          gnb_du_id,
                    du_ue_index_t                        ue_index,
@@ -145,16 +147,21 @@ public:
                    rlc_tx_upper_layer_data_notifier&    upper_dn_,
                    rlc_tx_upper_layer_control_notifier& upper_cn_,
                    rlc_tx_lower_layer_notifier&         lower_dn_,
-                   timer_factory                        timers,
+                   rlc_metrics_aggregator&              metrics_aggregator_,
+                   rlc_pcap&                            pcap_,
                    task_executor&                       pcell_executor_,
                    task_executor&                       ue_executor_,
-                   bool                                 metrics_enabled_,
-                   rlc_pcap&                            pcap_);
+                   timer_manager&                       timers);
 
   void stop() final
   {
     // Stop all timers. Any queued handlers of timers that just expired before this call are canceled automatically
-    poll_retransmit_timer.stop();
+    if (not stopped) {
+      poll_retransmit_timer.stop();
+      high_metrics_timer.stop();
+      low_metrics_timer.stop();
+      stopped = true;
+    }
   };
 
   // TX/RX interconnect
@@ -340,18 +347,8 @@ private:
   /// itself.
   ///
   /// Safe execution from: pcell_executor
-  /// \param is_locked provides info whether the \c mutex is already locked or not.
   /// \param force_notify forces a notification of the lower layer regardless of the current/previous buffer state.
-  void update_mac_buffer_state(bool is_locked, bool force_notify);
-
-  /// Lock-free version of \c get_buffer_state()
-  /// \return Provides the current buffer state
-  uint32_t get_buffer_state_nolock();
-
-  /// Creates the tx_window according to sn_size
-  /// \param sn_size Size of the sequence number (SN)
-  /// \return unique pointer to tx_window instance
-  std::unique_ptr<sdu_window<rlc_tx_am_sdu_info>> create_tx_window(rlc_am_sn_size sn_size);
+  void update_mac_buffer_state(bool force_notify);
 
   void log_state(srslog::basic_levels level)
   {
@@ -369,13 +366,13 @@ namespace fmt {
 template <>
 struct formatter<srsran::rlc_tx_am_state> {
   template <typename ParseContext>
-  auto parse(ParseContext& ctx) -> decltype(ctx.begin())
+  auto parse(ParseContext& ctx)
   {
     return ctx.begin();
   }
 
   template <typename FormatContext>
-  auto format(const srsran::rlc_tx_am_state& st, FormatContext& ctx) -> decltype(std::declval<FormatContext>().out())
+  auto format(const srsran::rlc_tx_am_state& st, FormatContext& ctx) const
   {
     return format_to(ctx.out(),
                      "tx_next_ack={} tx_next={} poll_sn={} pdu_without_poll={} byte_without_poll={}",

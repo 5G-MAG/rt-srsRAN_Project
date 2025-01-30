@@ -1,6 +1,6 @@
 /*
  *
- * Copyright 2021-2024 Software Radio Systems Limited
+ * Copyright 2021-2025 Software Radio Systems Limited
  *
  * This file is part of srsRAN.
  *
@@ -27,7 +27,10 @@
 namespace srsran {
 namespace dpdk {
 
-/// Returns a bbdev_acc instance on success, otherwise returns nullptr.
+/// \brief Instantiates a bbdev hardware accelerator.
+/// \param[in] cfg    Configuration parameters of the bbdev-based hardware accelerator.
+/// \param[in] logger SRS logger.
+/// \return A pointer to a valid bbdev accelerator on success, otherwise \c nullptr.
 std::shared_ptr<bbdev_acc> create_bbdev_acc(const bbdev_acc_configuration& cfg, srslog::basic_logger& logger);
 
 } // namespace dpdk
