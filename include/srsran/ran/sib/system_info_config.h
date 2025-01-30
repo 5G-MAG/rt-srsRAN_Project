@@ -25,6 +25,7 @@
 #include "srsran/adt/bounded_bitset.h"
 #include "srsran/adt/bounded_integer.h"
 #include "srsran/ran/ntn.h"
+#include "srsran/ran/mbs.h"
 #include <variant>
 #include <vector>
 
@@ -39,7 +40,7 @@ struct cell_selection_info {
   bounded_integer<int, -43, -12> q_qual_min = -20;
 };
 
-enum class sib_type { sib1 = 1, sib2 = 2, sib19 = 19, sib_invalid };
+enum class sib_type { sib1 = 1, sib2 = 2, sib19 = 19, sib20 = 20, sib21 = 21, sib_invalid }; 
 
 /// Configures a pattern of SSBs. See TS 38.331, \c SSB-ToMeasure.
 /// Equates to longBitmap when size of bitset equals to 64.
@@ -199,21 +200,24 @@ struct sib20_info {
   // with std::optional.
   sib20_info() {}
 
-  // TODO add SIB20 fields
+ // TODO (JAISANRO)  add SIB20 fields
 };
 
-// SIB21 info
+// SIB21 info, this struct carries the needed information to build the ASN1 SIB21, the contained information comes from the conf file.
 struct sib21_info {
   // This user provided constructor is added here to fix a Clang compilation error related to the use of nested types
   // with std::optional.
   sib21_info() {}
 
-  // TODO add SIB20 fields
+  /// Contains a list of MBS FSAIs (Frequency Selection Area Identities) for the current frequency. This list has at most 8 elements. 
+  std::vector<uint32_t> mbs_fsai_intra_freq_lst; // OCTECT STRING(SIZE(3)) TODO (JAISANRO) use string<3> or uint32_t ??
+  /// Contains a list of neighboring frequencies including additional bands that provide MBS services and the corresponding MBS FSAIs. This list has at most 64 elements.
+  std::vector<mbs_fsai_inter_freq_t> mbs_fsai_inter_freq_lst;
 };
 
 
 /// \brief Variant type that can hold different types of SIBs that go in a SI message.
-using sib_info = std::variant<sib2_info, sib19_info>;
+using sib_info = std::variant<sib2_info, sib19_info, sib20_info, sib21_info>;
 
 inline sib_type get_sib_info_type(const sib_info& sib)
 {
@@ -223,6 +227,13 @@ inline sib_type get_sib_info_type(const sib_info& sib)
   if (std::holds_alternative<sib19_info>(sib)) {
     return sib_type::sib19;
   }
+  if (std::holds_alternative<sib20_info>(sib)) {
+    return sib_type::sib20;
+  }
+  if (std::holds_alternative<sib21_info>(sib)) {
+    return sib_type::sib21;
+  }
+
   return sib_type::sib_invalid;
 }
 

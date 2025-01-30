@@ -320,9 +320,9 @@ static asn1::rrc_nr::sib1_s make_asn1_rrc_cell_sib1(const du_cell_config& du_cfg
   sib1.conn_est_fail_ctrl.conn_est_fail_offset_present = true;
   sib1.conn_est_fail_ctrl.conn_est_fail_offset         = 1;
 
-  if (du_cfg.si_config.has_value()) {
+  if (du_cfg.si_config.has_value()) { 
     for (const auto& sib : du_cfg.si_config->sibs) {
-      if (std::holds_alternative<sib2_info>(sib)) {
+      if (std::holds_alternative<sib2_info>(sib)) { 
         sib1.si_sched_info_present = true;
         bool ret = asn1::number_to_enum(sib1.si_sched_info.si_win_len, du_cfg.si_config.value().si_window_len_slots);
         srsran_assert(ret, "Invalid SI window length");
@@ -345,7 +345,7 @@ static asn1::rrc_nr::sib1_s make_asn1_rrc_cell_sib1(const du_cell_config& du_cfg
             sib1.si_sched_info.sched_info_list.push_back(asn1_si);
           }
         }
-      } else if (std::holds_alternative<sib19_info>(sib)) {
+      } else if (std::holds_alternative<sib19_info>(sib)) { 
         sib1.non_crit_ext_present                                               = true;
         sib1.non_crit_ext.non_crit_ext_present                                  = true;
         sib1.non_crit_ext.non_crit_ext.non_crit_ext_present                     = true;
@@ -375,7 +375,36 @@ static asn1::rrc_nr::sib1_s make_asn1_rrc_cell_sib1(const du_cell_config& du_cfg
             si_sched_info_r17.sched_info_list2_r17.push_back(asn1_si_r17);
           }
         }
+      } else if (std::holds_alternative<sib21_info>(sib)) { 
+        sib1.non_crit_ext_present                                               = true;
+        sib1.non_crit_ext.non_crit_ext_present                                  = true;
+        sib1.non_crit_ext.non_crit_ext.non_crit_ext_present                     = true;
+        sib1.non_crit_ext.non_crit_ext.non_crit_ext.si_sched_info_v1700_present = true;
+        auto& si_sched_info_r17 = sib1.non_crit_ext.non_crit_ext.non_crit_ext.si_sched_info_v1700;
+        for (const auto& cfg_si : du_cfg.si_config->si_sched_info) { // For each si_sched_info element reads the si_period, the si_window, and the sib_mapping of this SI. But although this is a loop, doen't makes any sense to iterate over SI since one SIB can be carry out by only within SI.
+          sched_info2_r17_s asn1_si_r17;
+          asn1_si_r17.si_broadcast_status_r17.value = sched_info2_r17_s::si_broadcast_status_r17_opts::broadcasting;
+          bool ret = asn1::number_to_enum(asn1_si_r17.si_periodicity_r17, cfg_si.si_period_radio_frames);
+          srsran_assert(ret, "Invalid SI period");
+          if (cfg_si.si_window_position.has_value()) {
+            asn1_si_r17.si_win_position_r17 = cfg_si.si_window_position.value();
+          }
+          for (auto mapping_info : cfg_si.sib_mapping_info) {
+            sib_type_info_v1700_s type_info;
+            auto                  sib_id_r17 = static_cast<uint8_t>(mapping_info);
+            type_info.sib_type_r17.set_type1_r17();
+            ret = asn1::number_to_enum(type_info.sib_type_r17.type1_r17(), sib_id_r17);
+            if (ret) {
+              asn1_si_r17.sib_map_info_r17.push_back(type_info);
+            }
+          }
+          if (asn1_si_r17.sib_map_info_r17.size() > 0) {
+            si_sched_info_r17.sched_info_list2_r17.push_back(asn1_si_r17);
+          }
+        }
       } else {
+
+        //TODO (JAISANRO) Add SIB20 case
         srsran_terminate("Invalid SIB type");
       }
     }
@@ -524,7 +553,7 @@ asn1::rrc_nr::sib20_r17_s make_asn1_rrc_cell_sib20(const sib20_info& sib20_param
   using namespace asn1::rrc_nr;
   sib20_r17_s sib20;
 
-  // TODO see SIB20 fields and add them
+  // TODO (JAISANRO) see SIB20 fields and add them
 
   sib20.cfr_cfg_mcch_mtch_r17_present = true;
   /*
@@ -553,23 +582,24 @@ asn1::rrc_nr::sib21_r17_s make_asn1_rrc_cell_sib21(const sib21_info& sib21_param
   using namespace asn1::rrc_nr;
   sib21_r17_s sib21;
 
-  // TODO see SIB21 fields and add them
-  /*
-   * // SIB21-r17 ::= SEQUENCE
-   * struct sib21_r17_s {
-   *   bool                           ext = false;
-   *   mbs_fsai_list_r17_l            mbs_fsai_intra_freq_r17;
-   *   mbs_fsai_inter_freq_list_r17_l mbs_fsai_inter_freq_list_r17;
-   *   dyn_octstring                  late_non_crit_ext;
-   *   // ...
-   *
-   *   // sequence methods
-   *   SRSASN_CODE pack(bit_ref& bref) const;
-   *   SRSASN_CODE unpack(cbit_ref& bref);
-   *   void        to_json(json_writer& j) const;
-   * };
-   *
-   */
+  // Loop for every intra FSA ID
+  for (const auto& intra_fsai : sib21_params.mbs_fsai_intra_freq_lst) {
+    asn1::fixed_octstring<3> mbs_fsai_r17;
+    sib21.mbs_fsai_intra_freq_r17.push_back(mbs_fsai_r17.from_number(intra_fsai)); // intra_fsai is a uint32_t
+  }
+
+  // Loop for every neighbor cell (inter) FSA ID
+  for (const auto& inter_fsai : sib21_params.mbs_fsai_inter_freq_lst) {
+    mbs_fsai_inter_freq_r17_s neighbor_fsai;
+
+    neighbor_fsai.dl_carrier_freq_r17 = inter_fsai.dl_carrier_freq; // ARCFN 
+    for (const auto& mbs_fsai : inter_fsai.mbs_fsai_lst) { // Loop for every MBS FSA ID within the neighbor cell
+      asn1::fixed_octstring<3> mbs_fsai_r17;
+      neighbor_fsai.mbs_fsai_list_r17.push_back(mbs_fsai_r17.from_number(mbs_fsai)); 
+    }
+    sib21.mbs_fsai_inter_freq_list_r17.push_back(neighbor_fsai);
+  }
+
   return sib21;
 }
 
@@ -614,16 +644,16 @@ static asn1::rrc_nr::sys_info_ies_s::sib_type_and_info_item_c_ make_asn1_rrc_sib
     }
     // Add SIB20 
     case sib_type::sib20: {
-      const auto&  cfg     = std::get<sib20_info>(sib); // TODO to implement sib20_info 
+      const auto&  cfg     = std::get<sib20_info>(sib); // TODO (JAISANRO) to implement sib20_info 
       sib20_r17_s& out_sib = ret.set_sib20_v1700();
-      out_sib              = make_asn1_rrc_cell_sib20(cfg);  // TODO to implement 
+      out_sib              = make_asn1_rrc_cell_sib20(cfg);  // TODO (JAISANRO) to implement 
       break;
     }
     // Add SIB21
     case sib_type::sib21: {
-      const auto&  cfg     = std::get<sib21_info>(sib);// TODO to implement sib20_info 
+      const auto&  cfg     = std::get<sib21_info>(sib);// TODO (JAISANRO) to implement sib20_info 
       sib21_r17_s& out_sib = ret.set_sib21_v1700();
-      out_sib              = make_asn1_rrc_cell_sib21(cfg); // TODO to implement 
+      out_sib              = make_asn1_rrc_cell_sib21(cfg); // TODO (JAISANRO) to implement 
       break;
     }
     default:
@@ -719,7 +749,7 @@ byte_buffer srsran::srs_du::make_asn1_meas_time_cfg_buffer(const du_cell_config&
   }
   meas_item.pci_present = true;
   meas_item.pci         = du_cfg.pci;
-
+  
   asn1::SRSASN_CODE ret = cfg.pack(bref);
   srsran_assert(ret == asn1::SRSASN_SUCCESS, "Failed to pack meas_time_cfg");
   return buf;
@@ -763,7 +793,7 @@ void srsran::srs_du::fill_f1_setup_request(f1_setup_request_message&            
   }
 }
 
-byte_buffer srsran::srs_du::make_asn1_rrc_cell_sib19_buffer(const sib19_info& sib19_params, std::string* js_str) // Used only at sib_test.cpp
+byte_buffer srsran::srs_du::make_asn1_rrc_cell_sib19_buffer(const sib19_info& sib19_params, std::string* js_str)
 {
   byte_buffer               buf;
   asn1::bit_ref             bref{buf};
@@ -779,4 +809,3 @@ byte_buffer srsran::srs_du::make_asn1_rrc_cell_sib19_buffer(const sib19_info& si
   return buf;
 }
 
-// TODO Add make buffer for sib20 and sib20?

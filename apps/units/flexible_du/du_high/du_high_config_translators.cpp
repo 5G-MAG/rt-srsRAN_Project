@@ -158,6 +158,17 @@ static sib19_info create_sib19_info(const du_high_unit_config& config)
   return sib19;
 }
 
+// TODO (JAISANRO) Add sib20
+[[maybe_unused]] static sib21_info create_sib21_info(const du_high_unit_config& config) // TODO (JAISANRO) Use this funcion in make asn1 sib21
+{
+  sib21_info sib21;
+
+  sib21.mbs_fsai_intra_freq_lst.assign(config.mbs_cfg.value().fsai_intra.begin(), config.mbs_cfg.value().fsai_intra.end()); 
+
+  // TODO (JAISANRO) Add the inter_fsai parameters.
+  return sib21;
+}
+
 static unsigned get_nof_rbs(const du_high_unit_base_cell_config& cell_cfg)
 {
   return band_helper::get_n_rbs_from_bw(
@@ -330,6 +341,13 @@ std::vector<du_cell_config> srsran::generate_du_cell_config(const du_high_unit_c
               item = create_sib19_info(config);
             } else {
               report_error("SIB19 is not configured, NTN fields required\n");
+            }
+          } break;
+          case 21: {
+            if (config.mbs_cfg.has_value()) {
+              item = create_sib21_info(config);
+            } else {
+              report_error("SIB21 is not configured, MBS fields required\n");
             }
           } break;
           default:

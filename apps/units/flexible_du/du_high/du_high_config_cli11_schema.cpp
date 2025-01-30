@@ -844,7 +844,7 @@ static void configure_cli11_si_sched_info(CLI::App& app, du_high_unit_sib_config
              si_sched_info.sib_mapping_info,
              "Mapping of SIB types to SI-messages. SIB numbers should not be repeated")
       ->capture_default_str()
-      ->check(CLI::IsMember({2, 19}));
+      ->check(CLI::IsMember({2, 19, 20, 21})); // TODO (JAISANRO) Add sib20, and 21 as possible values
   add_option(
       app, "--si_window_position", si_sched_info.si_window_position, "SI window position of the associated SI-message")
       ->capture_default_str()
@@ -1365,9 +1365,29 @@ static void configure_cli11_ntn_args(CLI::App&                  app,
   configure_cli11_ephemeris_info_orbital(*ephem_subcmd_orbital, orbital_coordinates);
 }
 
+// ntn_config member
 static epoch_time_t          epoch_time;
 static ecef_coordinates_t    ecef_coordinates;
 static orbital_coordinates_t orbital_coordinates;
+
+// mbs_config members
+static mbs_fsai_inter_freq_t mbs_inter_lst; // TODO (JAISANRO) for the moment we don't parse the inter configuration, no neighboor cells for MBS.
+    
+static void configure_cli11_mbs_args(CLI::App&                  app,
+                                     std::optional<mbs_config>& mbs)
+{
+  // TODO (JAISANRO) Add MBS parameters parsing
+  //
+  // We need SIB21, SIB20 and MTCH related parameters
+  //
+  // SIB 21 related parameters: FSA ID
+  mbs_config& config = mbs.emplace();
+
+  add_option(app, "--intra_fsai", config.fsai_intra, "MBS Frequency Selection Area (FSA) ID for the MBS service")
+      ->capture_default_str()
+      ->check(CLI::Range(0, 16777215)); // MBS-FSAI-r17 is an object of 3 bytes.
+
+}
 
 static void configure_cli11_rlc_um_args(CLI::App& app, du_high_unit_rlc_um_config& rlc_um_params)
 {
@@ -1485,7 +1505,9 @@ void srsran::configure_cli11_with_du_high_config_schema(CLI::App& app, du_high_p
   CLI::App* ntn_subcmd = add_subcommand(app, "ntn", "NTN parameters")->configurable();
   configure_cli11_ntn_args(*ntn_subcmd, parsed_cfg.config.ntn_cfg, epoch_time, orbital_coordinates, ecef_coordinates);
   
-  // TODO configure MBS section?
+  // MBS section
+  CLI::App* mbs_subcmd = add_subcommand(app, "mbs", "MBS parameters")->configurable();
+  configure_cli11_mbs_args(*mbs_subcmd, parsed_cfg.config.mbs_cfg);
 
   // Cell section.
   add_option_cell(
@@ -1616,5 +1638,6 @@ static void derive_auto_params(du_high_unit_config& config)
 void srsran::autoderive_du_high_parameters_after_parsing(CLI::App& app, du_high_unit_config& unit_cfg)
 {
   manage_ntn_optional(app, unit_cfg);
+  // TODO (JAISANRO) Add MBS managing function?
   derive_auto_params(unit_cfg);
 }

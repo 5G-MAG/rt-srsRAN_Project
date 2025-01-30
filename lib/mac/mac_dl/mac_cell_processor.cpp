@@ -365,7 +365,7 @@ void mac_cell_processor::assemble_dl_data_request(mac_dl_data_result&    data_re
     }
   }
 
-  // TODO Assemble MBS?
+  // TODO (JAISANRO) Assemble MBS?
 }
 
 void mac_cell_processor::update_logical_channel_dl_buffer_states(const dl_sched_result& dl_res)

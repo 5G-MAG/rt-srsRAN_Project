@@ -32,6 +32,7 @@
 #include "srsran/ran/gnb_id.h"
 #include "srsran/ran/lcid.h"
 #include "srsran/ran/ntn.h"
+#include "srsran/ran/mbs.h"
 #include "srsran/ran/pcch/pcch_configuration.h"
 #include "srsran/ran/pci.h"
 #include "srsran/ran/pdcch/search_space.h"
@@ -397,6 +398,8 @@ struct du_high_unit_sib_config {
   sib_ue_timers_and_constants ue_timers_and_constants;
   /// Parameters of the SIB19.
   sib19_info sib19;
+
+  // TODO (JAISANRO) Add sib info for SIB20 and SIB21
 };
 
 struct du_high_unit_csi_config {
@@ -783,6 +786,8 @@ struct du_high_unit_config {
   du_high_unit_test_mode_config test_mode_cfg = {};
   /// NTN configuration.
   std::optional<ntn_config> ntn_cfg;
+  /// MBS configuration
+  std::optional<mbs_config> mbs_cfg;
   /// \brief Cell configuration.
   ///
   /// \note Add one cell by default.
