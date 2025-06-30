@@ -23,6 +23,9 @@ set(SOURCES
         ue_event_manager.cpp
         ue_fallback_scheduler.cpp
         ue_scheduler_impl.cpp
-        ue_repository.cpp)
+        ue_repository.cpp
+        grant_params_selector.cpp
+        intra_slice_scheduler.cpp
+)
 
 add_library(ue_sched OBJECT ${SOURCES})

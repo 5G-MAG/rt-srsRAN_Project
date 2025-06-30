@@ -23,6 +23,7 @@
 #include "asn1_rrc_config_helpers.h"
 #include "asn1_csi_meas_config_helpers.h"
 #include "srsran/asn1/asn1_diff_utils.h"
+#include "srsran/ran/band_helper.h"
 #include "srsran/support/error_handling.h"
 
 using namespace srsran;
@@ -30,11 +31,6 @@ using namespace srsran::srs_du;
 using namespace asn1::rrc_nr;
 
 namespace {
-
-asn1::rrc_nr::subcarrier_spacing_e get_asn1_scs(subcarrier_spacing scs)
-{
-  return asn1::rrc_nr::subcarrier_spacing_e{static_cast<asn1::rrc_nr::subcarrier_spacing_opts::options>(scs)};
-}
 
 /// Helper type used to generate ASN.1 diff
 struct rlc_bearer_config {
@@ -745,90 +741,46 @@ static void ssb_per_rach_occasion_and_cb_preambles_per_ssb_to_asn1(const float  
   report_fatal_error("Invalid nof. SSB per RACH occasion value {}", nof_ssb_per_ro);
 }
 
+static asn1::rrc_nr::rach_cfg_generic_s make_asn1_rach_cfg_generic(const rach_config_generic& cfg)
+{
+  rach_cfg_generic_s out;
+
+  out.prach_cfg_idx             = cfg.prach_config_index;
+  out.msg1_fdm.value            = rach_msg1_fdm_convert_to_asn1(cfg.msg1_fdm);
+  out.msg1_freq_start           = static_cast<uint16_t>(cfg.msg1_frequency_start);
+  out.zero_correlation_zone_cfg = static_cast<uint8_t>(cfg.zero_correlation_zone_config);
+  out.preamb_rx_target_pwr      = cfg.preamble_rx_target_pw.value();
+  report_fatal_error_if_not(asn1::number_to_enum(out.preamb_trans_max, cfg.preamble_trans_max),
+                            "Invalid preamble transmission max value");
+  report_fatal_error_if_not(asn1::number_to_enum(out.pwr_ramp_step, cfg.power_ramping_step_db),
+                            "Invalid power ramping step value");
+  report_fatal_error_if_not(asn1::number_to_enum(out.ra_resp_win, cfg.ra_resp_window), "Invalid ra-WindowSize");
+
+  return out;
+}
+
 asn1::rrc_nr::bwp_ul_common_s srsran::srs_du::make_asn1_rrc_initial_up_bwp(const ul_config_common& cfg)
 {
   asn1::rrc_nr::bwp_ul_common_s init_ul_bwp;
 
   // > genericParameters BWP
   init_ul_bwp.generic_params.subcarrier_spacing.value = get_asn1_scs(cfg.init_ul_bwp.generic_params.scs);
-  init_ul_bwp.generic_params.location_and_bw =
-      sliv_from_s_and_l(275, cfg.init_ul_bwp.generic_params.crbs.start(), cfg.init_ul_bwp.generic_params.crbs.length());
+  init_ul_bwp.generic_params.location_and_bw          = sliv_from_s_and_l(
+      MAX_NOF_PRBS, cfg.init_ul_bwp.generic_params.crbs.start(), cfg.init_ul_bwp.generic_params.crbs.length());
 
   // > rach-ConfigCommon SetupRelease { RACH-ConfigCommon } OPTIONAL, -- Need M
-  const rach_config_common& rach_cfg    = *cfg.init_ul_bwp.rach_cfg_common;
-  init_ul_bwp.rach_cfg_common_present   = true;
-  rach_cfg_common_s& rach               = init_ul_bwp.rach_cfg_common.set_setup();
-  rach.rach_cfg_generic.prach_cfg_idx   = rach_cfg.rach_cfg_generic.prach_config_index;
-  rach.rach_cfg_generic.msg1_fdm.value  = rach_msg1_fdm_convert_to_asn1(rach_cfg.rach_cfg_generic.msg1_fdm);
-  rach.rach_cfg_generic.msg1_freq_start = static_cast<uint16_t>(rach_cfg.rach_cfg_generic.msg1_frequency_start);
-  rach.rach_cfg_generic.zero_correlation_zone_cfg =
-      static_cast<uint8_t>(rach_cfg.rach_cfg_generic.zero_correlation_zone_config);
-  rach.rach_cfg_generic.preamb_rx_target_pwr = rach_cfg.rach_cfg_generic.preamble_rx_target_pw.to_int();
-  switch (rach_cfg.rach_cfg_generic.preamble_trans_max) {
-    case 3:
-      rach.rach_cfg_generic.preamb_trans_max.value = asn1::rrc_nr::rach_cfg_generic_s::preamb_trans_max_opts::n3;
-      break;
-    case 4:
-      rach.rach_cfg_generic.preamb_trans_max.value = asn1::rrc_nr::rach_cfg_generic_s::preamb_trans_max_opts::n4;
-      break;
-    case 5:
-      rach.rach_cfg_generic.preamb_trans_max.value = asn1::rrc_nr::rach_cfg_generic_s::preamb_trans_max_opts::n5;
-      break;
-    case 6:
-      rach.rach_cfg_generic.preamb_trans_max.value = asn1::rrc_nr::rach_cfg_generic_s::preamb_trans_max_opts::n6;
-      break;
-    case 7:
-      rach.rach_cfg_generic.preamb_trans_max.value = asn1::rrc_nr::rach_cfg_generic_s::preamb_trans_max_opts::n7;
-      break;
-    case 8:
-      rach.rach_cfg_generic.preamb_trans_max.value = asn1::rrc_nr::rach_cfg_generic_s::preamb_trans_max_opts::n8;
-      break;
-    case 10:
-      rach.rach_cfg_generic.preamb_trans_max.value = asn1::rrc_nr::rach_cfg_generic_s::preamb_trans_max_opts::n10;
-      break;
-    case 20:
-      rach.rach_cfg_generic.preamb_trans_max.value = asn1::rrc_nr::rach_cfg_generic_s::preamb_trans_max_opts::n20;
-      break;
-    case 50:
-      rach.rach_cfg_generic.preamb_trans_max.value = asn1::rrc_nr::rach_cfg_generic_s::preamb_trans_max_opts::n50;
-      break;
-    case 100:
-      rach.rach_cfg_generic.preamb_trans_max.value = asn1::rrc_nr::rach_cfg_generic_s::preamb_trans_max_opts::n100;
-      break;
-    case 200:
-      rach.rach_cfg_generic.preamb_trans_max.value = asn1::rrc_nr::rach_cfg_generic_s::preamb_trans_max_opts::n200;
-      break;
-    default:
-      report_fatal_error("Invalid preamble transmission max value");
-  }
-  switch (rach_cfg.rach_cfg_generic.power_ramping_step_db) {
-    case 0:
-      rach.rach_cfg_generic.pwr_ramp_step.value = asn1::rrc_nr::rach_cfg_generic_s::pwr_ramp_step_opts::db0;
-      break;
-    case 2:
-      rach.rach_cfg_generic.pwr_ramp_step.value = asn1::rrc_nr::rach_cfg_generic_s::pwr_ramp_step_opts::db2;
-      break;
-    case 4:
-      rach.rach_cfg_generic.pwr_ramp_step.value = asn1::rrc_nr::rach_cfg_generic_s::pwr_ramp_step_opts::db4;
-      break;
-    case 6:
-      rach.rach_cfg_generic.pwr_ramp_step.value = asn1::rrc_nr::rach_cfg_generic_s::pwr_ramp_step_opts::db6;
-      break;
-    default:
-      report_fatal_error("Invalid power ramping step value");
-  }
-
-  bool success = asn1::number_to_enum(rach.rach_cfg_generic.ra_resp_win, rach_cfg.rach_cfg_generic.ra_resp_window);
-  srsran_assert(success, "Invalid ra-WindowSize");
-  if (rach_cfg.total_nof_ra_preambles.has_value()) {
+  const rach_config_common& rach_cfg  = *cfg.init_ul_bwp.rach_cfg_common;
+  init_ul_bwp.rach_cfg_common_present = true;
+  rach_cfg_common_s& rach             = init_ul_bwp.rach_cfg_common.set_setup();
+  rach.rach_cfg_generic               = make_asn1_rach_cfg_generic(rach_cfg.rach_cfg_generic);
+  if (rach_cfg.total_nof_ra_preambles != MAX_NOF_RA_PREAMBLES_PER_OCCASION) {
     rach.total_nof_ra_preambs_present = true;
-    rach.total_nof_ra_preambs         = rach_cfg.total_nof_ra_preambles.value();
-    rach.total_nof_ra_preambs -= 1; // Account for zero-indexed ASN field.
+    rach.total_nof_ra_preambs         = rach_cfg.total_nof_ra_preambles;
   }
   ssb_per_rach_occasion_and_cb_preambles_per_ssb_to_asn1(
       rach_cfg.nof_ssb_per_ro, rach_cfg.nof_cb_preambles_per_ssb, rach);
-  rach.ra_contention_resolution_timer.value =
-      asn1::rrc_nr::rach_cfg_common_s::ra_contention_resolution_timer_opts::sf64;
+  bool success = asn1::number_to_enum(rach.ra_contention_resolution_timer, rach_cfg.ra_con_res_timer.count());
+  srsran_assert(success, "Invalid ra-ContentionResolutionTimer");
   if (rach_cfg.msg3_transform_precoder) {
     rach.msg3_transform_precoder_present = true;
   }
@@ -953,9 +905,8 @@ static asn1::rrc_nr::tdd_ul_dl_pattern_s make_asn1_rrc_tdd_ul_dl_pattern(subcarr
       out.dl_ul_tx_periodicity.value         = asn1::rrc_nr::tdd_ul_dl_pattern_s::dl_ul_tx_periodicity_opts::ms0p5;
       out.ext                                = true;
       out.dl_ul_tx_periodicity_v1530_present = true;
-      out.dl_ul_tx_periodicity_v1530.value =
-          (asn1::rrc_nr::tdd_ul_dl_pattern_s::dl_ul_tx_periodicity_v1530_opts::options)(
-              std::distance(ext_periods.begin(), it));
+      out.dl_ul_tx_periodicity_v1530.value = static_cast<tdd_ul_dl_pattern_s::dl_ul_tx_periodicity_v1530_opts::options>(
+          std::distance(ext_periods.begin(), it));
     } else {
       report_fatal_error("Unsupported TDD UL/DL periodicity {}ms", periodicity_ms);
     }
@@ -2136,6 +2087,20 @@ calculate_pusch_config_diff(asn1::rrc_nr::pusch_cfg_s& out, const pusch_config& 
       default:
         srsran_assertion_failure("Invalid PUSCH Transform Precoder={}", fmt::underlying(dest.trans_precoder));
     }
+
+    if (dest.mcs_table != pusch_mcs_table::qam64) {
+      out.mcs_table_transform_precoder_present = true;
+      switch (dest.mcs_table) {
+        case pusch_mcs_table::qam64LowSe:
+          out.mcs_table_transform_precoder.value = pusch_cfg_s::mcs_table_transform_precoder_opts::qam64_low_se;
+          break;
+        case pusch_mcs_table::qam256:
+          out.mcs_table_transform_precoder.value = pusch_cfg_s::mcs_table_transform_precoder_opts::qam256;
+          break;
+        default:
+          report_fatal_error("Invalid PUSCH MCS Table={}", fmt::underlying(dest.mcs_table));
+      }
+    }
   }
 
   if ((dest.uci_cfg.has_value() && not src.uci_cfg.has_value()) ||
@@ -2409,10 +2374,10 @@ static srs_res_s make_asn1_rrc_srs_res(const srs_config::srs_resource& cfg)
     case srs_group_or_sequence_hopping::neither:
       res.group_or_seq_hop = srs_res_s::group_or_seq_hop_opts::neither;
       break;
-    case srs_group_or_sequence_hopping::groupHopping:
+    case srs_group_or_sequence_hopping::group_hopping:
       res.group_or_seq_hop = srs_res_s::group_or_seq_hop_opts::group_hop;
       break;
-    case srs_group_or_sequence_hopping::sequenceHopping:
+    case srs_group_or_sequence_hopping::sequence_hopping:
       res.group_or_seq_hop = srs_res_s::group_or_seq_hop_opts::seq_hop;
       break;
     default:
@@ -2751,8 +2716,12 @@ static asn1::rrc_nr::drx_cfg_s make_asn1_drx_config(const drx_config& cfg)
     report_fatal_error("Invalid Inactivity timer value {}", cfg.inactivity_timer.count());
   }
 
-  out.drx_retx_timer_dl.value = drx_cfg_s::drx_retx_timer_dl_opts::sl0;
-  out.drx_retx_timer_ul.value = drx_cfg_s::drx_retx_timer_ul_opts::sl0;
+  if (not asn1::number_to_enum(out.drx_retx_timer_dl, cfg.retx_timer_dl)) {
+    report_fatal_error("Invalid Retransmission DL timer value {}", cfg.retx_timer_dl);
+  }
+  if (not asn1::number_to_enum(out.drx_retx_timer_ul, cfg.retx_timer_ul)) {
+    report_fatal_error("Invalid Retransmission UL timer value {}", cfg.retx_timer_ul);
+  }
 
   auto&    out_cycle = out.drx_long_cycle_start_offset;
   unsigned offset    = cfg.long_start_offset.count();
@@ -3299,6 +3268,26 @@ bool srsran::srs_du::calculate_reconfig_with_sync_diff(asn1::rrc_nr::recfg_with_
   out.new_ue_id = to_value(rnti);
 
   out.t304.value = recfg_with_sync_s::t304_opts::ms2000;
+
+  // In case of CFRA.
+  out.rach_cfg_ded_present = dest.cfra.has_value();
+  if (out.rach_cfg_ded_present) {
+    const auto&     rach_common = *du_cell_cfg.ul_cfg_common.init_ul_bwp.rach_cfg_common;
+    rach_cfg_ded_s& rach_ded    = out.rach_cfg_ded.set_ul();
+    rach_ded.cfra_present       = true;
+    // Use rachConfigCommon to get "occasions".
+    rach_ded.cfra.occasions_present = false;
+    // Note: All RA preambles not used for CBRA are used for CFRA.
+    rach_ded.cfra.ext                          = true;
+    rach_ded.cfra.total_nof_ra_preambs_present = true;
+    rach_ded.cfra.total_nof_ra_preambs = rach_common.total_nof_ra_preambles - rach_common.nof_cb_preambles_per_ssb;
+    // Make CFRA-SSB-Resource.
+    auto&          cfra_ssb = rach_ded.cfra.res.set_ssb();
+    cfra_ssb_res_s ssbres;
+    ssbres.ssb           = 0;
+    ssbres.ra_preamb_idx = dest.cfra.value().preamble_id;
+    cfra_ssb.ssb_res_list.push_back(ssbres);
+  }
 
   out.ext = true;
   out.smtc.set_present();

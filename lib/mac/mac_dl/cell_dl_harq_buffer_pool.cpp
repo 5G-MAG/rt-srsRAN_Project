@@ -126,7 +126,7 @@ void cell_dl_harq_buffer_pool::grow_cache_in_background()
     return;
   }
 
-  if (not ctrl_exec.defer([this]() {
+  if (not ctrl_exec.defer(TRACE_TASK([this]() {
         // Allocate minibatch of DL HARQ buffers and save them in cache.
         for (unsigned i = 0; i != DL_HARQ_ALLOC_MINIBATCH; ++i) {
           if (auto* buffer = allocate_from_pool()) {
@@ -139,7 +139,7 @@ void cell_dl_harq_buffer_pool::grow_cache_in_background()
 
         // Dispatch new task to grow the cache if it hasn't yet achieved the desired size.
         grow_cache_in_background();
-      })) {
+      }))) {
     logger.warning("Failed to dispatch task to allocate DL HARQ buffers");
   }
 }
@@ -151,14 +151,14 @@ cell_dl_harq_buffer_pool::dl_harq_buffer_storage* cell_dl_harq_buffer_pool::allo
     return nullptr;
   }
 
-  return &(*pool)[pool_elem_index-- - 1];
+  return &(*pool)[--pool_elem_index];
 }
 
 cell_dl_harq_buffer_pool::dl_harq_buffer_storage* cell_dl_harq_buffer_pool::allocate_from_cache()
 {
   // Some buffers may be still in flight after user removal.
   auto it = std::find_if(buffer_cache.rbegin(), buffer_cache.rend(), [](const dl_harq_buffer_storage* buffer) {
-    return buffer->ref_cnt.load(std::memory_order_acquire) == 0;
+    return buffer->ref_cnt.load(std::memory_order_relaxed) == 0;
   });
   if (it == buffer_cache.rend()) {
     return nullptr;

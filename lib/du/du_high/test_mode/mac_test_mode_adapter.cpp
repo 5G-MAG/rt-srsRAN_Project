@@ -24,6 +24,7 @@
 #include "../adapters/du_high_adapter_factories.h"
 #include "mac_test_mode_helpers.h"
 #include "srsran/adt/ring_buffer.h"
+#include "srsran/mac/mac_cell_timing_context.h"
 #include "srsran/mac/mac_factory.h"
 #include "srsran/scheduler/harq_id.h"
 #include "srsran/scheduler/resource_grid_util.h"
@@ -58,7 +59,13 @@ public:
     return 0;
   }
 
-  unsigned on_buffer_state_update() override { return TEST_UE_DL_BUFFER_STATE_UPDATE_SIZE; }
+  rlc_buffer_state on_buffer_state_update() override
+  {
+    rlc_buffer_state bs = {};
+    bs.pending_bytes    = TEST_UE_DL_BUFFER_STATE_UPDATE_SIZE;
+    // TODO: set bs.hol_toa
+    return bs;
+  }
 
 private:
   byte_buffer tx_sdu;
@@ -67,7 +74,7 @@ private:
 size_t get_ring_size(const mac_cell_creation_request& cell_cfg)
 {
   // Estimation of the time it takes the UL lower-layers to process and forward CRC/UCI indications.
-  constexpr static unsigned MAX_UL_PHY_DELAY = 40;
+  static constexpr unsigned MAX_UL_PHY_DELAY = 40;
   // Note: The history ring size has to be a multiple of the TDD frame size in slots.
   // Number of slots managed by this container.
   return get_allocator_ring_size_gt_min(get_max_slot_ul_alloc_delay(cell_cfg.sched_req.ntn_cs_koffset) +
@@ -98,11 +105,11 @@ mac_test_mode_cell_adapter::mac_test_mode_cell_adapter(
 {
 }
 
-void mac_test_mode_cell_adapter::handle_slot_indication(slot_point sl_tx)
+void mac_test_mode_cell_adapter::handle_slot_indication(const mac_cell_timing_context& context)
 {
   if (test_ue_cfg.auto_ack_indication_delay.has_value()) {
     // auto-generation of CRC/UCI indication is enabled.
-    slot_point                   sl_rx = sl_tx - test_ue_cfg.auto_ack_indication_delay.value();
+    slot_point                   sl_rx = context.sl_tx - test_ue_cfg.auto_ack_indication_delay.value();
     const slot_decision_history& entry = sched_decision_history[get_ring_idx(sl_rx)];
     std::unique_lock<std::mutex> lock(entry.mutex);
     if (entry.slot == sl_rx) {
@@ -158,7 +165,7 @@ void mac_test_mode_cell_adapter::handle_slot_indication(slot_point sl_tx)
     }
   }
 
-  slot_handler.handle_slot_indication(sl_tx);
+  slot_handler.handle_slot_indication(context);
 }
 
 void mac_test_mode_cell_adapter::handle_error_indication(slot_point sl_tx, error_event event)
@@ -340,6 +347,42 @@ void mac_test_mode_cell_adapter::on_new_downlink_scheduler_results(const mac_dl_
     last_slot_ind = dl_res.slot;
   }
 
+  for (auto& grant : dl_res.dl_res->ue_grants) {
+    rnti_t crnti = grant.pdsch_cfg.rnti;
+    if (not ue_info_mgr.is_cell_test_ue(cell_index, crnti) or ue_info_mgr.is_msg4_rxed(crnti)) {
+      // UE is not test mode or it has already received Msg4.
+      continue;
+    }
+
+    // In case of SRB PDU received, we assume that the Msg4 is received. At this point, we update the test UE with
+    // positive DL buffer states and BSR.
+    auto& lchs = grant.tb_list[0].lc_chs_to_sched;
+    if (std::any_of(
+            lchs.begin(), lchs.end(), [](const auto& lc) { return lc.lcid.is_sdu() and is_srb(lc.lcid.to_lcid()); })) {
+      if (test_ue_cfg.pdsch_active) {
+        // Update DL buffer state automatically.
+        dl_bs_notifier(crnti);
+      }
+
+      if (test_ue_cfg.pusch_active) {
+        auto rx_pdu = create_test_pdu_with_bsr(cell_index, dl_res.slot, crnti, to_harq_id(0));
+        if (not rx_pdu.has_value()) {
+          logger.warning("TEST_MODE c-rnti={}: Unable to create test PDU with BSR", crnti);
+          continue;
+        }
+        // In case of PUSCH test mode is enabled, push a BSR to trigger the first PUSCH.
+        pdu_handler.handle_rx_data_indication(std::move(rx_pdu.value()));
+      }
+
+      // Mark Msg4 received for the UE.
+      ue_info_mgr.msg4_rxed(crnti, true);
+
+      // Push an UL PDU that will serve as rrcSetupComplete and get the UE out of fallback mode.
+      auto rx_pdu = create_test_pdu_with_rrc_setup_complete(cell_index, dl_res.slot, crnti, to_harq_id(0));
+      pdu_handler.handle_rx_data_indication(std::move(rx_pdu.value()));
+    }
+  }
+
   // Dispatch result to lower layers.
   result_notifier.on_new_downlink_scheduler_results(dl_res);
 }
@@ -371,37 +414,6 @@ void mac_test_mode_cell_adapter::on_new_uplink_scheduler_results(const mac_ul_sc
     for (const ul_sched_info& pusch : ul_res.ul_res->puschs) {
       if (ue_info_mgr.is_cell_test_ue(cell_index, pusch.pusch_cfg.rnti)) {
         entry.puschs.push_back(pusch);
-      }
-    }
-  }
-
-  if (ul_res.ul_res != nullptr and not ul_res.ul_res->pucchs.empty()) {
-    for (const pucch_info& pucch : ul_res.ul_res->pucchs) {
-      if (not ue_info_mgr.is_cell_test_ue(cell_index, pucch.crnti) or ue_info_mgr.is_msg4_rxed(pucch.crnti)) {
-        // UE is not test mode or it has already received Msg4.
-        continue;
-      }
-      if ((pucch.format == pucch_format::FORMAT_1 and pucch.format_1.harq_ack_nof_bits > 0) or
-          (pucch.format == pucch_format::FORMAT_0 and pucch.format_0.harq_ack_nof_bits > 0)) {
-        // In case of PUCCH F1 with HARQ-ACK bits, we assume that the Msg4 is received. At this point, we
-        // update the test UE with positive DL buffer states and BSR.
-        if (test_ue_cfg.pdsch_active) {
-          // Update DL buffer state automatically.
-          dl_bs_notifier(pucch.crnti);
-        }
-
-        if (test_ue_cfg.pusch_active) {
-          auto rx_pdu = create_test_pdu_with_bsr(cell_index, ul_res.slot, pucch.crnti, to_harq_id(0));
-          if (not rx_pdu.has_value()) {
-            logger.warning("TEST_MODE c-rnti={}: Unable to create test PDU with BSR", pucch.crnti);
-            continue;
-          }
-          // In case of PUSCH test mode is enabled, push a BSR to trigger the first PUSCH.
-          pdu_handler.handle_rx_data_indication(std::move(rx_pdu.value()));
-        }
-
-        // Mark Msg4 received for the UE.
-        ue_info_mgr.msg4_rxed(pucch.crnti, true);
       }
     }
   }
@@ -460,10 +472,10 @@ void mac_test_mode_adapter::connect(std::unique_ptr<mac_interface> mac_ptr)
   mac_adapted = std::move(mac_ptr);
 }
 
-void mac_test_mode_adapter::add_cell(const mac_cell_creation_request& cell_cfg)
+mac_cell_controller& mac_test_mode_adapter::add_cell(const mac_cell_creation_request& cell_cfg)
 {
   // Create cell in real MAC.
-  mac_adapted->get_cell_manager().add_cell(cell_cfg);
+  mac_cell_controller& cell = mac_adapted->get_cell_manager().add_cell(cell_cfg);
 
   // Create the cell in the MAC test mode.
   auto func_dl_bs_push = [this](rnti_t rnti) {
@@ -486,6 +498,8 @@ void mac_test_mode_adapter::add_cell(const mac_cell_creation_request& cell_cfg)
   cell_info_handler[cell_cfg.cell_index] = std::move(new_cell);
 
   phy_notifier->connect(cell_cfg.cell_index, *cell_info_handler[cell_cfg.cell_index]);
+
+  return cell;
 }
 
 void mac_test_mode_adapter::remove_cell(du_cell_index_t cell_index)
@@ -502,6 +516,11 @@ void mac_test_mode_adapter::remove_cell(du_cell_index_t cell_index)
 mac_cell_controller& mac_test_mode_adapter::get_cell_controller(du_cell_index_t cell_index)
 {
   return mac_adapted->get_cell_manager().get_cell_controller(cell_index);
+}
+
+mac_cell_time_mapper& mac_test_mode_adapter::get_time_mapper(du_cell_index_t cell_index)
+{
+  return mac_adapted->get_cell_manager().get_time_mapper(cell_index);
 }
 
 mac_cell_control_information_handler& mac_test_mode_adapter::get_control_info_handler(du_cell_index_t cell_index)
@@ -541,7 +560,7 @@ async_task<mac_ue_create_response> mac_test_mode_adapter::handle_ue_create_reque
   if (ue_info_mgr.is_test_ue(cfg.crnti)) {
     // It is the test UE.
     mac_ue_create_request cfg_copy = cfg;
-    cfg_copy.initial_fallback      = false;
+    cfg_copy.initial_fallback      = true;
 
     // Save UE index and configuration of test mode UE.
     ue_info_mgr.add_ue(cfg.crnti, cfg_copy.ue_index, cfg_copy.sched_cfg);
@@ -603,11 +622,12 @@ std::unique_ptr<mac_interface> srsran::srs_du::create_du_high_mac(const mac_conf
                                               mac_cfg.ue_exec_mapper,
                                               mac_cfg.cell_exec_mapper,
                                               mac_cfg.ctrl_exec,
+                                              mac_cfg.timer_exec,
                                               mac_testmode->get_phy_notifier(),
                                               mac_cfg.mac_cfg,
                                               mac_cfg.pcap,
-                                              mac_cfg.sched_cfg,
-                                              mac_cfg.metric_notifier,
-                                              mac_cfg.timers}));
+                                              mac_cfg.timers,
+                                              mac_cfg.metrics,
+                                              mac_cfg.sched_cfg}));
   return mac_testmode;
 }

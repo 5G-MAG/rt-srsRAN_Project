@@ -21,7 +21,11 @@
  */
 
 #include "fapi_to_mac_data_msg_translator.h"
-#include "srsran/fapi/messages.h"
+#include "srsran/fapi/messages/crc_indication.h"
+#include "srsran/fapi/messages/rach_indication.h"
+#include "srsran/fapi/messages/rx_data_indication.h"
+#include "srsran/fapi/messages/srs_indication.h"
+#include "srsran/fapi/messages/uci_indication.h"
 #include "srsran/srslog/srslog.h"
 
 using namespace srsran;
@@ -101,9 +105,9 @@ static std::optional<float> convert_fapi_to_mac_rsrp(uint16_t fapi_rsrp)
   return std::nullopt;
 }
 
-fapi_to_mac_data_msg_translator::fapi_to_mac_data_msg_translator(subcarrier_spacing scs_, unsigned sector_) :
+fapi_to_mac_data_msg_translator::fapi_to_mac_data_msg_translator(subcarrier_spacing scs_, unsigned sector_id_) :
   scs(scs_),
-  sector(sector_),
+  sector_id(sector_id_),
   rach_handler(dummy_mac_rach_handler),
   pdu_handler(dummy_pdu_handler),
   cell_control_handler(dummy_cell_control_handler)
@@ -114,7 +118,7 @@ void fapi_to_mac_data_msg_translator::on_rx_data_indication(const fapi::rx_data_
 {
   mac_rx_data_indication indication;
   indication.sl_rx      = slot_point(scs, msg.sfn, msg.slot);
-  indication.cell_index = to_du_cell_index(sector);
+  indication.cell_index = to_du_cell_index(sector_id);
   for (const auto& fapi_pdu : msg.pdus) {
     // PDUs that were not successfully decoded have zero length.
     if (fapi_pdu.pdu_length == 0) {
@@ -123,7 +127,7 @@ void fapi_to_mac_data_msg_translator::on_rx_data_indication(const fapi::rx_data_
 
     auto pdu_buffer = byte_buffer::create(span<const uint8_t>(fapi_pdu.data, fapi_pdu.pdu_length));
     if (not pdu_buffer.has_value()) {
-      srslog::fetch_basic_logger("FAPI").warning("Unable to allocate memory for MAC RX PDU");
+      srslog::fetch_basic_logger("FAPI").warning("Sector#{}: Unable to allocate memory for MAC RX PDU", sector_id);
       // Avoid new buffer allocations for the same FAPI PDU.
       break;
     }
@@ -322,7 +326,17 @@ void fapi_to_mac_data_msg_translator::on_srs_indication(const fapi::srs_indicati
     mac_srs_pdu& mac_pdu        = mac_msg.srss.emplace_back();
     mac_pdu.rnti                = pdu.rnti;
     mac_pdu.time_advance_offset = convert_fapi_to_mac_ta_offset(pdu.timing_advance_offset_ns);
-    mac_pdu.channel_matrix      = pdu.matrix;
+    switch (pdu.report_type) {
+      case fapi::srs_report_type::normalized_channel_iq_matrix:
+        mac_pdu.report = mac_srs_pdu::normalized_channel_iq_matrix{pdu.matrix};
+        break;
+      case fapi::srs_report_type::positioning:
+        mac_pdu.report = mac_srs_pdu::positioning_report{pdu.positioning.ul_relative_toa};
+        break;
+      default:
+        srsran_assert(0, "Unsupported SRS report type '{}'", fapi::to_value(pdu.report_type));
+        break;
+    }
   }
 
   cell_control_handler.get().handle_srs(mac_msg);

@@ -22,10 +22,8 @@
 
 #pragma once
 
-#include "srsran/adt/static_vector.h"
 #include "srsran/phy/support/precoding_configuration.h"
 #include "srsran/phy/upper/dmrs_mapping.h"
-#include "srsran/ran/cyclic_prefix.h"
 #include "srsran/ran/slot_point.h"
 
 namespace srsran {
@@ -40,20 +38,20 @@ public:
   struct config_t {
     /// Slot context for sequence initialization.
     slot_point slot;
-    /// Reference point for PDSCH DMRS \e k in RBs.
+    /// Reference point for PDSCH DM-RS \e k in RBs.
     unsigned reference_point_k_rb;
     /// DM-RS config type (\e dmrsConfigType).
     dmrs_type type;
     /// PDSCH DMRS-Scrambling-ID (\e pdschDmrsScramblingId).
     unsigned scrambling_id;
-    /// DMRS sequence initialization (\f$n_{SCID}\f$).
+    /// DM-RS sequence initialization (\f$n_{SCID}\f$).
     bool n_scid;
-    /// Indicates the generated signal linear amplitude.
+    /// Generated signal linear amplitude.
     float amplitude;
     /// DM-RS position mask. Indicates the OFDM symbols carrying DM-RS within the slot.
     symbol_slot_mask symbols_mask;
     /// Allocation RB list, the entries set to true are used for transmission.
-    bounded_bitset<MAX_RB> rb_mask;
+    crb_bitmap rb_mask;
     /// Precoding configuration.
     precoding_configuration precoding;
   };

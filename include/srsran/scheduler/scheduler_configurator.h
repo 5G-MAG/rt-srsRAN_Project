@@ -25,20 +25,15 @@
 #include "srsran/ran/carrier_configuration.h"
 #include "srsran/ran/drx_config.h"
 #include "srsran/ran/du_types.h"
-#include "srsran/ran/logical_channel/lcid.h"
+#include "srsran/ran/meas_gap_config.h"
 #include "srsran/ran/pci.h"
 #include "srsran/ran/phy_time_unit.h"
-#include "srsran/ran/prach/prach_constants.h"
-#include "srsran/ran/qos/five_qi_qos_mapping.h"
-#include "srsran/ran/qos/qos_parameters.h"
 #include "srsran/ran/rnti.h"
 #include "srsran/ran/rrm.h"
-#include "srsran/ran/s_nssai.h"
-#include "srsran/ran/sib/sib_configuration.h"
 #include "srsran/ran/slot_pdu_capacity_constants.h"
 #include "srsran/ran/slot_point.h"
 #include "srsran/ran/sr_configuration.h"
-#include "srsran/ran/ssb_configuration.h"
+#include "srsran/ran/ssb/ssb_configuration.h"
 #include "srsran/ran/subcarrier_spacing.h"
 #include "srsran/ran/tdd/tdd_ul_dl_config.h"
 #include "srsran/ran/time_alignment_config.h"
@@ -48,9 +43,10 @@
 #include "srsran/scheduler/config/serving_cell_config.h"
 #include "srsran/scheduler/config/si_scheduling_config.h"
 #include "srsran/scheduler/config/slice_rrm_policy_config.h"
-#include "srsran/scheduler/result/dci_info.h"
 
 namespace srsran {
+
+class scheduler_cell_metrics_notifier;
 
 /// Basic scheduler resource grid element for resource reservation.
 struct sched_grid_resource {
@@ -67,6 +63,13 @@ struct sched_grid_resource {
 /// Cell Configuration Request.
 /// \remark See O-RAN WG8, Section 9.2.3.2.1, Table 9.18.
 struct sched_cell_configuration_request_message {
+  struct metrics_config {
+    std::chrono::milliseconds        report_period{0};
+    scheduler_cell_metrics_notifier* notifier = nullptr;
+    /// Maximum number of UE events per report.
+    unsigned max_ue_events_per_report = 64;
+  };
+
   du_cell_index_t       cell_index;
   du_cell_group_index_t cell_group_index;
   uint8_t               nof_beams; // (0..64)
@@ -90,7 +93,7 @@ struct sched_cell_configuration_request_message {
   uint8_t searchspace0;
 
   /// Payload size is in bytes.
-  unsigned sib1_payload_size;
+  units::bytes sib1_payload_size;
 
   /// Scheduling of SI messages.
   std::optional<si_scheduling_config> si_scheduling;
@@ -111,6 +114,11 @@ struct sched_cell_configuration_request_message {
   std::vector<slice_rrm_policy_config> rrm_policy_members;
 
   unsigned ntn_cs_koffset = 0;
+
+  bool cfra_enabled = false;
+
+  /// Configuration of scheduler cell metrics.
+  metrics_config metrics;
 };
 
 /// Parameters provided to the scheduler to configure the resource allocation of a specific UE.
@@ -180,7 +188,8 @@ struct rach_indication_message {
   slot_point      slot_rx;
 
   struct preamble {
-    unsigned      preamble_id;
+    unsigned preamble_id;
+    /// Allocated TC-RNTI, for Contention-based RACH, or C-RNTI, for Contention-free RACH.
     rnti_t        tc_rnti;
     phy_time_unit time_advance;
   };
@@ -199,9 +208,24 @@ struct rach_indication_message {
 class scheduler_configurator
 {
 public:
-  virtual ~scheduler_configurator()                                                                   = default;
+  virtual ~scheduler_configurator() = default;
+
+  /// \brief Reconfigure cell.
+  ///
+  /// This method cannot be called for an existing cell index without first removing it.
   virtual bool handle_cell_configuration_request(const sched_cell_configuration_request_message& msg) = 0;
-  virtual void handle_rach_indication(const rach_indication_message& msg)                             = 0;
+
+  /// \brief Handle cell configuration removal.
+  virtual void handle_cell_removal_request(du_cell_index_t cell_index) = 0;
+
+  /// \brief Handle RACH indication message.
+  virtual void handle_rach_indication(const rach_indication_message& msg) = 0;
+
+  /// \brief Activate a configured cell. This method has no effect if the cell is already active.
+  virtual void handle_cell_activation_request(du_cell_index_t cell_index) = 0;
+
+  /// \brief Deactivate a configured cell. This method has no effect if the cell is already deactivated.
+  virtual void handle_cell_deactivation_request(du_cell_index_t cell_index) = 0;
 };
 
 class scheduler_ue_configurator
@@ -218,9 +242,13 @@ public:
 class sched_configuration_notifier
 {
 public:
-  virtual ~sched_configuration_notifier()                                             = default;
+  virtual ~sched_configuration_notifier() = default;
+
+  /// Called by scheduler when UE creation/modification is completed.
   virtual void on_ue_config_complete(du_ue_index_t ue_index, bool ue_creation_result) = 0;
-  virtual void on_ue_delete_response(du_ue_index_t ue_index)                          = 0;
+
+  /// Called by scheduler when UE removal is completed.
+  virtual void on_ue_deletion_completed(du_ue_index_t ue_index) = 0;
 };
 
 } // namespace srsran

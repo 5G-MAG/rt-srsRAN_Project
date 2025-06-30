@@ -126,14 +126,13 @@ void uci_scheduler_impl::add_ue(const ue_cell_configuration& ue_cfg)
 
 void uci_scheduler_impl::add_ue_to_grid(const ue_cell_configuration& ue_cfg, bool is_reconf)
 {
-  if (not ue_cfg.cfg_dedicated().ul_config.has_value() or
-      not ue_cfg.cfg_dedicated().ul_config.value().init_ul_bwp.pucch_cfg.has_value()) {
+  if (not ue_cfg.init_bwp().ul_ded.has_value() or not ue_cfg.init_bwp().ul_ded->pucch_cfg.has_value()) {
     return;
   }
 
   // Save SR resources in the slot wheel.
-  const auto& sr_resource_cfg_list = ue_cfg.cfg_dedicated().ul_config.value().init_ul_bwp.pucch_cfg.value().sr_res_list;
-  for (unsigned i = 0; i != sr_resource_cfg_list.size(); ++i) {
+  const auto& sr_resource_cfg_list = ue_cfg.init_bwp().ul_ded->pucch_cfg.value().sr_res_list;
+  for (unsigned i = 0, sz = sr_resource_cfg_list.size(); i != sz; ++i) {
     const auto& sr_res = sr_resource_cfg_list[i];
     srsran_assert(sr_res.period >= sr_periodicity::sl_1, "Minimum supported SR periodicity is 1 slot.");
 
@@ -141,10 +140,10 @@ void uci_scheduler_impl::add_ue_to_grid(const ue_cell_configuration& ue_cfg, boo
     add_resource(ue_cfg.crnti, sr_res.offset, period_slots, true);
   }
 
-  if (ue_cfg.cfg_dedicated().csi_meas_cfg.has_value()) {
+  if (ue_cfg.csi_meas_cfg() != nullptr) {
     // We assume we only use the first CSI report configuration.
     const unsigned csi_report_cfg_idx = 0;
-    const auto&    csi_report_cfg = ue_cfg.cfg_dedicated().csi_meas_cfg.value().csi_report_cfg_list[csi_report_cfg_idx];
+    const auto&    csi_report_cfg     = ue_cfg.csi_meas_cfg()->csi_report_cfg_list[csi_report_cfg_idx];
     const auto&    period_pucch =
         std::get<csi_report_config::periodic_or_semi_persistent_report_on_pucch>(csi_report_cfg.report_cfg_type);
 
@@ -164,15 +163,17 @@ void uci_scheduler_impl::add_ue_to_grid(const ue_cell_configuration& ue_cfg, boo
 void uci_scheduler_impl::reconf_ue(const ue_cell_configuration& new_ue_cfg, const ue_cell_configuration& old_ue_cfg)
 {
   // Detect whether there are any differences in the old and new UE cell config.
-  if (new_ue_cfg.cfg_dedicated().ul_config.has_value() and old_ue_cfg.cfg_dedicated().ul_config.has_value() and
-      new_ue_cfg.cfg_dedicated().ul_config.value().init_ul_bwp.pucch_cfg.has_value() and
-      old_ue_cfg.cfg_dedicated().ul_config.value().init_ul_bwp.pucch_cfg.has_value()) {
+  if (new_ue_cfg.init_bwp().ul_ded.has_value() and old_ue_cfg.init_bwp().ul_ded.has_value() and
+      new_ue_cfg.init_bwp().ul_ded->pucch_cfg.has_value() and old_ue_cfg.init_bwp().ul_ded->pucch_cfg.has_value()) {
     // Both old and new UE config have PUCCH config.
-    const auto& new_pucch = new_ue_cfg.cfg_dedicated().ul_config.value().init_ul_bwp.pucch_cfg.value();
-    const auto& old_pucch = old_ue_cfg.cfg_dedicated().ul_config.value().init_ul_bwp.pucch_cfg.value();
+    const auto& new_pucch = new_ue_cfg.init_bwp().ul_ded->pucch_cfg.value();
+    const auto& old_pucch = old_ue_cfg.init_bwp().ul_ded->pucch_cfg.value();
 
-    if (new_pucch.sr_res_list == old_pucch.sr_res_list and
-        new_ue_cfg.cfg_dedicated().csi_meas_cfg == old_ue_cfg.cfg_dedicated().csi_meas_cfg) {
+    const bool csi_meas_cfg_not_changed =
+        (new_ue_cfg.csi_meas_cfg() == nullptr and old_ue_cfg.csi_meas_cfg() == nullptr) or
+        (new_ue_cfg.csi_meas_cfg() != nullptr and old_ue_cfg.csi_meas_cfg() != nullptr and
+         *new_ue_cfg.csi_meas_cfg() == *old_ue_cfg.csi_meas_cfg());
+    if (new_pucch.sr_res_list == old_pucch.sr_res_list and csi_meas_cfg_not_changed) {
       // Nothing changed.
       return;
     }
@@ -184,23 +185,22 @@ void uci_scheduler_impl::reconf_ue(const ue_cell_configuration& new_ue_cfg, cons
 
 void uci_scheduler_impl::rem_ue(const ue_cell_configuration& ue_cfg)
 {
-  if (not ue_cfg.cfg_dedicated().ul_config.has_value() or
-      not ue_cfg.cfg_dedicated().ul_config.value().init_ul_bwp.pucch_cfg.has_value()) {
+  if (not ue_cfg.init_bwp().ul_ded.has_value() or not ue_cfg.init_bwp().ul_ded->pucch_cfg.has_value()) {
     return;
   }
 
-  const auto& sr_resource_cfg_list = ue_cfg.cfg_dedicated().ul_config.value().init_ul_bwp.pucch_cfg.value().sr_res_list;
-  for (unsigned i = 0; i != sr_resource_cfg_list.size(); ++i) {
+  const auto& sr_resource_cfg_list = ue_cfg.init_bwp().ul_ded->pucch_cfg.value().sr_res_list;
+  for (unsigned i = 0, sz = sr_resource_cfg_list.size(); i != sz; ++i) {
     const auto& sr_res = sr_resource_cfg_list[i];
 
     unsigned period_slots = sr_periodicity_to_slot(sr_res.period);
     rem_resource(ue_cfg.crnti, sr_res.offset, period_slots, true);
   }
 
-  if (ue_cfg.cfg_dedicated().csi_meas_cfg.has_value()) {
+  if (ue_cfg.csi_meas_cfg() != nullptr) {
     // We assume we only use the first CSI report configuration.
     const unsigned csi_report_cfg_idx = 0;
-    const auto&    csi_report_cfg = ue_cfg.cfg_dedicated().csi_meas_cfg.value().csi_report_cfg_list[csi_report_cfg_idx];
+    const auto&    csi_report_cfg     = ue_cfg.csi_meas_cfg()->csi_report_cfg_list[csi_report_cfg_idx];
     const auto&    period_pucch =
         std::get<csi_report_config::periodic_or_semi_persistent_report_on_pucch>(csi_report_cfg.report_cfg_type);
 

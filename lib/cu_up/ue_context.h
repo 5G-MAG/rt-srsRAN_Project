@@ -30,6 +30,7 @@
 #include "srsran/e1ap/cu_up/e1ap_cu_up.h"
 #include "srsran/f1u/cu_up/f1u_gateway.h"
 #include "srsran/gtpu/gtpu_teid_pool.h"
+#include "srsran/support/async/execute_on_blocking.h"
 #include "srsran/support/async/fifo_async_task_scheduler.h"
 #include <map>
 #include <utility>
@@ -44,6 +45,7 @@ struct ue_context_cfg {
   activity_notification_level_t                    activity_level;
   std::optional<std::chrono::seconds>              ue_inactivity_timeout;
   std::map<five_qi_t, srs_cu_up::cu_up_qos_config> qos;
+  uint64_t                                         ue_dl_aggregate_maximum_bit_rate;
 };
 
 /// \brief Context for a UE within the CU-UP with storage for all active PDU sessions.
@@ -78,6 +80,7 @@ public:
                         n3_config_,
                         test_mode_config_,
                         logger,
+                        cfg.ue_dl_aggregate_maximum_bit_rate,
                         ue_inactivity_timer,
                         ue_dl_timer_factory_,
                         ue_ul_timer_factory_,
@@ -101,7 +104,7 @@ public:
         report_error(
             "Failed to create UE context. Activity notification level is UE, but no UE inactivity timer configured\n");
       }
-      ue_inactivity_timer = ue_ul_timer_factory.create_timer();
+      ue_inactivity_timer = ue_ctrl_timer_factory.create_timer();
       ue_inactivity_timer.set(*cfg.ue_inactivity_timeout,
                               [this](timer_id_t /*tid*/) { on_ue_inactivity_timer_expired(); });
       ue_inactivity_timer.run();
@@ -109,15 +112,49 @@ public:
   }
   ~ue_context() override = default;
 
-  async_task<void> stop()
+  /// Stop UE executors. This routine will switch between executors as required
+  /// to stop/wait on events as required. At the end, it will return to the provided control executor.
+  async_task<void> stop(task_executor& ctrl_executor, timer_manager& timers)
   {
-    /// Disconnect
-    pdu_session_manager.disconnect_all_pdu_sessions();
-    return ue_exec_mapper->stop();
+    return launch_async([this, &ctrl_executor, &timers](coro_context<async_task<void>>& ctx) mutable {
+      CORO_BEGIN(ctx);
+
+      // Switch to UE control executor. Disconnect DRBS.
+      // Stop UE wide timers.
+      CORO_AWAIT(execute_on_blocking(ue_exec_mapper->ctrl_executor(), timers));
+      pdu_session_manager.disconnect_all_pdu_sessions();
+      ue_inactivity_timer.stop();
+
+      // Switch to UE UL executor. Flush pending UL tasks and
+      // await pending UL crypto tasks.
+      CORO_AWAIT(execute_on_blocking(ue_exec_mapper->ul_pdu_executor(), timers));
+      CORO_AWAIT(pdu_session_manager.await_crypto_rx_all_pdu_sessions());
+
+      // Switch to UE DL executor. Flush pending DL tasks.
+      // TODO await pending DL crypto tasks.
+      CORO_AWAIT(execute_on_blocking(ue_exec_mapper->dl_pdu_executor(), timers));
+
+      // Return to UE control executor and stop UE specific executors.
+      CORO_AWAIT(execute_on_blocking(ue_exec_mapper->ctrl_executor(), timers));
+      CORO_AWAIT(ue_exec_mapper->stop());
+
+      // Continuation in the original executor.
+      CORO_AWAIT(execute_on_blocking(ctrl_executor, timers));
+
+      CORO_RETURN();
+    });
   }
 
   // security management
-  void set_security_config(const security::sec_as_config& security_info) { cfg.security_info = security_info; }
+  void set_security_config(const security::sec_as_config& security_info)
+  {
+    cfg.security_info = security_info;
+    pdu_session_manager.update_security_config(security_info);
+  }
+  void notify_pdcp_pdu_processing_stopped() { pdu_session_manager.notify_pdcp_pdu_processing_stopped(); }
+  void restart_pdcp_pdu_processing() { pdu_session_manager.restart_pdcp_pdu_processing(); }
+
+  async_task<void> await_rx_crypto_tasks() { return pdu_session_manager.await_crypto_rx_all_pdu_sessions(); }
 
   // pdu_session_manager_ctrl
   pdu_session_setup_result setup_pdu_session(const e1ap_pdu_session_res_to_setup_item& session) override
@@ -135,9 +172,9 @@ public:
   }
   size_t get_nof_pdu_sessions() override { return pdu_session_manager.get_nof_pdu_sessions(); }
 
-  [[nodiscard]] ue_index_t get_index() const { return index; };
+  [[nodiscard]] ue_index_t get_index() const { return index; }
 
-  [[nodiscard]] const cu_up_ue_logger& get_logger() const { return logger; };
+  [[nodiscard]] const cu_up_ue_logger& get_logger() const { return logger; }
 
   fifo_async_task_scheduler& task_sched;
 

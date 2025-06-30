@@ -27,17 +27,16 @@ set(SOURCES
 
 add_library(srsdu_base STATIC ${SOURCES})
 target_link_libraries(srsdu_base PRIVATE
+        srsran_app_helpers
         srsran_app_services
         srsran_f1u_du_split_connector
         srsran_cu_cp
-        srsran_network
         srsran_e2
         e2ap_asn1
         srsran_pcap
         srsran_support
         srsran_versioning
-        srsran_f1c_gateway
-        srsran_cu_up) # TODO: Delete
+        srsran_f1c_gateway)
 
 if (DPDK_FOUND)
     add_definitions(-DDPDK_FOUND)
@@ -56,8 +55,8 @@ notify_binary_target(srsdu)
 
 
 # Add the targets for the rest of the splits.
-set(EXTENSIONS du_split_7_2 du_split_8)
-set(LIBRARIES srsran_flexible_o_du_split_7_2 srsran_flexible_o_du_split_8)
+set(EXTENSIONS du_split_6 du_split_7_2 du_split_8)
+set(LIBRARIES srsran_flexible_o_du_split_6 srsran_flexible_o_du_split_7_2 srsran_flexible_o_du_split_8)
 
 foreach (NAME LIB IN ZIP_LISTS EXTENSIONS LIBRARIES)
     # Prepend srs to the target name to make it consistent with the dynamic one.

@@ -21,6 +21,7 @@
  */
 
 #include "ofh_closed_rx_window_handler.h"
+#include "srsran/srsvec/zero.h"
 #include "srsran/support/executors/task_executor.h"
 
 using namespace srsran;
@@ -29,30 +30,36 @@ using namespace ofh;
 closed_rx_window_handler::closed_rx_window_handler(const closed_rx_window_handler_config&  config,
                                                    closed_rx_window_handler_dependencies&& dependencies) :
   notification_delay_in_symbols(config.nof_symbols_to_process_uplink + config.rx_timing_params.sym_end + 1),
-  log_unreceived_messages(config.warn_unreceived_ru_frames),
+  sector_id(config.sector),
+  warn_unreceived_frames(config.warn_unreceived_frames),
+  log_unreceived_messages(config.warn_unreceived_frames == warn_unreceived_ru_frames::always),
   logger(*dependencies.logger),
   executor(*dependencies.executor),
   prach_repo(std::move(dependencies.prach_repo)),
   uplink_repo(std::move(dependencies.uplink_repo)),
-  notifier(std::move(dependencies.notifier)),
-  sector_id(config.sector)
+  notifier(std::move(dependencies.notifier))
 {
   srsran_assert(prach_repo, "Invalid PRACH context repository");
   srsran_assert(uplink_repo, "Invalid uplink context repository");
   srsran_assert(notifier, "Invalid U-Plane received symbol notifier");
 }
 
-void closed_rx_window_handler::on_new_symbol(slot_symbol_point symbol_point)
+void closed_rx_window_handler::on_new_symbol(const slot_symbol_point_context& symbol_point_context)
 {
-  if (!executor.defer([internal_slot = symbol_point - notification_delay_in_symbols, this]() {
+  if (!executor.defer([internal_slot = symbol_point_context.symbol_point - notification_delay_in_symbols, this]() {
+        // Add pending contexts to the repository.
+        uplink_repo->process_pending_contexts();
+        prach_repo->process_pending_contexts();
+
+        // Check the repositories for unhandled contexts.
         handle_uplink_context(internal_slot);
         handle_prach_context(internal_slot);
       })) {
     logger.warning(
         "Sector#{}: failed to dispatch task for checking for lost messages in reception for slot '{}' and symbol '{}'",
         sector_id,
-        symbol_point.get_slot(),
-        symbol_point.get_symbol_index());
+        symbol_point_context.symbol_point.get_slot(),
+        symbol_point_context.symbol_point.get_symbol_index());
   }
 }
 
@@ -61,28 +68,34 @@ void closed_rx_window_handler::handle_uplink_context(slot_symbol_point symbol_po
   expected<uplink_context::uplink_context_resource_grid_info> context =
       uplink_repo->pop_resource_grid_symbol(symbol_point.get_slot(), symbol_point.get_symbol_index());
 
-  if (!context.has_value()) {
+  if (!context) {
     return;
   }
 
-  uplink_context::uplink_context_resource_grid_info& ctx_value            = context.value();
-  uplane_rx_symbol_context                           notification_context = {
-                                ctx_value.context.slot, symbol_point.get_symbol_index(), ctx_value.context.sector};
+  uplink_context::uplink_context_resource_grid_info& ctx_value = *context;
+
+  // Fill REs corresponding to the missing symbol with zeros.
+  for (unsigned port = 0, e = ctx_value.grid->get_writer().get_nof_ports(); port != e; ++port) {
+    srsvec::zero(ctx_value.grid->get_writer().get_view(port, symbol_point.get_symbol_index()));
+  }
+
+  uplane_rx_symbol_context notification_context = {
+      ctx_value.context.slot, symbol_point.get_symbol_index(), ctx_value.context.sector};
   notifier->on_new_uplink_symbol(notification_context, std::move(ctx_value.grid));
 
   if (log_unreceived_messages) {
-    logger.warning("Sector#{}: missed incoming User-Plane uplink messages for slot '{}', symbol '{}' and sector#{}",
-                   sector_id,
+    logger.warning("Sector#{}: missed incoming User-Plane uplink messages for slot '{}', symbol '{}'",
+                   ctx_value.context.sector,
                    ctx_value.context.slot,
-                   symbol_point.get_symbol_index(),
-                   ctx_value.context.sector);
+                   symbol_point.get_symbol_index());
   }
 
-  logger.debug("Sector#{}: notifying incomplete UL symbol in slot '{}', symbol '{}' for sector#{}",
-               sector_id,
-               notification_context.slot,
-               notification_context.symbol,
-               notification_context.sector);
+  if (SRSRAN_UNLIKELY(logger.debug.enabled())) {
+    logger.debug("Sector#{}: notifying incomplete UL symbol in slot '{}', symbol '{}'",
+                 notification_context.sector,
+                 notification_context.slot,
+                 notification_context.symbol);
+  }
 }
 
 void closed_rx_window_handler::handle_prach_context(slot_symbol_point symbol_point)
@@ -92,27 +105,26 @@ void closed_rx_window_handler::handle_prach_context(slot_symbol_point symbol_poi
     return;
   }
 
-  slot_point  slot    = symbol_point.get_slot() - 1;
-  const auto& context = prach_repo->pop_prach_buffer(slot);
+  slot_point slot    = symbol_point.get_slot() - 1;
+  auto       context = prach_repo->pop_prach_buffer(slot);
 
   // Nothing to do.
-  if (!context.has_value()) {
+  if (!context) {
     return;
   }
 
-  const auto& ctx_value = context.value<>();
+  const auto& ctx_value = *context;
 
   notifier->on_new_prach_window_data(ctx_value.context, *ctx_value.buffer);
 
   if (log_unreceived_messages) {
-    logger.warning("Sector#{}: missed incoming User-Plane PRACH messages for slot '{}' and sector#{}",
-                   sector_id,
-                   ctx_value.context.slot,
-                   ctx_value.context.sector);
+    logger.warning("Sector#{}: missed incoming User-Plane PRACH messages for slot '{}'",
+                   ctx_value.context.sector,
+                   ctx_value.context.slot);
   }
 
-  logger.debug("Sector#{}: notifying incomplete PRACH in slot '{}' for sector#{}",
-               sector_id,
-               ctx_value.context.slot,
-               ctx_value.context.sector);
+  if (SRSRAN_UNLIKELY(logger.debug.enabled())) {
+    logger.debug(
+        "Sector#{}: notifying incomplete PRACH in slot '{}'", ctx_value.context.sector, ctx_value.context.slot);
+  }
 }

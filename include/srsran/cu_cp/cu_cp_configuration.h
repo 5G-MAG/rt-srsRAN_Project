@@ -25,6 +25,7 @@
 #include "srsran/cu_cp/cell_meas_manager_config.h"
 #include "srsran/cu_cp/mobility_manager_config.h"
 #include "srsran/cu_cp/ue_configuration.h"
+#include "srsran/e1ap/cu_cp/e1ap_configuration.h"
 #include "srsran/e2/e2_cu.h"
 #include "srsran/e2/e2ap_configuration.h"
 #include "srsran/e2/gateways/e2_connection_client.h"
@@ -33,6 +34,7 @@
 #include "srsran/rrc/rrc_ue_config.h"
 #include "srsran/support/async/async_task.h"
 #include "srsran/support/executors/task_executor.h"
+#include <chrono>
 
 namespace srsran {
 
@@ -83,10 +85,19 @@ struct cu_cp_configuration {
     timer_manager* timers         = nullptr;
   };
 
-  struct ngap_params {
+  struct ngap_config {
     n2_connection_client* n2_gw = nullptr;
     // Supported TAs for each AMF.
     std::vector<supported_tracking_area> supported_tas;
+  };
+
+  struct ngap_params {
+    /// NGAP configurations.
+    std::vector<ngap_config> ngaps;
+    /// Time to wait after a failed AMF reconnection attempt in ms.
+    std::chrono::milliseconds amf_reconnection_retry_time = std::chrono::milliseconds{1000};
+    /// Option to run CU-CP without a core.
+    bool no_core = false;
   };
 
   struct rrc_params {
@@ -121,11 +132,13 @@ struct cu_cp_configuration {
   /// Parameters to determine the admission of new CU-UP, DU and UE connections.
   admission_params admission;
   /// NGAP layer-specific parameters.
-  std::vector<ngap_params> ngaps;
+  ngap_params ngap;
   /// RRC layer-specific parameters.
   rrc_params rrc;
   /// F1AP layer-specific parameters.
   f1ap_configuration f1ap;
+  /// E1AP layer-specific parameters.
+  e1ap_configuration e1ap;
   /// UE Security-specific parameters.
   security_params security;
   /// SRB and DRB configuration of created UEs.

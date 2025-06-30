@@ -46,3 +46,16 @@ void phy_to_fapi_error_event_translator::on_late_downlink_message(srsran::slot_p
                                                                         fapi::message_type_id::dl_tti_request,
                                                                         fapi::error_code_id::out_of_sync));
 }
+
+void phy_to_fapi_error_event_translator::on_late_uplink_message(srsran::slot_point ul_frame_slot)
+{
+  error_notifier.get().on_error_indication(fapi::build_error_indication(ul_frame_slot.sfn(),
+                                                                        ul_frame_slot.slot_index(),
+                                                                        fapi::message_type_id::ul_tti_request,
+                                                                        fapi::error_code_id::out_of_sync));
+}
+
+void phy_to_fapi_error_event_translator::on_late_prach_message(slot_point prach_msg_slot)
+{
+  // Do nothing.
+}

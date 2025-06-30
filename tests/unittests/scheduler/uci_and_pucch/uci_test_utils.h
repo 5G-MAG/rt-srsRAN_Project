@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "lib/scheduler/config/du_cell_group_config_pool.h"
 #include "lib/scheduler/pucch_scheduling/pucch_allocator_impl.h"
 #include "lib/scheduler/uci_scheduling/uci_allocator_impl.h"
 #include "lib/scheduler/uci_scheduling/uci_scheduler_impl.h"
@@ -153,6 +154,8 @@ inline uplink_config make_test_ue_uplink_config(const config_helpers::cell_confi
       pucch_common_all_formats{.max_c_rate = max_pucch_code_rate::dot_25, .simultaneous_harq_ack_csi = true});
   pucch_cfg.format_3_common_param.emplace(
       pucch_common_all_formats{.max_c_rate = max_pucch_code_rate::dot_25, .simultaneous_harq_ack_csi = true});
+  pucch_cfg.format_4_common_param.emplace(
+      pucch_common_all_formats{.max_c_rate = max_pucch_code_rate::dot_25, .simultaneous_harq_ack_csi = true});
 
   // >>> dl-DataToUl-Ack
   // TS38.213, 9.1.2.1 - "If a UE is provided dl-DataToUL-ACK, the UE does not expect to be indicated by DCI format 1_0
@@ -182,6 +185,7 @@ inline uplink_config make_test_ue_uplink_config(const config_helpers::cell_confi
   const auto& res_f2 = std::get<pucch_format_2_3_cfg>(res_basic_f2.format_params);
   pucch_cfg.format_max_payload[pucch_format_to_uint(pucch_format::FORMAT_2)] = get_pucch_format2_max_payload(
       res_f2.nof_prbs, res_f2.nof_symbols, to_max_code_rate_float(pucch_cfg.format_2_common_param.value().max_c_rate));
+  pucch_cfg.set_1_format = pucch_format::FORMAT_2;
 
   // > SRS config.
   ul_config.init_ul_bwp.srs_cfg.emplace(make_default_srs_config(params));
@@ -243,13 +247,20 @@ inline pdcch_dl_information make_default_dci(unsigned n_cces, const coreset_conf
   return dci;
 }
 
-inline sched_cell_configuration_request_message make_custom_sched_cell_configuration_request(unsigned pucch_res_common,
-                                                                                             bool     is_tdd = false)
+inline sched_cell_configuration_request_message
+make_custom_sched_cell_configuration_request(unsigned pucch_res_common, bool is_tdd = false, unsigned nof_dl_ports = 1)
 {
+  subcarrier_spacing                     scs = is_tdd ? subcarrier_spacing::kHz30 : subcarrier_spacing::kHz15;
+  std::optional<tdd_ul_dl_config_common> tdd_cfg;
+  if (is_tdd) {
+    tdd_cfg = {scs, {10, 6, 8, 3, 0}, std::nullopt};
+  }
   sched_cell_configuration_request_message req = sched_config_helper::make_default_sched_cell_configuration_request(
-      cell_config_builder_params{.scs_common     = is_tdd ? subcarrier_spacing::kHz30 : subcarrier_spacing::kHz15,
-                                 .channel_bw_mhz = bs_channel_bandwidth::MHz10,
-                                 .dl_f_ref_arfcn = is_tdd ? 520000U : 365000U});
+      cell_config_builder_params{.scs_common           = is_tdd ? subcarrier_spacing::kHz30 : subcarrier_spacing::kHz15,
+                                 .channel_bw_mhz       = bs_channel_bandwidth::MHz10,
+                                 .dl_f_ref_arfcn       = is_tdd ? 520000U : 365000U,
+                                 .nof_dl_ports         = nof_dl_ports,
+                                 .tdd_ul_dl_cfg_common = tdd_cfg});
   req.ul_cfg_common.init_ul_bwp.pucch_cfg_common->pucch_resource_common = pucch_res_common;
   return req;
 }
@@ -268,6 +279,8 @@ struct test_bench_params {
   bool                   cfg_for_mimo_4x4      = false;
   bool                   use_format_0          = false;
   pucch_format           set1_format           = pucch_format::FORMAT_2;
+  bool                   no_csi                = false;
+  max_pucch_code_rate    max_c_rate            = max_pucch_code_rate::dot_25;
 };
 
 // Test bench with all that is needed for the PUCCH.
@@ -291,6 +304,7 @@ public:
 
   scheduler_expert_config                        expert_cfg;
   sched_cfg_dummy_notifier                       mac_notif;
+  du_cell_group_config_pool                      cfg_pool;
   cell_common_configuration_list                 cell_cfg_list{};
   const cell_configuration&                      cell_cfg;
   std::vector<std::unique_ptr<ue_configuration>> ue_ded_cfgs;

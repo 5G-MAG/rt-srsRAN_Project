@@ -24,6 +24,7 @@
 #include "../support/dmrs_helpers.h"
 #include "../support/pdsch/pdsch_default_time_allocation.h"
 #include "../support/prbs_calculator.h"
+#include "srsran/ran/band_helper.h"
 #include "srsran/ran/duplex_mode.h"
 #include "srsran/ran/prach/prach_configuration.h"
 #include "srsran/ran/prach/prach_frequency_mapping.h"
@@ -164,8 +165,11 @@ static error_type<std::string> validate_pusch_cfg_common(const sched_cell_config
 
 static error_type<std::string> validate_pucch_cfg_common(const sched_cell_configuration_request_message& msg)
 {
+  VERIFY(msg.ul_cfg_common.init_ul_bwp.pucch_cfg_common.has_value(),
+         "Cells without PUCCH-ConfigCommon are not supported");
   for (const auto& pucch_guard : msg.pucch_guardbands) {
-    VERIFY(msg.ul_cfg_common.init_ul_bwp.generic_params.crbs.contains(pucch_guard.prbs),
+    const auto bwp_crbs = msg.ul_cfg_common.init_ul_bwp.generic_params.crbs;
+    VERIFY(bwp_crbs.contains(prb_to_crb(bwp_crbs, pucch_guard.prbs)),
            "PUCCH guardbands={} fall outside of the initial BWP RBs={}",
            pucch_guard.prbs,
            msg.ul_cfg_common.init_ul_bwp.generic_params.crbs);
@@ -192,7 +196,7 @@ static error_type<std::string> validate_sib1_cfg(const sched_cell_configuration_
   // See TS 38.214, 5.1.3.1, Modulation order and target code rate determination.
   VERIFY((unsigned)mcs_descr.modulation < (unsigned)modulation_scheme::QAM64,
          "Modulation order for PDSCH scheduled with SI-RNTI cannot be > 2");
-  const sch_prbs_tbs sib1_prbs_tbs = get_nof_prbs(prbs_calculator_sch_config{msg.sib1_payload_size,
+  const sch_prbs_tbs sib1_prbs_tbs = get_nof_prbs(prbs_calculator_sch_config{msg.sib1_payload_size.value(),
                                                                              (unsigned)sib1_symbols.length(),
                                                                              calculate_nof_dmrs_per_rb(dmrs_info),
                                                                              nof_oh_prb,

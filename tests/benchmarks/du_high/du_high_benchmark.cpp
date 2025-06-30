@@ -47,17 +47,17 @@
 #include "tests/test_doubles/pdcp/pdcp_pdu_generator.h"
 #include "tests/test_doubles/scheduler/scheduler_result_test.h"
 #include "tests/unittests/f1ap/du/f1ap_du_test_helpers.h"
-#include "srsran/adt/concurrent_queue.h"
 #include "srsran/adt/mpmc_queue.h"
-#include "srsran/asn1/f1ap/common.h"
 #include "srsran/asn1/f1ap/f1ap_pdu_contents_ue.h"
 #include "srsran/du/du_cell_config_helpers.h"
 #include "srsran/du/du_high/du_high_configuration.h"
 #include "srsran/du/du_high/du_high_executor_mapper.h"
 #include "srsran/du/du_high/du_qos_config_helpers.h"
 #include "srsran/f1u/du/f1u_gateway.h"
+#include "srsran/mac/mac_cell_timing_context.h"
 #include "srsran/scheduler/config/scheduler_expert_config_factory.h"
 #include "srsran/support/benchmark_utils.h"
+#include "srsran/support/rtsan.h"
 #include "srsran/support/test_utils.h"
 #include "srsran/support/tracing/event_tracing.h"
 #include <pthread.h>
@@ -116,7 +116,7 @@ static void usage(const char* prog, const bench_params& params)
   fmt::print("\t-r Max RBs per UE DL grant per slot [Default 275]\n");
   fmt::print("\t-a \"du_cell\" cores that the benchmark should use [Default \"no CPU affinity\"]\n");
   fmt::print("\t-p F1-U PDU size used [Default {}]\n", params.pdu_size);
-  fmt::print("\t-P Policy scheduler the bechmark should use (\"time_rr\", \"time_pf\") [Default \"time_rr\"]\n");
+  fmt::print("\t-P Policy scheduler the bechmark should use (\"time_rr\", \"time_qos\") [Default \"time_rr\"]\n");
   fmt::print("\t-h Show this message\n");
 }
 
@@ -166,6 +166,7 @@ static void parse_args(int argc, char** argv, bench_params& params)
         break;
       case 'a': {
         std::string optstr{optarg};
+        params.du_cell_cores.clear();
         if (optstr.find(",") != std::string::npos) {
           size_t pos = optstr.find(",");
           while (pos != std::string::npos) {
@@ -174,15 +175,15 @@ static void parse_args(int argc, char** argv, bench_params& params)
             pos    = optstr.find(",");
           }
         } else {
-          params.du_cell_cores = {(unsigned)std::strtol(optstr.c_str(), nullptr, 10)};
+          params.du_cell_cores.resize(1, (unsigned)std::strtol(optstr.c_str(), nullptr, 10));
         }
       } break;
       case 'p':
         params.pdu_size = units::bytes{(unsigned)std::strtol(optarg, nullptr, 10)};
         break;
       case 'P': {
-        if (std::string(optarg) == "time_pf") {
-          params.strategy_cfg = time_pf_scheduler_expert_config{};
+        if (std::string(optarg) == "time_qos") {
+          params.strategy_cfg = time_qos_scheduler_expert_config{};
         } else if (std::string(optarg) == "time_rr") {
           params.strategy_cfg = time_rr_scheduler_expert_config{};
         } else {
@@ -227,8 +228,8 @@ static void print_args(const bench_params& params)
   fmt::print("- F1-U DL PDU size [bytes]: {}\n", params.pdu_size);
   fmt::print("- BSR size [bytes]: {}\n", params.ul_bsr_bytes);
   fmt::print("- Max DL RB grant size [RBs]: {}\n", params.max_dl_rb_grant);
-  if (std::holds_alternative<time_pf_scheduler_expert_config>(params.strategy_cfg)) {
-    fmt::print("- Policys scheduler: time_pf\n");
+  if (std::holds_alternative<time_qos_scheduler_expert_config>(params.strategy_cfg)) {
+    fmt::print("- Policys scheduler: time_qos\n");
   } else {
     fmt::print("- Policys scheduler: time_rr\n");
   }
@@ -253,7 +254,10 @@ public:
 
     if (logger.info.enabled()) {
       auto metrics_copy = metrics;
-      pending_metrics.try_push(std::move(metrics_copy));
+      bool ret          = pending_metrics.try_push(std::move(metrics_copy));
+      if (not ret) {
+        logger.error("Unable to push metrics");
+      }
     }
   }
 
@@ -395,8 +399,9 @@ private:
 class f1u_gw_dummy_bearer : public f1u_du_gateway_bearer
 {
 public:
-  void on_new_pdu(nru_ul_message msg) override {}
-  void stop() override {}
+  void                  on_new_pdu(nru_ul_message msg) override {}
+  void                  stop() override {}
+  expected<std::string> get_bind_address() const override { return "127.0.0.1"; }
 };
 
 /// \brief Simulator of the CU-UP from the perspective of the DU.
@@ -408,8 +413,9 @@ public:
 
   std::unique_ptr<f1u_du_gateway_bearer> create_du_bearer(uint32_t                                   ue_index,
                                                           drb_id_t                                   drb_id,
+                                                          five_qi_t                                  five_qi,
                                                           srs_du::f1u_config                         config,
-                                                          const up_transport_layer_info&             dl_up_tnl_info,
+                                                          const gtpu_teid_t&                         dl_teid,
                                                           const up_transport_layer_info&             ul_up_tnl_info,
                                                           srs_du::f1u_du_gateway_bearer_rx_notifier& du_rx,
                                                           timer_factory                              timers,
@@ -493,6 +499,7 @@ public:
   /// \brief Notifies the completion of all cell results for the given slot.
   void on_cell_results_completion(slot_point slot) override
   {
+    SRSRAN_RTSAN_SCOPED_DISABLER(d);
     {
       std::lock_guard<std::mutex> lock(mutex);
       slot_ended = true;
@@ -565,7 +572,7 @@ public:
     params(builder_params),
     f1u_dl_pdu_bytes_per_slot(dl_bytes_per_slot_),
     f1u_pdu_size(f1u_pdu_size_),
-    workers(test_helpers::create_multi_threaded_du_high_executor_mapper({1, true, du_cell_cores})),
+    workers(test_helpers::create_multi_threaded_du_high_executor_mapper({1, true, du_cell_cores, timers})),
     ul_bsr_bytes(ul_bsr_bytes_)
   {
     // Set slot point based on the SCS.
@@ -593,14 +600,14 @@ public:
     cfg.ran.mac_cfg                                = mac_expert_config{.configs = {{10000, 10000, 10000}}};
     cfg.ran.qos = config_helpers::make_default_du_qos_config_list(/* warn_on_drop */ true, 1000);
 
-    dependencies.exec_mapper               = &workers->get_exec_mapper();
-    dependencies.f1c_client                = &sim_cu_cp;
-    dependencies.f1u_gw                    = &sim_cu_up;
-    dependencies.phy_adapter               = &sim_phy;
-    dependencies.timers                    = &timers;
-    dependencies.mac_p                     = &mac_pcap;
-    dependencies.rlc_p                     = &rlc_pcap;
-    dependencies.sched_ue_metrics_notifier = &metrics_handler;
+    dependencies.exec_mapper            = &workers->get_exec_mapper();
+    dependencies.f1c_client             = &sim_cu_cp;
+    dependencies.f1u_gw                 = &sim_cu_up;
+    dependencies.phy_adapter            = &sim_phy;
+    dependencies.timers                 = &timers;
+    dependencies.mac_p                  = &mac_pcap;
+    dependencies.rlc_p                  = &rlc_pcap;
+    dependencies.sched_metrics_notifier = &metrics_handler;
 
     // Increase nof. PUCCH resources to accommodate more UEs.
     cfg.ran.cells[0].pucch_cfg.nof_sr_resources                     = 30;
@@ -609,7 +616,7 @@ public:
     cfg.ran.cells[0].pucch_cfg.nof_ue_pucch_f0_or_f1_res_harq       = 8;
     cfg.ran.cells[0].pucch_cfg.nof_cell_harq_pucch_res_sets         = 4;
     auto& f1_params                             = cfg.ran.cells[0].pucch_cfg.f0_or_f1_params.emplace<pucch_f1_params>();
-    f1_params.nof_cyc_shifts                    = nof_cyclic_shifts::six;
+    f1_params.nof_cyc_shifts                    = pucch_nof_cyclic_shifts::six;
     f1_params.occ_supported                     = true;
     cfg.ran.sched_cfg.ue.max_pucchs_per_slot    = 61;
     cfg.ran.sched_cfg.ue.max_puschs_per_slot    = 61;
@@ -651,7 +658,7 @@ public:
     sim_phy.new_slot();
 
     // Push slot indication to DU-high.
-    du_hi->get_slot_handler(to_du_cell_index(0)).handle_slot_indication(next_sl_tx);
+    du_hi->get_slot_handler(to_du_cell_index(0)).handle_slot_indication({next_sl_tx, std::chrono::system_clock::now()});
 
     // Wait DU-high to finish handling the slot.
     sim_phy.wait_slot_complete();
@@ -909,20 +916,20 @@ public:
     for (const pucch_info& pucch : sim_phy.slot_ul_result.ul_res->pucchs) {
       mac_uci_pdu& uci_pdu = uci.ucis.emplace_back();
       uci_pdu.rnti         = pucch.crnti;
-      switch (pucch.format) {
+      switch (pucch.format()) {
         case pucch_format::FORMAT_1: {
           mac_uci_pdu::pucch_f0_or_f1_type f1{};
-          if (pucch.format_1.harq_ack_nof_bits > 0) {
+          if (pucch.uci_bits.harq_ack_nof_bits > 0) {
             f1.harq_info.emplace();
             // Set PUCCHs with SR as DTX.
-            const uci_pucch_f0_or_f1_harq_values ack_val = pucch.format_1.sr_bits == sr_nof_bits::no_sr
+            const uci_pucch_f0_or_f1_harq_values ack_val = pucch.uci_bits.sr_bits == sr_nof_bits::no_sr
                                                                ? uci_pucch_f0_or_f1_harq_values::ack
                                                                : uci_pucch_f0_or_f1_harq_values::dtx;
-            f1.harq_info->harqs.resize(pucch.format_1.harq_ack_nof_bits, ack_val);
+            f1.harq_info->harqs.resize(pucch.uci_bits.harq_ack_nof_bits, ack_val);
           }
           // Forward positive SRs to scheduler only if UL is enabled for the benchmark, PUCCH grant is for SR and nof.
           // UL grants is 0 or scheduler stops allocating UL grants.
-          if (ul_bsr_bytes != 0 and pucch.format_1.sr_bits != sr_nof_bits::no_sr and
+          if (ul_bsr_bytes != 0 and pucch.uci_bits.sr_bits != sr_nof_bits::no_sr and
               (sim_phy.metrics.nof_ul_grants == 0 or
                (sim_phy.metrics.nof_ul_grants ==
                 sim_phy.metrics.nof_ul_grants + sim_phy.slot_ul_result.ul_res->puschs.size()))) {
@@ -933,21 +940,21 @@ public:
         } break;
         case pucch_format::FORMAT_2: {
           mac_uci_pdu::pucch_f2_or_f3_or_f4_type f2{};
-          if (pucch.format_2.harq_ack_nof_bits > 0) {
+          if (pucch.uci_bits.harq_ack_nof_bits > 0) {
             f2.harq_info.emplace();
             f2.harq_info->is_valid = true;
-            f2.harq_info->payload.resize(pucch.format_2.harq_ack_nof_bits);
-            f2.harq_info->payload.fill(0, pucch.format_2.harq_ack_nof_bits, true);
+            f2.harq_info->payload.resize(pucch.uci_bits.harq_ack_nof_bits);
+            f2.harq_info->payload.fill(0, pucch.uci_bits.harq_ack_nof_bits, true);
           }
           // Forward positive SRs to scheduler only if UL is enabled for the benchmark, PUCCH grant is for SR and nof.
           // UL grants is 0 or scheduler stops allocating UL grants.
-          if (ul_bsr_bytes != 0 and pucch.format_2.sr_bits != sr_nof_bits::no_sr and
+          if (ul_bsr_bytes != 0 and pucch.uci_bits.sr_bits != sr_nof_bits::no_sr and
               (sim_phy.metrics.nof_ul_grants == 0 or
                (sim_phy.metrics.nof_ul_grants ==
                 sim_phy.metrics.nof_ul_grants + sim_phy.slot_ul_result.ul_res->puschs.size()))) {
             f2.sr_info.emplace();
-            f2.sr_info->resize(sr_nof_bits_to_uint(pucch.format_2.sr_bits));
-            f2.sr_info->fill(0, sr_nof_bits_to_uint(pucch.format_2.sr_bits), true);
+            f2.sr_info->resize(sr_nof_bits_to_uint(pucch.uci_bits.sr_bits));
+            f2.sr_info->fill(0, sr_nof_bits_to_uint(pucch.uci_bits.sr_bits), true);
           }
           if (pucch.csi_rep_cfg.has_value()) {
             f2.csi_part1_info.emplace();
@@ -1111,8 +1118,8 @@ public:
 
   srslog::basic_logger&                                 test_logger = srslog::fetch_basic_logger("TEST");
   dummy_metrics_handler                                 metrics_handler;
+  timer_manager                                         timers{2048};
   std::unique_ptr<test_helpers::du_high_worker_manager> workers;
-  timer_manager                                         timers;
   null_mac_pcap                                         mac_pcap;
   null_rlc_pcap                                         rlc_pcap;
   std::unique_ptr<du_high_impl>                         du_hi;

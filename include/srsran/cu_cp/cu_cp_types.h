@@ -25,6 +25,7 @@
 #include "srsran/adt/bounded_bitset.h"
 #include "srsran/adt/byte_buffer.h"
 #include "srsran/adt/slotted_array.h"
+#include "srsran/adt/slotted_vector.h"
 #include "srsran/pdcp/pdcp_config.h"
 #include "srsran/ran/cause/ngap_cause.h"
 #include "srsran/ran/crit_diagnostics.h"
@@ -39,6 +40,7 @@
 #include "srsran/ran/tac.h"
 #include "srsran/ran/up_transport_layer_info.h"
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -179,19 +181,19 @@ struct cu_cp_five_g_s_tmsi {
   {
     srsran_assert(five_g_s_tmsi.has_value(), "five_g_s_tmsi is not set");
     return five_g_s_tmsi.value().to_uint64() >> 38U;
-  };
+  }
 
   uint8_t get_amf_pointer() const
   {
     srsran_assert(five_g_s_tmsi.has_value(), "five_g_s_tmsi is not set");
     return (five_g_s_tmsi.value().to_uint64() & 0x3f00000000) >> 32U;
-  };
+  }
 
   uint32_t get_five_g_tmsi() const
   {
     srsran_assert(five_g_s_tmsi.has_value(), "five_g_s_tmsi is not set");
     return (five_g_s_tmsi.value().to_uint64() & 0xffffffff);
-  };
+  }
 
   uint64_t to_number() const { return five_g_s_tmsi->to_uint64(); }
 
@@ -326,7 +328,7 @@ struct cu_cp_pdu_session_res_setup_item {
   std::optional<uint64_t>                                       pdu_session_aggregate_maximum_bit_rate_dl;
   std::optional<uint64_t>                                       pdu_session_aggregate_maximum_bit_rate_ul;
   up_transport_layer_info                                       ul_ngu_up_tnl_info;
-  std::string                                                   pdu_session_type;
+  pdu_session_type_t                                            pdu_session_type;
   std::optional<security_indication_t>                          security_ind;
   slotted_id_vector<qos_flow_id_t, qos_flow_setup_request_item> qos_flow_setup_request_items;
 };
@@ -335,6 +337,7 @@ struct cu_cp_pdu_session_resource_setup_request {
   ue_index_t                                                            ue_index = ue_index_t::invalid;
   slotted_id_vector<pdu_session_id_t, cu_cp_pdu_session_res_setup_item> pdu_session_res_setup_items;
   uint64_t                                                              ue_aggregate_maximum_bit_rate_dl;
+  uint64_t                                                              ue_aggregate_maximum_bit_rate_ul;
   plmn_identity                                                         serving_plmn = plmn_identity::test_value();
   byte_buffer                                                           nas_pdu; ///< optional NAS PDU
 };
@@ -498,9 +501,10 @@ struct cu_cp_pdu_session_resource_modify_response {
 };
 
 struct cu_cp_ue_context_release_command {
-  ue_index_t   ue_index = ue_index_t::invalid;
-  ngap_cause_t cause;
-  bool         requires_rrc_release = true;
+  ue_index_t                          ue_index = ue_index_t::invalid;
+  ngap_cause_t                        cause;
+  bool                                requires_rrc_release = true;
+  std::optional<std::chrono::seconds> release_wait_time    = std::nullopt;
 };
 
 struct cu_cp_ue_context_release_request {
@@ -604,12 +608,20 @@ struct cu_cp_intra_cu_handover_response {
   bool success = false;
 };
 
+// Request sent to the target DU to prepare for the handover RRC reconfiguration.
+struct cu_cp_intra_cu_handover_target_request {
+  ue_index_t                target_ue_index = ue_index_t::invalid;
+  ue_index_t                source_ue_index = ue_index_t::invalid;
+  uint8_t                   transaction_id;
+  std::chrono::milliseconds timeout;
+};
+
 } // namespace srs_cu_cp
 } // namespace srsran
 
 namespace fmt {
 
-// ue index formatter
+// UE index formatter.
 template <>
 struct formatter<srsran::srs_cu_cp::ue_index_t> {
   template <typename ParseContext>
@@ -628,7 +640,7 @@ struct formatter<srsran::srs_cu_cp::ue_index_t> {
   }
 };
 
-// du index formatter
+// DU index formatter.
 template <>
 struct formatter<srsran::srs_cu_cp::du_index_t> {
   template <typename ParseContext>
@@ -647,7 +659,7 @@ struct formatter<srsran::srs_cu_cp::du_index_t> {
   }
 };
 
-// cu_up index formatter
+// CU-UP index formatter.
 template <>
 struct formatter<srsran::srs_cu_cp::cu_up_index_t> {
   template <typename ParseContext>
@@ -666,7 +678,7 @@ struct formatter<srsran::srs_cu_cp::cu_up_index_t> {
   }
 };
 
-// du cell index formatter
+// DU cell index formatter.
 template <>
 struct formatter<srsran::srs_cu_cp::du_cell_index_t> {
   template <typename ParseContext>
@@ -679,6 +691,25 @@ struct formatter<srsran::srs_cu_cp::du_cell_index_t> {
   auto format(const srsran::srs_cu_cp::du_cell_index_t& idx, FormatContext& ctx) const
   {
     if (idx == srsran::srs_cu_cp::du_cell_index_t::invalid) {
+      return format_to(ctx.out(), "invalid");
+    }
+    return format_to(ctx.out(), "{}", (unsigned)idx);
+  }
+};
+
+// AMF index formatter.
+template <>
+struct formatter<srsran::srs_cu_cp::amf_index_t> {
+  template <typename ParseContext>
+  auto parse(ParseContext& ctx)
+  {
+    return ctx.begin();
+  }
+
+  template <typename FormatContext>
+  auto format(const srsran::srs_cu_cp::amf_index_t& idx, FormatContext& ctx) const
+  {
+    if (idx == srsran::srs_cu_cp::amf_index_t::invalid) {
       return format_to(ctx.out(), "invalid");
     }
     return format_to(ctx.out(), "{}", (unsigned)idx);

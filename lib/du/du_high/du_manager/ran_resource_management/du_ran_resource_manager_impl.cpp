@@ -28,10 +28,11 @@
 using namespace srsran;
 using namespace srs_du;
 
-du_ue_ran_resource_updater_impl::du_ue_ran_resource_updater_impl(du_ue_resource_config*        cell_grp_cfg_,
-                                                                 du_ran_resource_manager_impl& parent_,
-                                                                 du_ue_index_t                 ue_index_) :
-  cell_grp(cell_grp_cfg_), parent(&parent_), ue_index(ue_index_)
+du_ue_ran_resource_updater_impl::du_ue_ran_resource_updater_impl(du_ue_resource_config* cell_grp_cfg_,
+                                                                 const std::optional<ue_capability_summary>& ue_caps_,
+                                                                 du_ran_resource_manager_impl&               parent_,
+                                                                 du_ue_index_t ue_index_) :
+  cell_grp(cell_grp_cfg_), ue_caps(&ue_caps_), parent(&parent_), ue_index(ue_index_)
 {
 }
 
@@ -43,9 +44,15 @@ du_ue_ran_resource_updater_impl::~du_ue_ran_resource_updater_impl()
 du_ue_resource_update_response
 du_ue_ran_resource_updater_impl::update(du_cell_index_t                       pcell_index,
                                         const f1ap_ue_context_update_request& upd_req,
-                                        const du_ue_resource_config*          reestablished_context)
+                                        const du_ue_resource_config*          reestablished_context,
+                                        const ue_capability_summary*          reestablished_ue_caps)
 {
-  return parent->update_context(ue_index, pcell_index, upd_req, reestablished_context);
+  return parent->update_context(ue_index, pcell_index, upd_req, reestablished_context, reestablished_ue_caps);
+}
+
+void du_ue_ran_resource_updater_impl::config_applied()
+{
+  parent->ue_config_applied(ue_index);
 }
 
 ///////////////////////////
@@ -78,12 +85,15 @@ du_ran_resource_manager_impl::du_ran_resource_manager_impl(span<const du_cell_co
   bearer_res_mng(srb_config, qos_config, logger),
   srs_res_mng(std::make_unique<du_srs_policy_max_ul_rate>(cell_cfg_list)),
   meas_cfg_mng(cell_cfg_list),
-  drx_res_mng(cell_cfg_list)
+  drx_res_mng(cell_cfg_list),
+  ra_res_alloc(cell_cfg_list)
 {
 }
 
 expected<ue_ran_resource_configurator, std::string>
-du_ran_resource_manager_impl::create_ue_resource_configurator(du_ue_index_t ue_index, du_cell_index_t pcell_index)
+du_ran_resource_manager_impl::create_ue_resource_configurator(du_ue_index_t   ue_index,
+                                                              du_cell_index_t pcell_index,
+                                                              bool            has_tc_rnti)
 {
   if (ue_res_pool.contains(ue_index)) {
     return make_unexpected(std::string("Double allocation of same UE not supported"));
@@ -102,15 +112,22 @@ du_ran_resource_manager_impl::create_ue_resource_configurator(du_ue_index_t ue_i
   // Initialize correct defaults for UE RAN resources dependent on UE capabilities.
   ue_res.ue_cap_manager.handle_ue_creation(ue_res.cg_cfg);
 
-  return ue_ran_resource_configurator{std::make_unique<du_ue_ran_resource_updater_impl>(&mcg, *this, ue_index),
-                                      err.has_value() ? std::string{} : err.error()};
+  // Allocate CFRA resources when TC-RNTI was not yet assigned (e.g. during for Handover).
+  if (not has_tc_rnti) {
+    ra_res_alloc.allocate_cfra_resources(ue_res.cg_cfg);
+  }
+
+  return ue_ran_resource_configurator{
+      std::make_unique<du_ue_ran_resource_updater_impl>(&mcg, ue_res.ue_cap_manager.summary(), *this, ue_index),
+      err.has_value() ? std::string{} : err.error()};
 }
 
 du_ue_resource_update_response
 du_ran_resource_manager_impl::update_context(du_ue_index_t                         ue_index,
                                              du_cell_index_t                       pcell_idx,
                                              const f1ap_ue_context_update_request& upd_req,
-                                             const du_ue_resource_config*          reestablished_context)
+                                             const du_ue_resource_config*          reestablished_context,
+                                             const ue_capability_summary*          reestablished_ue_caps)
 {
   srsran_assert(ue_res_pool.contains(ue_index), "This function should only be called for an already allocated UE");
   ue_resource_context&           u      = ue_res_pool[ue_index];
@@ -155,6 +172,9 @@ du_ran_resource_manager_impl::update_context(du_ue_index_t                      
 
   // > Process UE NR capabilities and update UE dedicated configuration only if test mode is not configured.
   if (not test_cfg.test_ue.has_value() or test_cfg.test_ue->rnti == rnti_t::INVALID_RNTI) {
+    if (reestablished_ue_caps != nullptr) {
+      u.ue_cap_manager.update(ue_mcg, *reestablished_ue_caps);
+    }
     u.ue_cap_manager.update(ue_mcg, upd_req.ue_cap_rat_list);
   }
 
@@ -177,11 +197,25 @@ void du_ran_resource_manager_impl::deallocate_context(du_ue_index_t ue_index)
   ue_resource_context&   ue_res = ue_res_pool[ue_index];
   du_ue_resource_config& ue_mcg = ue_res.cg_cfg;
 
+  ra_res_alloc.deallocate_cfra_resources(ue_mcg);
+
   ue_res.ue_cap_manager.release(ue_mcg);
+
   for (const auto& sc : ue_mcg.cell_group.cells) {
     deallocate_cell_resources(ue_index, sc.serv_cell_idx);
   }
+
   ue_res_pool.erase(ue_index);
+}
+
+void du_ran_resource_manager_impl::ue_config_applied(du_ue_index_t ue_index)
+{
+  srsran_assert(ue_res_pool.contains(ue_index), "This function should only be called for an already allocated UE");
+  ue_resource_context&   ue_res = ue_res_pool[ue_index];
+  du_ue_resource_config& ue_mcg = ue_res.cg_cfg;
+
+  // We can remove previously used CFRA resources, if any.
+  ra_res_alloc.deallocate_cfra_resources(ue_mcg);
 }
 
 error_type<std::string> du_ran_resource_manager_impl::allocate_cell_resources(du_ue_index_t     ue_index,
@@ -255,6 +289,6 @@ void du_ran_resource_manager_impl::deallocate_cell_resources(du_ue_index_t ue_in
 }
 
 du_ran_resource_manager_impl::ue_resource_context::ue_resource_context(du_ran_resource_manager_impl& parent) :
-  ue_cap_manager(parent.cell_cfg_list, parent.drx_res_mng, parent.logger)
+  ue_cap_manager(parent.cell_cfg_list, parent.drx_res_mng, parent.logger, parent.test_cfg)
 {
 }

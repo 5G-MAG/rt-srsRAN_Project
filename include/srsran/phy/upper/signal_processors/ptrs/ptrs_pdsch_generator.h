@@ -22,13 +22,10 @@
 
 #pragma once
 
-#include "srsran/adt/static_vector.h"
 #include "srsran/phy/support/precoding_configuration.h"
 #include "srsran/phy/support/re_pattern.h"
 #include "srsran/phy/upper/dmrs_mapping.h"
-#include "srsran/ran/cyclic_prefix.h"
 #include "srsran/ran/ptrs/ptrs.h"
-#include "srsran/ran/ptrs/ptrs_constants.h"
 #include "srsran/ran/rnti.h"
 #include "srsran/ran/slot_point.h"
 
@@ -54,12 +51,12 @@ public:
     unsigned scrambling_id;
     /// DM-RS for PDSCH sequence initialization (\f$n_{SCID}\f$).
     bool n_scid;
-    /// Indicates the generated signal linear amplitude.
+    /// Generated signal linear amplitude.
     float amplitude;
     /// DM-RS position mask. Indicates the OFDM symbols carrying DM-RS within the slot.
     symbol_slot_mask dmrs_symbols_mask;
-    /// PDSCH frequency domain allocation as RB list. The entries set to true are used for transmission.
-    bounded_bitset<MAX_NOF_PRBS> rb_mask;
+    /// PDSCH frequency domain allocation as a CRB mask. The entries set to true are used for transmission.
+    crb_bitmap rb_mask;
     /// PDSCH time domain allocation.
     interval<uint8_t> time_allocation;
     /// Frequency domain density.

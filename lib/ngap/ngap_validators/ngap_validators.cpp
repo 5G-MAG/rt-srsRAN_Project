@@ -54,8 +54,8 @@ pdu_session_resource_setup_validation_outcome srsran::srs_cu_cp::verify_pdu_sess
 
   // Check for unsupported PDU Session Types.
   for (const auto& pdu_session_item : request.pdu_session_res_setup_items) {
-    if (pdu_session_item.pdu_session_type == "ipv4v6") {
-      ue_logger.log_warning("Unsupported PDU Session Type: ipv4v6");
+    if (pdu_session_item.pdu_session_type == pdu_session_type_t::ipv4v6) {
+      ue_logger.log_warning("Unsupported PDU Session Type: {}", pdu_session_item.pdu_session_type);
       failed_psis.emplace(pdu_session_item.pdu_session_id);
       // Add failed psi to response.
       cu_cp_pdu_session_res_setup_failed_item failed_item;
@@ -107,6 +107,7 @@ pdu_session_resource_setup_validation_outcome srsran::srs_cu_cp::verify_pdu_sess
   }
   verification_outcome.request.ue_index                         = request.ue_index;
   verification_outcome.request.ue_aggregate_maximum_bit_rate_dl = request.ue_aggregate_maximum_bit_rate_dl;
+  verification_outcome.request.ue_aggregate_maximum_bit_rate_ul = request.ue_aggregate_maximum_bit_rate_ul;
   verification_outcome.request.serving_plmn                     = request.serving_plmn;
 
   return verification_outcome;

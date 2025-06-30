@@ -32,6 +32,7 @@
 #include "srsran/cu_cp/cu_cp_types.h"
 #include "srsran/cu_cp/du_processor_context.h"
 #include "srsran/f1ap/cu_cp/f1ap_cu.h"
+#include "srsran/f1ap/cu_cp/f1ap_cu_configuration_update.h"
 #include "srsran/ran/nr_cgi.h"
 #include "srsran/support/executors/task_executor.h"
 #include <string>
@@ -52,11 +53,11 @@ public:
 
   // getter functions
 
-  f1ap_cu& get_f1ap_handler() override { return *f1ap; };
+  f1ap_cu& get_f1ap_handler() override { return *f1ap; }
 
-  rrc_du& get_rrc_du_handler() override { return *rrc; };
+  rrc_du& get_rrc_du_handler() override { return *rrc; }
 
-  size_t get_nof_ues() const { return ue_mng.get_nof_du_ues(cfg.du_index); };
+  size_t get_nof_ues() const { return ue_mng.get_nof_du_ues(cfg.du_index); }
 
   // du_processor_mobility_manager_interface
   std::optional<nr_cell_global_id_t> get_cgi(pci_t pci) override;
@@ -69,6 +70,10 @@ public:
   {
     return cfg.du_cfg_hdlr->has_context() ? &cfg.du_cfg_hdlr->get_context() : nullptr;
   }
+
+  // du_processor_configuration_update_interface
+  async_task<f1ap_gnb_cu_configuration_update_response>
+  handle_configuration_update(const f1ap_gnb_cu_configuration_update& request) override;
 
   metrics_report::du_info handle_du_metrics_report_request() const override;
 

@@ -24,11 +24,11 @@
 
 #include "../cell/cell_harq_manager.h"
 #include "../logging/scheduler_event_logger.h"
-#include "../policy/scheduler_policy.h"
 #include "../pucch_scheduling/pucch_guardbands_scheduler.h"
-#include "../slicing/slice_scheduler.h"
+#include "../slicing/inter_slice_scheduler.h"
 #include "../srs/srs_scheduler_impl.h"
 #include "../uci_scheduling/uci_scheduler_impl.h"
+#include "intra_slice_scheduler.h"
 #include "ue_cell_grid_allocator.h"
 #include "ue_event_manager.h"
 #include "ue_fallback_scheduler.h"
@@ -47,6 +47,7 @@ public:
   explicit ue_scheduler_impl(const scheduler_ue_expert_config& expert_cfg_);
 
   void add_cell(const ue_scheduler_cell_params& params) override;
+  void rem_cell(du_cell_index_t cell_index) override;
 
   /// Schedule UE DL grants for a given {slot, cell}.
   void run_slot(slot_point slot_tx) override;
@@ -64,13 +65,15 @@ public:
 
   scheduler_dl_buffer_state_indication_handler& get_dl_buffer_state_indication_handler() override { return event_mng; }
 
+  scheduler_positioning_handler& get_positioning_handler() override { return event_mng; }
+
 private:
-  void run_sched_strategy(slot_point sl_tx, du_cell_index_t cell_index);
+  void run_sched_strategy(du_cell_index_t cell_index);
 
   /// Counts the number of PUCCH grants that are allocated for a given user at a specific slot.
   void update_harq_pucch_counter(cell_resource_allocator& cell_alloc);
 
-  struct cell {
+  struct cell_context {
     cell_resource_allocator* cell_res_alloc;
 
     /// HARQ pool for this cell.
@@ -83,30 +86,27 @@ private:
     ue_fallback_scheduler fallback_sched;
 
     /// Slice scheduler.
-    slice_scheduler slice_sched;
+    inter_slice_scheduler slice_sched;
+
+    /// Intra-slice scheduler.
+    intra_slice_scheduler intra_slice_sched;
 
     /// SRS scheduler
     srs_scheduler_impl srs_sched;
 
-    cell(const scheduler_ue_expert_config& expert_cfg,
-         const ue_scheduler_cell_params&   params,
-         ue_repository&                    ues,
-         cell_metrics_handler&             metrics_handler);
+    cell_context(const scheduler_ue_expert_config& expert_cfg,
+                 ue_repository&                    ues,
+                 const ue_scheduler_cell_params&   params);
   };
 
   const scheduler_ue_expert_config& expert_cfg;
+  srslog::basic_logger&             logger;
 
   // List of cells of the UE scheduler.
-  slotted_array<cell, MAX_NOF_DU_CELLS> cells;
-
-  /// Scheduling Strategy.
-  ue_resource_grid_view ue_res_grid_view;
+  slotted_array<cell_context, MAX_NOF_DU_CELLS> cells;
 
   /// Repository of created UEs.
   ue_repository ue_db;
-
-  /// Allocator of grants in the resource grid.
-  ue_cell_grid_allocator ue_alloc;
 
   /// Processor of UE input events.
   ue_event_manager event_mng;
@@ -116,8 +116,6 @@ private:
 
   // Last slot run.
   slot_point last_sl_ind;
-
-  srslog::basic_logger& logger;
 };
 
 } // namespace srsran

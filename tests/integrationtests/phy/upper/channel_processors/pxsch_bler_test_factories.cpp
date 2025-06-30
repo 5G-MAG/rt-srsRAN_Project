@@ -98,7 +98,7 @@ static void create_hwacc_pxsch_factories(const std::string& eal_arguments)
     hal::bbdev_hwacc_pusch_dec_factory_configuration hw_decoder_config;
     hw_decoder_config.acc_type            = "acc100";
     hw_decoder_config.bbdev_accelerator   = bbdev_accelerator;
-    hw_decoder_config.ext_softbuffer      = true;
+    hw_decoder_config.force_local_harq    = false;
     hw_decoder_config.harq_buffer_context = harq_buffer_context;
     hw_decoder_config.dedicated_queue     = true;
     // ACC100 hardware-accelerator implementation.
@@ -121,35 +121,35 @@ std::shared_ptr<pdsch_processor_factory> srsran::create_sw_pdsch_processor_facto
   report_fatal_error_if_not(crc_calc_factory, "Failed to create CRC calculator factory.");
 
   std::shared_ptr<ldpc_encoder_factory> ldpc_encoder_factory = create_ldpc_encoder_factory_sw("auto");
-  report_fatal_error_if_not(ldpc_encoder_factory, "Failed to create factory.");
+  report_fatal_error_if_not(ldpc_encoder_factory, "Failed to create LDPC encoder factory.");
 
   std::shared_ptr<ldpc_rate_matcher_factory> ldpc_rate_matcher_factory = create_ldpc_rate_matcher_factory_sw();
-  report_fatal_error_if_not(ldpc_rate_matcher_factory, "Failed to create factory.");
+  report_fatal_error_if_not(ldpc_rate_matcher_factory, "Failed to create LDPC RM factory.");
 
   std::shared_ptr<ldpc_segmenter_tx_factory> segmenter_factory = create_ldpc_segmenter_tx_factory_sw(crc_calc_factory);
-  report_fatal_error_if_not(segmenter_factory, "Failed to create factory.");
+  report_fatal_error_if_not(segmenter_factory, "Failed to create LDPC segmenter factory.");
 
   std::shared_ptr<pseudo_random_generator_factory> pseudo_random_gen_factory =
       create_pseudo_random_generator_sw_factory();
-  report_fatal_error_if_not(pseudo_random_gen_factory, "Failed to create factory.");
+  report_fatal_error_if_not(pseudo_random_gen_factory, "Failed to create pseudo-random generator factory.");
 
-  std::shared_ptr<channel_modulation_factory> channel_mod_factory = create_channel_modulation_sw_factory();
-  report_fatal_error_if_not(channel_mod_factory, "Failed to create factory.");
+  std::shared_ptr<modulation_mapper_factory> channel_mod_factory = create_modulation_mapper_factory();
+  report_fatal_error_if_not(channel_mod_factory, "Failed to create modulation factory.");
 
   std::shared_ptr<channel_precoder_factory> precoding_factory = create_channel_precoder_factory("auto");
-  report_fatal_error_if_not(precoding_factory, "Failed to create factory.");
+  report_fatal_error_if_not(precoding_factory, "Failed to create precoding factory.");
 
   std::shared_ptr<resource_grid_mapper_factory> rg_mapper_factory =
       create_resource_grid_mapper_factory(precoding_factory);
-  report_fatal_error_if_not(rg_mapper_factory, "Failed to create factory.");
+  report_fatal_error_if_not(rg_mapper_factory, "Failed to create RG mapper factory.");
 
   std::shared_ptr<dmrs_pdsch_processor_factory> dmrs_pdsch_proc_factory =
       create_dmrs_pdsch_processor_factory_sw(pseudo_random_gen_factory, rg_mapper_factory);
-  report_fatal_error_if_not(dmrs_pdsch_proc_factory, "Failed to create factory.");
+  report_fatal_error_if_not(dmrs_pdsch_proc_factory, "Failed to create DM-RS generator factory.");
 
   std::shared_ptr<ptrs_pdsch_generator_factory> ptrs_pdsch_gen_factory =
       create_ptrs_pdsch_generator_generic_factory(pseudo_random_gen_factory, rg_mapper_factory);
-  report_fatal_error_if_not(ptrs_pdsch_gen_factory, "Failed to create factory.");
+  report_fatal_error_if_not(ptrs_pdsch_gen_factory, "Failed to create PT-RS generator factory.");
 
 #if defined(HWACC_PDSCH_ENABLED) && defined(HWACC_PUSCH_ENABLED)
   if (pxsch_type.find("acc100") != std::string::npos) {
@@ -177,23 +177,28 @@ std::shared_ptr<pdsch_processor_factory> srsran::create_sw_pdsch_processor_facto
   }
 #endif // HWACC_PDSCH_ENABLED && HWACC_PUSCH_ENABLED
 
-  return create_pdsch_concurrent_processor_factory_sw(segmenter_factory,
-                                                      ldpc_encoder_factory,
-                                                      ldpc_rate_matcher_factory,
-                                                      pseudo_random_gen_factory,
-                                                      rg_mapper_factory,
-                                                      channel_mod_factory,
-                                                      dmrs_pdsch_proc_factory,
-                                                      ptrs_pdsch_gen_factory,
-                                                      executor,
-                                                      max_nof_threads);
+  // Create PDSCH block processor factory.
+  std::shared_ptr<pdsch_block_processor_factory> block_processor_factory = create_pdsch_block_processor_factory_sw(
+      ldpc_encoder_factory, ldpc_rate_matcher_factory, pseudo_random_gen_factory, channel_mod_factory);
+  report_fatal_error_if_not(block_processor_factory, "Failed to create factory.");
+
+  return create_pdsch_flexible_processor_factory_sw(segmenter_factory,
+                                                    block_processor_factory,
+                                                    rg_mapper_factory,
+                                                    dmrs_pdsch_proc_factory,
+                                                    ptrs_pdsch_gen_factory,
+                                                    executor,
+                                                    max_nof_threads);
 }
 
-std::shared_ptr<pusch_processor_factory> srsran::create_sw_pusch_processor_factory(task_executor& executor,
-                                                                                   unsigned       max_nof_threads,
-                                                                                   unsigned       nof_ldpc_iterations,
-                                                                                   bool           dec_enable_early_stop,
-                                                                                   const std::string& pxsch_type)
+std::shared_ptr<pusch_processor_factory>
+srsran::create_sw_pusch_processor_factory(task_executor&                                   executor,
+                                          unsigned                                         max_nof_threads,
+                                          unsigned                                         nof_ldpc_iterations,
+                                          bool                                             dec_enable_early_stop,
+                                          const std::string&                               pxsch_type,
+                                          port_channel_estimator_td_interpolation_strategy td_interpolation_strategy,
+                                          channel_equalizer_algorithm_type                 equalizer_algorithm_type)
 {
   pusch_processor_phy_capabilities pusch_processor_phy_cap = get_pusch_processor_phy_capabilities();
 
@@ -256,23 +261,34 @@ std::shared_ptr<pusch_processor_factory> srsran::create_sw_pusch_processor_facto
       create_port_channel_estimator_factory_sw(ta_est_factory);
   report_fatal_error_if_not(chan_estimator_factory, "Failed to create factory.");
 
-  std::shared_ptr<dmrs_pusch_estimator_factory> chan_est_factory = create_dmrs_pusch_estimator_factory_sw(
-      pseudo_random_gen_factory, low_papr_sequence_gen_factory, chan_estimator_factory);
+  // CFO compensation is not necessary if time domain interpolation is enabled.
+  bool compensate_cfo = td_interpolation_strategy != port_channel_estimator_td_interpolation_strategy::interpolate;
+
+  std::shared_ptr<dmrs_pusch_estimator_factory> chan_est_factory =
+      create_dmrs_pusch_estimator_factory_sw(pseudo_random_gen_factory,
+                                             low_papr_sequence_gen_factory,
+                                             chan_estimator_factory,
+                                             port_channel_estimator_fd_smoothing_strategy::filter,
+                                             td_interpolation_strategy,
+                                             compensate_cfo);
   report_fatal_error_if_not(chan_est_factory, "Failed to create factory.");
 
   std::shared_ptr<channel_equalizer_factory> eq_factory =
-      create_channel_equalizer_generic_factory(channel_equalizer_algorithm_type::zf);
+      create_channel_equalizer_generic_factory(equalizer_algorithm_type);
   report_fatal_error_if_not(eq_factory, "Failed to create factory.");
 
-  std::shared_ptr<channel_modulation_factory> chan_mod_factory = create_channel_modulation_sw_factory();
-  report_fatal_error_if_not(chan_mod_factory, "Failed to create factory.");
+  std::shared_ptr<demodulation_mapper_factory> chan_demod_factory = create_demodulation_mapper_factory();
+  report_fatal_error_if_not(chan_demod_factory, "Failed to create factory.");
+
+  std::shared_ptr<evm_calculator_factory> evm_calc_factory = create_evm_calculator_factory();
+  report_fatal_error_if_not(evm_calc_factory, "Failed to create factory.");
 
   std::shared_ptr<transform_precoder_factory> precoding_factory =
       create_dft_transform_precoder_factory(dft_proc_factory, MAX_RB);
   report_fatal_error_if_not(precoding_factory, "Invalid transform precoding factory.");
 
   std::shared_ptr<pusch_demodulator_factory> pusch_demod_factory = create_pusch_demodulator_factory_sw(
-      eq_factory, precoding_factory, chan_mod_factory, pseudo_random_gen_factory, MAX_RB, true, true);
+      eq_factory, precoding_factory, chan_demod_factory, evm_calc_factory, pseudo_random_gen_factory, MAX_RB, true);
   report_fatal_error_if_not(pusch_demod_factory, "Failed to create factory.");
 
   std::shared_ptr<ulsch_demultiplex_factory> demux_factory = create_ulsch_demultiplex_factory_sw();

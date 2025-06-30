@@ -255,8 +255,10 @@ public:
 
   /// \brief Await a RRC Reconfiguration Complete for a handover.
   /// \param[in] transaction_id The transaction ID of the RRC Reconfiguration Complete.
+  /// \param[in] timeout_ms The timeout for the RRC Reconfiguration Complete.
   /// \returns True if the RRC Reconfiguration Complete was received, false otherwise.
-  virtual async_task<bool> handle_handover_reconfiguration_complete_expected(uint8_t transaction_id) = 0;
+  virtual async_task<bool> handle_handover_reconfiguration_complete_expected(uint8_t                   transaction_id,
+                                                                             std::chrono::milliseconds timeout_ms) = 0;
 
   /// \brief Store UE capabilities received from the NGAP.
   /// \param[in] ue_capabilities The UE capabilities.
@@ -270,7 +272,9 @@ public:
   /// \returns The release context of the UE. If SRB1 is not created yet, a RrcReject message is contained in the
   /// release context, see section 5.3.15 in TS 38.331. Otherwise, a RrcRelease message is contained in the release
   /// context.
-  virtual rrc_ue_release_context get_rrc_ue_release_context(bool requires_rrc_msg) = 0;
+  virtual rrc_ue_release_context
+  get_rrc_ue_release_context(bool                                requires_rrc_msg,
+                             std::optional<std::chrono::seconds> release_wait_time = std::nullopt) = 0;
 
   /// \brief Retrieve RRC context of a UE to perform mobility (handover, reestablishment).
   /// \return Transfer context including UP context, security, SRBs, HO preparation, etc.
@@ -314,6 +318,10 @@ public:
 
   /// \brief Get the RRC connection state of the UE.
   virtual rrc_state get_rrc_state() const = 0;
+
+  /// \brief Cancel an ongoing handover reconfiguration transaction.
+  /// \param[in] transaction_id The transaction ID of the handover reconfiguration transaction.
+  virtual void cancel_handover_reconfiguration_transaction(uint8_t transaction_id) = 0;
 };
 
 class rrc_ue_cu_cp_ue_notifier
@@ -437,6 +445,35 @@ public:
   /// \brief Get the RRC Reestablishment UE context to transfer it to new UE.
   /// \returns The RRC Reestablishment UE Context.
   virtual rrc_ue_reestablishment_context_response get_context() = 0;
+};
+
+class rrc_ue_event_notifier
+{
+public:
+  virtual ~rrc_ue_event_notifier() = default;
+
+  /// \brief Notify the RRC DU about a new RRC connection.
+  virtual void on_new_rrc_connection() = 0;
+
+  /// \brief Notify the RRC DU about a successful RRC release.
+  virtual void on_successful_rrc_release() = 0;
+
+  /// \brief Notify the RRC DU about a new RRC connection establishment attempt.
+  /// \param[in] cause The establishment cause of the RRC connection.
+  virtual void on_attempted_rrc_connection_establishment(establishment_cause_t cause) = 0;
+
+  /// \brief Notify the RRC DU about a successful RRC connection establishment.
+  /// \param[in] cause The establishment cause of the RRC connection.
+  virtual void on_successful_rrc_connection_establishment(establishment_cause_t cause) = 0;
+
+  /// \brief Notify the RRC DU about the attempted RRC connection re-establishment.
+  virtual void on_attempted_rrc_connection_reestablishment() = 0;
+
+  /// \brief Notify the RRC DU about the successful RRC connection re-establishment.
+  virtual void on_successful_rrc_connection_reestablishment() = 0;
+
+  /// \brief Notify the RRC DU about the successful RRC connection re-establishment fallback.
+  virtual void on_successful_rrc_connection_reestablishment_fallback() = 0;
 };
 
 /// Combined entry point for the RRC UE handling.

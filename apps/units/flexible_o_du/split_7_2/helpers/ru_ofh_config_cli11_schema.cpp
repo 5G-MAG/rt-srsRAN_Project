@@ -21,7 +21,8 @@
  */
 
 #include "ru_ofh_config_cli11_schema.h"
-#include "apps/services/logger/logger_appconfig_cli11_utils.h"
+#include "apps/helpers/logger/logger_appconfig_cli11_utils.h"
+#include "apps/helpers/metrics/metrics_config_cli11_schema.h"
 #include "apps/services/worker_manager/cli11_cpu_affinities_parser_helper.h"
 #include "ru_ofh_config.h"
 #include "srsran/support/cli11_utils.h"
@@ -114,8 +115,6 @@ static void configure_cli11_ru_ofh_base_cell_args(CLI::App& app, ru_ofh_unit_bas
 
   add_option(app, "--is_prach_cp_enabled", config.is_prach_control_plane_enabled, "PRACH Control-Plane enabled flag")
       ->capture_default_str();
-  add_option(app, "--is_dl_broadcast_enabled", config.is_downlink_broadcast_enabled, "Downlink broadcast enabled flag")
-      ->capture_default_str();
   add_option(app, "--ignore_ecpri_seq_id", config.ignore_ecpri_seq_id_field, "Ignore eCPRI sequence id field value")
       ->capture_default_str();
   add_option(app,
@@ -123,9 +122,30 @@ static void configure_cli11_ru_ofh_base_cell_args(CLI::App& app, ru_ofh_unit_bas
              config.ignore_ecpri_payload_size_field,
              "Ignore eCPRI payload size field value")
       ->capture_default_str();
-  add_option(
-      app, "--warn_unreceived_ru_frames", config.warn_unreceived_ru_frames, "Warn of unreceived Radio Unit frames")
+  add_option(app,
+             "--ignore_prach_start_symbol",
+             config.ignore_prach_start_symbol,
+             "Ignore the start symbol field in the PRACH U-Plane packets")
       ->capture_default_str();
+
+  add_option_function<std::string>(
+      app,
+      "--warn_unreceived_ru_frames",
+      [&config](const std::string& value) {
+        config.log_unreceived_ru_frames = ofh::to_warn_unreceived_ru_frames(value).value();
+      },
+      "Warn of unreceived Radio Unit frames")
+      ->default_function([&config]() { return to_string(config.log_unreceived_ru_frames); })
+      ->capture_default_str()
+      ->check([](const std::string& value) -> std::string {
+        auto warn = ofh::to_warn_unreceived_ru_frames(value);
+        if (warn.has_value()) {
+          return {};
+        }
+
+        return "Warn of unreceived Radio Unit frames type not supported. Accepted values [never, always, "
+               "after_traffic_detection]";
+      });
 
   auto compression_method_check = [](const std::string& value) -> std::string {
     if (value == "none" || value == "bfp" || value == "bfp selective" || value == "block scaling" ||
@@ -263,7 +283,7 @@ static void configure_cli11_ru_ofh_args(CLI::App& app, ru_ofh_unit_parsed_config
 
 static void configure_cli11_log_args(CLI::App& app, ru_ofh_unit_logger_config& log_params)
 {
-  app_services::add_log_option(app, log_params.ofh_level, "--ofh_level", "Open Fronthaul log level");
+  app_helpers::add_log_option(app, log_params.ofh_level, "--ofh_level", "Open Fronthaul log level");
 }
 
 static void configure_cli11_cell_affinity_args(CLI::App& app, ru_ofh_unit_cpu_affinities_cell_config& config)
@@ -362,11 +382,20 @@ static void configure_cli11_expert_execution_args(CLI::App& app, ru_ofh_unit_exp
       "Sets the cell CPU affinities configuration on a per cell basis");
 }
 
+#ifdef DPDK_FOUND
 static void configure_cli11_hal_args(CLI::App& app, std::optional<ru_ofh_unit_hal_config>& config)
 {
   config.emplace();
 
   add_option(app, "--eal_args", config->eal_args, "EAL configuration parameters used to initialize DPDK");
+}
+#endif
+
+static void configure_cli11_metrics_args(CLI::App& app, ru_ofh_unit_metrics_config& config)
+{
+  CLI::App* layers_subcmd = add_subcommand(app, "layers", "Layer basis metrics configuration")->configurable();
+  add_option(*layers_subcmd, "--enable_ru", config.enable_ru_metrics, "Enable Radio Unit metrics")
+      ->capture_default_str();
 }
 
 void srsran::configure_cli11_with_ru_ofh_config_schema(CLI::App& app, ru_ofh_unit_parsed_config& parsed_cfg)
@@ -383,11 +412,19 @@ void srsran::configure_cli11_with_ru_ofh_config_schema(CLI::App& app, ru_ofh_uni
   CLI::App* expert_subcmd = add_subcommand(app, "expert_execution", "Expert execution configuration")->configurable();
   configure_cli11_expert_execution_args(*expert_subcmd, parsed_cfg.config.expert_execution_cfg);
 
-  // HAL section.
+  // HAL section only available when DPDK is present.
+#ifdef DPDK_FOUND
   CLI::App* hal_subcmd = add_subcommand(app, "hal", "HAL configuration")->configurable();
   configure_cli11_hal_args(*hal_subcmd, parsed_cfg.config.hal_config);
+#endif
+
+  // Metrics section.
+  app_helpers::configure_cli11_with_metrics_appconfig_schema(app, parsed_cfg.config.metrics_cfg.metrics_cfg);
+  CLI::App* metrics_subcmd = add_subcommand(app, "metrics", "Metrics configuration")->configurable();
+  configure_cli11_metrics_args(*metrics_subcmd, parsed_cfg.config.metrics_cfg);
 }
 
+#ifdef DPDK_FOUND
 static void manage_hal_optional(CLI::App& app, std::optional<ru_ofh_unit_hal_config>& hal_config)
 {
   // Clean the HAL optional.
@@ -397,8 +434,11 @@ static void manage_hal_optional(CLI::App& app, std::optional<ru_ofh_unit_hal_con
     subcmd->disabled();
   }
 }
+#endif
 
 void srsran::autoderive_ru_ofh_parameters_after_parsing(CLI::App& app, ru_ofh_unit_parsed_config& parsed_cfg)
 {
+#ifdef DPDK_FOUND
   manage_hal_optional(app, parsed_cfg.config.hal_config);
+#endif
 }

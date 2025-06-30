@@ -27,11 +27,13 @@
 
 #include "srsran/adt/byte_buffer.h"
 #include "srsran/asn1/f1ap/f1ap_ies.h"
+#include "srsran/f1ap/f1ap_message.h"
 #include "srsran/f1ap/f1ap_ue_id_types.h"
 #include "srsran/ran/gnb_du_id.h"
 #include "srsran/ran/nr_band.h"
 #include "srsran/ran/nr_cgi.h"
 #include "srsran/ran/pci.h"
+#include "srsran/ran/positioning/positioning_ids.h"
 #include "srsran/ran/rb_id.h"
 #include "srsran/ran/rnti.h"
 #include "srsran/ran/subcarrier_spacing.h"
@@ -65,13 +67,29 @@ f1ap_message generate_f1_setup_request(gnb_du_id_t                              
                                        const std::vector<served_cell_item_info>& cells     = {served_cell_item_info{}});
 
 /// \brief Generates dummy F1 SETUP RESPONSE message based on the request.
-f1ap_message generate_f1_setup_response(const f1ap_message& f1_setup_request);
+f1ap_message generate_f1_setup_response(const f1ap_message& f1_setup_request, bool activate_cells = true);
+
+/// \brief Generates dummy F1 SETUP FAILURE message based on the request.
+f1ap_message generate_f1_setup_failure(const f1ap_message& f1_setup_request);
 
 /// \brief Generates dummy F1 REMOVAL REQUEST message.
 f1ap_message generate_f1_removal_request(unsigned transaction_id);
 
 /// \brief Generates dummy F1 REMOVAL RESPONSE message based on the request.
 f1ap_message generate_f1_removal_response(const f1ap_message& f1_removal_request);
+
+/// \brief Generates dummy GNB-DU CONFIGURATION UPDATE ACKNOWLEDGE message based on the request, as per
+/// TS 38.473, 8.2.4.2.
+f1ap_message create_gnb_du_configuration_update_acknowledge(const f1ap_message& gnb_du_config_request);
+
+/// \brief Generates dummy GNB-DU CONFIGURATION UPDATE FAILURE message based on the request, as per
+/// TS 38.473, 8.2.4.3.
+f1ap_message create_gnb_du_configuration_update_failure(const f1ap_message& gnb_du_config_request);
+
+/// \brief Generates dummy GNB-CU CONFIGURATION UPDATE REQUEST message as per TS 38.473, 8.2.5.1.
+f1ap_message create_gnb_cu_configuration_update_request(unsigned                        transaction_id,
+                                                        span<const nr_cell_global_id_t> cgis_to_activate,
+                                                        span<const nr_cell_global_id_t> cgis_to_deactivate = {});
 
 /// \brief Generates dummy F1 RESET message.
 f1ap_message create_f1ap_reset_message(
@@ -142,6 +160,31 @@ byte_buffer create_dl_dcch_rrc_container(uint32_t pdcp_sn, const byte_buffer& dl
 
 /// \brief Remove PDCP header from DL-DCCH message.
 byte_buffer extract_dl_dcch_msg(const byte_buffer& rrc_container);
+
+/// \brief Generates dummy F1AP TRP INFORMATION RESPONSE message.
+f1ap_message generate_trp_information_response(const trp_id_t& trp_id);
+
+/// \brief Generates dummy F1AP TRP INFORMATION FAILURE message.
+f1ap_message generate_trp_information_failure();
+
+/// \brief Generates dummy F1AP POSITIONING INFORMATION RESPONSE message.
+f1ap_message generate_positioning_information_response(gnb_du_ue_f1ap_id_t du_ue_id, gnb_cu_ue_f1ap_id_t cu_ue_id);
+
+/// \brief Generates dummy F1AP POSITIONING INFORMATION FAILURE message.
+f1ap_message generate_positioning_information_failure(gnb_du_ue_f1ap_id_t du_ue_id, gnb_cu_ue_f1ap_id_t cu_ue_id);
+
+/// \brief Generates dummy F1AP POSITIONING ACTIVATION RESPONSE message.
+f1ap_message generate_positioning_activation_response(gnb_du_ue_f1ap_id_t du_ue_id, gnb_cu_ue_f1ap_id_t cu_ue_id);
+
+/// \brief Generates dummy F1AP POSITIONING ACTIVATION FAILURE message.
+f1ap_message generate_positioning_activation_failure(gnb_du_ue_f1ap_id_t du_ue_id, gnb_cu_ue_f1ap_id_t cu_ue_id);
+
+/// \brief Generates dummy F1AP POSITIONING MEASUREMENT RESPONSE message.
+f1ap_message
+generate_positioning_measurement_response(trp_id_t trp_id, lmf_meas_id_t lmf_meas_id, ran_meas_id_t ran_meas_id);
+
+/// \brief Generates dummy F1AP POSITIONING MEASUREMENT FAILURE message.
+f1ap_message generate_positioning_measurement_failure(lmf_meas_id_t lmf_meas_id, ran_meas_id_t ran_meas_id);
 
 } // namespace test_helpers
 } // namespace srsran

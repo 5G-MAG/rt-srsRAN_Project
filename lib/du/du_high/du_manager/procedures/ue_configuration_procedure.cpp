@@ -54,7 +54,8 @@ void ue_configuration_procedure::operator()(coro_context<async_task<f1ap_ue_cont
   }
 
   prev_ue_res_cfg = ue->resources.value();
-  ue_res_cfg_resp = ue->resources.update(ue->pcell_index, request, ue->reestablished_cfg_pending.get());
+  ue_res_cfg_resp = ue->resources.update(
+      ue->pcell_index, request, ue->reestablished_cfg_pending.get(), ue->reestablished_ue_caps_summary.get());
   if (ue_res_cfg_resp.failed()) {
     proc_logger.log_proc_failure("Failed to allocate DU UE resources");
     CORO_EARLY_RETURN(make_ue_config_failure());
@@ -67,7 +68,7 @@ void ue_configuration_procedure::operator()(coro_context<async_task<f1ap_ue_cont
   update_ue_context();
 
   // > Update MAC bearers.
-  CORO_AWAIT_VALUE(mac_res, update_mac_mux_and_demux());
+  CORO_AWAIT_VALUE(mac_res, update_mac_and_sched());
 
   // > Destroy old DU UE bearers that are now detached from remaining layers.
   clear_old_ue_context();
@@ -137,16 +138,16 @@ void ue_configuration_procedure::update_ue_context()
   }
 
   // > Create new DU UE DRB objects.
+  auto& failed_drbs = ue_res_cfg_resp.failed_drbs;
   for (const f1ap_drb_to_setup& drbtoadd : request.drbs_to_setup) {
-    if (std::find(ue_res_cfg_resp.failed_drbs.begin(), ue_res_cfg_resp.failed_drbs.end(), drbtoadd.drb_id) !=
-        ue_res_cfg_resp.failed_drbs.end()) {
+    if (std::find(failed_drbs.begin(), failed_drbs.end(), drbtoadd.drb_id) != failed_drbs.end()) {
       // >> In case it was not possible to setup DRB in the UE resources, we continue to the next DRB.
       continue;
     }
     if (ue->bearers.drbs().count(drbtoadd.drb_id) > 0) {
       proc_logger.log_proc_warning("Failed to setup {}. Cause: DRB setup for an already existing DRB.",
                                    drbtoadd.drb_id);
-      ue_res_cfg_resp.failed_drbs.push_back(drbtoadd.drb_id);
+      failed_drbs.push_back(drbtoadd.drb_id);
       continue;
     }
 
@@ -158,6 +159,7 @@ void ue_configuration_procedure::update_ue_context()
                                                                   ue->pcell_index,
                                                                   drbtoadd.drb_id,
                                                                   drb_cfg.lcid,
+                                                                  drb_cfg.qos.qos_desc.get_5qi(),
                                                                   drb_cfg.rlc_cfg,
                                                                   drb_cfg.f1u,
                                                                   drbtoadd.uluptnl_info_list,
@@ -165,7 +167,7 @@ void ue_configuration_procedure::update_ue_context()
                                                                   du_params,
                                                                   ue->get_rlc_rlf_notifier()});
     if (drb == nullptr) {
-      ue_res_cfg_resp.failed_drbs.push_back(drbtoadd.drb_id);
+      failed_drbs.push_back(drbtoadd.drb_id);
       proc_logger.log_proc_warning("Failed to create {}. Cause: Failed to allocate DU UE resources.", drbtoadd.drb_id);
       continue;
     }
@@ -174,8 +176,7 @@ void ue_configuration_procedure::update_ue_context()
 
   // > Modify existing UE DRBs.
   for (const f1ap_drb_to_modify& drbtomod : request.drbs_to_mod) {
-    if (std::find(ue_res_cfg_resp.failed_drbs.begin(), ue_res_cfg_resp.failed_drbs.end(), drbtomod.drb_id) !=
-        ue_res_cfg_resp.failed_drbs.end()) {
+    if (std::find(failed_drbs.begin(), failed_drbs.end(), drbtomod.drb_id) != failed_drbs.end()) {
       // >> Failed to modify DRB, continue to next DRB.
       continue;
     }
@@ -192,6 +193,7 @@ void ue_configuration_procedure::update_ue_context()
                                                                     ue->pcell_index,
                                                                     drbtomod.drb_id,
                                                                     drb_cfg.lcid,
+                                                                    drb_cfg.qos.qos_desc.get_5qi(),
                                                                     drb_cfg.rlc_cfg,
                                                                     drb_cfg.f1u,
                                                                     drbtomod.uluptnl_info_list,
@@ -201,7 +203,7 @@ void ue_configuration_procedure::update_ue_context()
       if (drb == nullptr) {
         proc_logger.log_proc_warning("Failed to create {}. Cause: Failed to allocate DU UE resources.",
                                      drbtomod.drb_id);
-        ue_res_cfg_resp.failed_drbs.push_back(drbtomod.drb_id);
+        failed_drbs.push_back(drbtomod.drb_id);
         continue;
       }
       ue->bearers.add_drb(std::move(drb));
@@ -216,7 +218,7 @@ void ue_configuration_procedure::clear_old_ue_context()
   if (not drbs_to_rem.empty()) {
     // Dispatch DRB context destruction to the respective UE executor.
     task_executor& exec = du_params.services.ue_execs.ctrl_executor(ue->ue_index);
-    if (not exec.defer([drbs = std::move(drbs_to_rem)]() mutable { drbs.clear(); })) {
+    if (not exec.defer(TRACE_TASK([drbs = std::move(drbs_to_rem)]() mutable { drbs.clear(); }))) {
       logger.warning("ue={}: Could not dispatch DRB removal task to UE executor. Destroying it the main DU manager "
                      "execution context",
                      fmt::underlying(ue->ue_index));
@@ -224,7 +226,7 @@ void ue_configuration_procedure::clear_old_ue_context()
   }
 }
 
-async_task<mac_ue_reconfiguration_response> ue_configuration_procedure::update_mac_mux_and_demux()
+async_task<mac_ue_reconfiguration_response> ue_configuration_procedure::update_mac_and_sched()
 {
   // Create Request to MAC to reconfigure existing UE.
   mac_ue_reconfiguration_request mac_ue_reconf_req;
@@ -259,9 +261,9 @@ async_task<mac_ue_reconfiguration_response> ue_configuration_procedure::update_m
     lc_ch.ul_bearer = &bearer.connector.mac_rx_sdu_notifier;
     lc_ch.dl_bearer = &bearer.connector.mac_tx_sdu_notifier;
   }
+  auto& failed_drbs = ue_res_cfg_resp.failed_drbs;
   for (const auto& drb : request.drbs_to_mod) {
-    if (std::find(ue_res_cfg_resp.failed_drbs.begin(), ue_res_cfg_resp.failed_drbs.end(), drb.drb_id) !=
-        ue_res_cfg_resp.failed_drbs.end()) {
+    if (std::find(failed_drbs.begin(), failed_drbs.end(), drb.drb_id) != failed_drbs.end()) {
       // The DRB failed to be modified. Carry on with other DRBs.
       continue;
     }
@@ -314,6 +316,7 @@ f1ap_ue_context_update_response ue_configuration_procedure::make_ue_config_respo
   }
 
   // > Calculate ASN.1 CellGroupConfig to be sent in DU-to-CU container.
+  ue->reestablished_ue_caps_summary = nullptr;
   asn1::rrc_nr::cell_group_cfg_s asn1_cell_group;
   if (ue->reestablished_cfg_pending != nullptr) {
     // In case of reestablishment, we send the full configuration to the UE but without an SRB1 and with SRB2 and DRBs

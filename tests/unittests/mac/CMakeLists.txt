@@ -33,9 +33,13 @@ add_executable(mac_test
         mac_cell_processor_test.cpp
         dl_sch_pdu_assembler_test.cpp
         mac_rar_pdu_assembler_test.cpp
+        sib_pdu_assembler_test.cpp
         rnti_manager_test.cpp
+        mac_rach_handler_test.cpp
         mac_dl_cfg_test.cpp
-        mac_config_helpers_test.cpp)
+        mac_metrics_test.cpp
+        mac_config_helpers_test.cpp
+        slot_point_time_mapper_test.cpp)
 target_link_libraries(mac_test
         srsran_pcap
         srsran_support
@@ -43,6 +47,7 @@ target_link_libraries(mac_test
         rrc_nr_asn1
         srsran_mac
         sched_config
+        sched_test_doubles
         gtest
         gtest_main)
 gtest_discover_tests(mac_test)

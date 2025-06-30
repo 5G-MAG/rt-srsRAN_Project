@@ -25,12 +25,15 @@
 #include "context_repository_helpers.h"
 #include "srsran/adt/bounded_bitset.h"
 #include "srsran/adt/expected.h"
+#include "srsran/adt/mpmc_queue.h"
+#include "srsran/adt/unique_function.h"
 #include "srsran/ofh/ofh_constants.h"
 #include "srsran/phy/support/prach_buffer.h"
 #include "srsran/phy/support/prach_buffer_context.h"
 #include "srsran/ran/prach/prach_constants.h"
 #include "srsran/ran/prach/prach_frequency_mapping.h"
 #include "srsran/ran/prach/prach_preamble_information.h"
+#include "srsran/srslog/logger.h"
 #include "srsran/srsvec/copy.h"
 #include <mutex>
 #include <numeric>
@@ -75,7 +78,9 @@ public:
     context_info({context, &buffer})
   {
     srsran_assert(context.nof_fd_occasions == 1, "Only supporting one frequency domain occasion");
-    srsran_assert(context.nof_td_occasions == 1, "Only supporting one time domain occasion");
+    srsran_assert(is_short_preamble(context.format) ||
+                      (is_long_preamble(context.format) && context.nof_td_occasions == 1),
+                  "Only supporting one time domain occasion for long preamble format");
 
     // Get preamble information.
     preamble_info =
@@ -188,6 +193,13 @@ private:
 /// PRACH context repository.
 class prach_context_repository
 {
+  static constexpr size_t INCREASED_TASK_BUFFER_SIZE = 80;
+  using unique_task_prach                            = unique_function<void(), INCREASED_TASK_BUFFER_SIZE>;
+  using queue_type                                   = concurrent_queue<unique_task_prach,
+                                                                        concurrent_queue_policy::lockfree_mpmc,
+                                                                        concurrent_queue_wait_policy::non_blocking>;
+
+  queue_type                 pending_context_to_add;
   std::vector<prach_context> buffer;
   //: TODO: make this lock free
   mutable std::mutex mutex;
@@ -207,18 +219,29 @@ class prach_context_repository
   }
 
 public:
-  explicit prach_context_repository(unsigned size_) : buffer(size_) {}
+  explicit prach_context_repository(unsigned size_) : pending_context_to_add(size_), buffer(size_) {}
 
   /// Adds the given entry to the repository at slot.
   void add(const prach_buffer_context& context,
            prach_buffer&               buffer_,
-           std::optional<unsigned>     start_symbol,
-           std::optional<slot_point>   slot)
+           srslog::basic_logger&       logger,
+           std::optional<unsigned>     start_symbol)
   {
-    std::lock_guard<std::mutex> lock(mutex);
+    if (!pending_context_to_add.try_push([context, &buffer_, start_symbol, this]() {
+          std::lock_guard<std::mutex> lock(mutex);
+          entry(context.slot) = prach_context(context, buffer_, start_symbol);
+        })) {
+      logger.warning("Failed to enqueue task to add the uplink context to the repository");
+    }
+  }
 
-    slot_point current_slot = slot.value_or(context.slot);
-    entry(current_slot)     = prach_context(context, buffer_, start_symbol);
+  /// Process the enqueued contexts to the repository.
+  void process_pending_contexts()
+  {
+    while (auto f = pending_context_to_add.try_pop()) {
+      unique_task_prach& task = *f;
+      task();
+    }
   }
 
   /// Function to write the uplink PRACH buffer.
@@ -242,11 +265,10 @@ public:
   expected<prach_context::prach_context_information> try_poping_complete_prach_buffer(slot_point slot)
   {
     std::lock_guard<std::mutex> lock(mutex);
-
-    const auto result = entry(slot).try_getting_complete_prach_buffer();
+    auto                        result = entry(slot).try_getting_complete_prach_buffer();
 
     // Clear the entry if the pop was a success.
-    if (result.has_value()) {
+    if (result) {
       entry(slot) = {};
     }
 
@@ -257,15 +279,14 @@ public:
   expected<prach_context::prach_context_information> pop_prach_buffer(slot_point slot)
   {
     std::lock_guard<std::mutex> lock(mutex);
-
-    auto& context = entry(slot);
+    auto&                       context = entry(slot);
 
     if (context.empty()) {
       return make_unexpected(default_error_t());
     }
 
-    const auto result = context.get_context_information();
-    context           = {};
+    auto result = context.get_context_information();
+    context     = {};
 
     return result;
   }

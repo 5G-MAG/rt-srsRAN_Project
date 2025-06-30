@@ -22,9 +22,11 @@
 
 #pragma once
 
-#include "srsran/adt/span.h"
 #include "srsran/adt/static_vector.h"
-#include "srsran/fapi/messages.h"
+#include "srsran/fapi/messages/dl_tti_request.h"
+#include "srsran/fapi/messages/tx_data_request.h"
+#include "srsran/fapi/messages/ul_dci_request.h"
+#include "srsran/fapi/messages/ul_tti_request.h"
 #include "srsran/fapi/slot_message_gateway.h"
 #include "srsran/srslog/logger.h"
 #include <atomic>
@@ -50,7 +52,8 @@ constexpr unsigned MAX_NUM_BUFFERED_MESSAGES = 8U;
 class message_bufferer_slot_gateway_impl
 {
 public:
-  message_bufferer_slot_gateway_impl(unsigned              l2_nof_slots_ahead_,
+  message_bufferer_slot_gateway_impl(unsigned              sector_id_,
+                                     unsigned              l2_nof_slots_ahead_,
                                      subcarrier_spacing    scs_,
                                      slot_message_gateway& gateway_);
 
@@ -70,7 +73,7 @@ public:
   void update_current_slot(slot_point slot)
   {
     // Update the atomic variable that holds the slot point.
-    current_slot_count_val.store(slot.system_slot(), std::memory_order_release);
+    current_slot_count_val.store(slot.system_slot(), std::memory_order_relaxed);
   }
 
   /// Forwards through the gateway the cached messages at the given slot.
@@ -80,7 +83,7 @@ private:
   /// Returns this adaptor current slot.
   slot_point get_current_slot() const
   {
-    return slot_point(scs, current_slot_count_val.load(std::memory_order_acquire));
+    return slot_point(scs, current_slot_count_val.load(std::memory_order_relaxed));
   }
 
   /// \brief Handles the given FAPI message.
@@ -96,6 +99,7 @@ private:
   void handle_message(T&& msg, P pool, Function func);
 
 private:
+  const unsigned                                                                   sector_id;
   const unsigned                                                                   l2_nof_slots_ahead;
   const subcarrier_spacing                                                         scs;
   slot_message_gateway&                                                            gateway;

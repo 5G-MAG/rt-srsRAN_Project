@@ -34,7 +34,7 @@ rlc_tx_um_entity::rlc_tx_um_entity(gnb_du_id_t                          du_id,
                                    rlc_tx_upper_layer_data_notifier&    upper_dn_,
                                    rlc_tx_upper_layer_control_notifier& upper_cn_,
                                    rlc_tx_lower_layer_notifier&         lower_dn_,
-                                   rlc_metrics_aggregator&              metrics_agg_,
+                                   rlc_bearer_metrics_collector&        metrics_coll_,
                                    rlc_pcap&                            pcap_,
                                    task_executor&                       pcell_executor_,
                                    task_executor&                       ue_executor_,
@@ -45,7 +45,7 @@ rlc_tx_um_entity::rlc_tx_um_entity(gnb_du_id_t                          du_id,
                 upper_dn_,
                 upper_cn_,
                 lower_dn_,
-                metrics_agg_,
+                metrics_coll_,
                 pcap_,
                 pcell_executor_,
                 ue_executor_,
@@ -75,7 +75,7 @@ rlc_tx_um_entity::rlc_tx_um_entity(gnb_du_id_t                          du_id,
 void rlc_tx_um_entity::handle_sdu(byte_buffer sdu_buf, bool is_retx)
 {
   rlc_sdu sdu_;
-  sdu_.time_of_arrival = std::chrono::high_resolution_clock::now();
+  sdu_.time_of_arrival = std::chrono::steady_clock::now();
 
   sdu_.buf     = std::move(sdu_buf);
   sdu_.pdcp_sn = get_pdcp_sn(sdu_.buf, cfg.pdcp_sn_len, /* is_srb = */ false, logger.get_basic_logger());
@@ -115,7 +115,8 @@ void rlc_tx_um_entity::discard_sdu(uint32_t pdcp_sn)
 }
 
 // TS 38.322 v16.2.0 Sec. 5.2.2.1
-size_t rlc_tx_um_entity::pull_pdu(span<uint8_t> mac_sdu_buf)
+size_t rlc_tx_um_entity::pull_pdu(span<uint8_t> mac_sdu_buf) noexcept SRSRAN_RTSAN_NONBLOCKING
+
 {
   uint32_t grant_len = mac_sdu_buf.size();
   logger.log_debug("MAC opportunity. grant_len={}", grant_len);
@@ -208,8 +209,8 @@ size_t rlc_tx_um_entity::pull_pdu(span<uint8_t> mac_sdu_buf)
     sdu.buf.clear();
     next_so = 0;
     if (metrics_low.is_enabled()) {
-      auto sdu_latency = std::chrono::duration_cast<std::chrono::nanoseconds>(
-          std::chrono::high_resolution_clock::now() - sdu.time_of_arrival);
+      auto sdu_latency =
+          std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - sdu.time_of_arrival);
       metrics_low.metrics_add_sdu_latency_us(sdu_latency.count() / 1000);
       metrics_low.metrics_add_pulled_sdus(1);
     }
@@ -289,7 +290,7 @@ void rlc_tx_um_entity::handle_changed_buffer_state()
   if (not pending_buffer_state.test_and_set(std::memory_order_seq_cst)) {
     logger.log_debug("Triggering buffer state update to lower layer");
     // Redirect handling of status to pcell_executor
-    if (not pcell_executor.defer([this]() { update_mac_buffer_state(); })) {
+    if (not pcell_executor.defer(TRACE_TASK([this]() { update_mac_buffer_state(); }))) {
       logger.log_error("Failed to enqueue buffer state update");
     }
   } else {
@@ -297,12 +298,14 @@ void rlc_tx_um_entity::handle_changed_buffer_state()
   }
 }
 
-void rlc_tx_um_entity::update_mac_buffer_state()
+void rlc_tx_um_entity::update_mac_buffer_state() noexcept SRSRAN_RTSAN_NONBLOCKING
 {
   pending_buffer_state.clear(std::memory_order_seq_cst);
-  unsigned bs = get_buffer_state();
-  if (not(bs > MAX_DL_PDU_LENGTH && prev_buffer_state > MAX_DL_PDU_LENGTH)) {
+  rlc_buffer_state bs = get_buffer_state();
+  if (bs.pending_bytes <= MAX_DL_PDU_LENGTH || prev_buffer_state.pending_bytes <= MAX_DL_PDU_LENGTH ||
+      suspend_bs_notif_barring) {
     logger.log_debug("Sending buffer state update to lower layer. bs={}", bs);
+    suspend_bs_notif_barring = false;
     lower_dn.on_buffer_state_update(bs);
   } else {
     logger.log_debug(
@@ -314,8 +317,10 @@ void rlc_tx_um_entity::update_mac_buffer_state()
 }
 
 // TS 38.322 v16.2.0 Sec 5.5
-uint32_t rlc_tx_um_entity::get_buffer_state()
+rlc_buffer_state rlc_tx_um_entity::get_buffer_state()
 {
+  rlc_buffer_state bs = {};
+
   // minimum bytes needed to tx all queued SDUs + each header
   rlc_sdu_queue_lockfree::state_t queue_state = sdu_queue.get_state();
   uint32_t                        queue_bytes = queue_state.n_bytes + queue_state.n_sdus * head_len_full;
@@ -324,7 +329,17 @@ uint32_t rlc_tx_um_entity::get_buffer_state()
   uint32_t segment_bytes = 0;
   if (not sdu.buf.empty()) {
     segment_bytes = (sdu.buf.length() - next_so) + head_len_not_first;
+    bs.hol_toa    = sdu.time_of_arrival;
+  } else {
+    const rlc_sdu* next_sdu = sdu_queue.front();
+    if (next_sdu != nullptr) {
+      bs.hol_toa = next_sdu->time_of_arrival;
+    }
   }
 
-  return queue_bytes + segment_bytes;
+  bs.pending_bytes = queue_bytes + segment_bytes;
+  if (bs.pending_bytes <= MAX_DL_PDU_LENGTH) {
+    suspend_bs_notif_barring = true;
+  }
+  return bs;
 }

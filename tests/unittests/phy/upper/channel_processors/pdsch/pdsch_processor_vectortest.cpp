@@ -93,6 +93,7 @@ using PdschProcessorParams = std::tuple<std::string, test_case_t>;
 
 // Number of concurrent threads.
 static constexpr unsigned NOF_CONCURRENT_THREADS = 16;
+static constexpr unsigned CB_BATCH_LENGTH        = 4;
 
 class PdschProcessorFixture : public ::testing::TestWithParam<PdschProcessorParams>
 {
@@ -143,7 +144,7 @@ private:
     // Intefacing to the bbdev-based hardware-accelerator.
     dpdk::bbdev_acc_configuration bbdev_config;
     bbdev_config.id                                    = 0;
-    bbdev_config.nof_ldpc_enc_lcores                   = 1;
+    bbdev_config.nof_ldpc_enc_lcores                   = NOF_CONCURRENT_THREADS;
     bbdev_config.nof_ldpc_dec_lcores                   = 0;
     bbdev_config.nof_fft_lcores                        = 0;
     bbdev_config.nof_mbuf                              = static_cast<unsigned>(pow2(log2_ceil(MAX_NOF_SEGMENTS)));
@@ -212,11 +213,9 @@ private:
                                                                           const std::string& eal_arguments)
   {
     std::string encoder_type = "generic";
-#ifdef HWACC_PDSCH_ENABLED
     if (factory_type.find("acc100") != std::string::npos) {
       encoder_type = "acc100";
     }
-#endif // HWACC_PDSCH_ENABLED
 
     std::shared_ptr<crc_calculator_factory> crc_calc_factory = create_crc_calculator_factory_sw("auto");
     if (!crc_calc_factory) {
@@ -239,13 +238,7 @@ private:
       return nullptr;
     }
 
-    std::shared_ptr<pdsch_encoder_factory> pdsch_encoder_factory =
-        create_pdsch_encoder_factory(crc_calc_factory, encoder_type, eal_arguments);
-    if (!pdsch_encoder_factory) {
-      return nullptr;
-    }
-
-    std::shared_ptr<channel_modulation_factory> modulator_factory = create_channel_modulation_sw_factory();
+    std::shared_ptr<modulation_mapper_factory> modulator_factory = create_modulation_mapper_factory();
     if (!modulator_factory) {
       return nullptr;
     }
@@ -284,37 +277,60 @@ private:
       return nullptr;
     }
 
+    std::shared_ptr<pdsch_encoder_factory>         pdsch_encoder_factory;
+    std::shared_ptr<pdsch_block_processor_factory> block_processor_factory;
     if (factory_type.find("generic") != std::string::npos) {
+      pdsch_encoder_factory = create_pdsch_encoder_factory(crc_calc_factory, encoder_type, eal_arguments);
+      if (!pdsch_encoder_factory) {
+        return nullptr;
+      }
+
       return create_pdsch_processor_factory_sw(
           pdsch_encoder_factory, pdsch_modulator_factory, dmrs_pdsch_factory, ptrs_pdsch_factory);
+    } else {
+      if (encoder_type != "acc100") {
+        block_processor_factory = create_pdsch_block_processor_factory_sw(
+            ldpc_encoder_factory, ldpc_rate_matcher_factory, prg_factory, modulator_factory);
+      } else {
+        std::shared_ptr<hal::hw_accelerator_pdsch_enc_factory> hw_encoder_factory =
+            create_hw_accelerator_pdsch_enc_factory(eal_arguments);
+        if (!hw_encoder_factory) {
+          return nullptr;
+        }
+
+        block_processor_factory =
+            create_pdsch_block_processor_factory_hw(hw_encoder_factory, prg_factory, modulator_factory);
+      }
+      if (!block_processor_factory) {
+        return nullptr;
+      }
     }
 
-    if (factory_type == "concurrent") {
-      worker_pool = std::make_unique<task_worker_pool<concurrent_queue_policy::locking_mpmc>>(
-          "pdsch_proc", NOF_CONCURRENT_THREADS, 128);
-      executor = std::make_unique<task_worker_pool_executor<concurrent_queue_policy::locking_mpmc>>(*worker_pool);
+    if (factory_type.find("flexible") != std::string::npos) {
+      // Default parameters for flexible-lite.
+      unsigned nof_concurrent_threads = 1;
+      unsigned cb_batch_length        = std::numeric_limits<unsigned>::max();
 
-      return create_pdsch_concurrent_processor_factory_sw(ldpc_segmenter_tx_factory,
-                                                          ldpc_encoder_factory,
-                                                          ldpc_rate_matcher_factory,
-                                                          prg_factory,
-                                                          rg_mapper_factory,
-                                                          modulator_factory,
-                                                          dmrs_pdsch_factory,
-                                                          ptrs_pdsch_factory,
-                                                          *executor,
-                                                          NOF_CONCURRENT_THREADS);
-    }
+      if (factory_type.find("flexible-concurrent") != std::string::npos) {
+        // Adjust number of threads of concurrent implementation.
+        nof_concurrent_threads = NOF_CONCURRENT_THREADS + 1;
 
-    if (factory_type == "lite") {
-      return create_pdsch_lite_processor_factory_sw(ldpc_segmenter_tx_factory,
-                                                    ldpc_encoder_factory,
-                                                    ldpc_rate_matcher_factory,
-                                                    prg_factory,
-                                                    modulator_factory,
-                                                    dmrs_pdsch_factory,
-                                                    ptrs_pdsch_factory,
-                                                    rg_mapper_factory);
+        // Configure batches.
+        if (factory_type.find("-batched") != std::string::npos) {
+          cb_batch_length = CB_BATCH_LENGTH;
+        } else {
+          cb_batch_length = 0;
+        }
+      }
+
+      return create_pdsch_flexible_processor_factory_sw(ldpc_segmenter_tx_factory,
+                                                        block_processor_factory,
+                                                        rg_mapper_factory,
+                                                        dmrs_pdsch_factory,
+                                                        ptrs_pdsch_factory,
+                                                        *executor,
+                                                        nof_concurrent_threads,
+                                                        cb_batch_length);
     }
 
     return nullptr;
@@ -326,13 +342,26 @@ protected:
   // PDSCH validator.
   std::unique_ptr<pdsch_pdu_validator> pdu_validator;
   // Worker pool.
-  std::unique_ptr<task_worker_pool<concurrent_queue_policy::locking_mpmc>>          worker_pool;
-  std::unique_ptr<task_worker_pool_executor<concurrent_queue_policy::locking_mpmc>> executor;
+  static std::unique_ptr<task_worker_pool<concurrent_queue_policy::locking_mpmc>>          worker_pool;
+  static std::unique_ptr<task_worker_pool_executor<concurrent_queue_policy::locking_mpmc>> executor;
+
+  static void SetUpTestSuite()
+  {
+    // Create worker pool and executor.
+    if (!worker_pool || !executor) {
+      worker_pool = std::make_unique<task_worker_pool<concurrent_queue_policy::locking_mpmc>>(
+          "pdsch_proc", NOF_CONCURRENT_THREADS, 128);
+      executor = std::make_unique<task_worker_pool_executor<concurrent_queue_policy::locking_mpmc>>(*worker_pool);
+    }
+  }
 
   void SetUp() override
   {
     const PdschProcessorParams& param        = GetParam();
     const std::string&          factory_type = std::get<0>(param);
+
+    ASSERT_NE(worker_pool, nullptr) << "Invalid worker pool.";
+    ASSERT_NE(executor, nullptr) << "Invalid executor.";
 
     // Create PDSCH processor factory.
     std::shared_ptr<pdsch_processor_factory> pdsch_proc_factory =
@@ -353,16 +382,26 @@ protected:
     ASSERT_NE(pdu_validator, nullptr) << "Cannot create PDSCH validator";
   }
 
-  void TearDown() override
+  static void TearDownTestSuite()
   {
+    if (executor) {
+      executor.reset();
+    }
     if (worker_pool) {
       worker_pool->stop();
     }
   }
 };
 
+std::unique_ptr<task_worker_pool<concurrent_queue_policy::locking_mpmc>> PdschProcessorFixture::worker_pool = nullptr;
+std::unique_ptr<task_worker_pool_executor<concurrent_queue_policy::locking_mpmc>> PdschProcessorFixture::executor =
+    nullptr;
+
 TEST_P(PdschProcessorFixture, PdschProcessorVectortest)
 {
+  ASSERT_NE(pdsch_proc, nullptr) << "Invalid PDSCH processor.";
+  ASSERT_NE(pdu_validator, nullptr) << "Invalid PDSCH PDU validator.";
+
   pdsch_processor_notifier_spy notifier_spy;
   const PdschProcessorParams&  param     = GetParam();
   const test_case_t&           test_case = std::get<1>(param);
@@ -401,9 +440,15 @@ TEST_P(PdschProcessorFixture, PdschProcessorVectortest)
 INSTANTIATE_TEST_SUITE_P(PdschProcessorVectortest,
                          PdschProcessorFixture,
 #ifdef HWACC_PDSCH_ENABLED
-                         testing::Combine(testing::Values("generic", "concurrent", "lite", "generic-acc100"),
+                         testing::Combine(testing::Values("generic",
+                                                          "flexible-sync",
+                                                          "flexible-concurrent",
+                                                          "flexible-concurrent-batched",
+                                                          "generic-acc100",
+                                                          "flexible-sync-acc100",
+                                                          "flexible-concurrent-acc100"),
 #else  // HWACC_PDSCH_ENABLED
-                         testing::Combine(testing::Values("generic", "concurrent", "lite"),
+                         testing::Combine(testing::Values("generic", "flexible-sync", "flexible-concurrent"),
 #endif // HWACC_PDSCH_ENABLED
                                           ::testing::ValuesIn(pdsch_processor_test_data)));
 } // namespace

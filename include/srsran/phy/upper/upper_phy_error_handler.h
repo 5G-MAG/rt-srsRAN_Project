@@ -37,6 +37,16 @@ public:
   ///
   /// \param[in] slot Slot of the downlink message.
   virtual void handle_late_downlink_message(slot_point slot) = 0;
+
+  /// \brief Handles a late uplink message.
+  ///
+  /// \param[in] slot Slot of the uplink message.
+  virtual void handle_late_uplink_message(slot_point slot) = 0;
+
+  /// \brief Handles a late PRACH request message.
+  ///
+  /// \param[in] slot Slot of the PRACH request message.
+  virtual void handle_late_prach_message(slot_point slot) = 0;
 };
 
 } // namespace srsran

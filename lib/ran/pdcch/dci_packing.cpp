@@ -981,7 +981,7 @@ dci_payload srsran::dci_1_0_c_rnti_pack(const dci_1_0_c_rnti_configuration& conf
   payload.push_back(config.time_resource, 4);
 
   // VRB-to-PRB mapping - 1 bit.
-  payload.push_back(config.vrb_to_prb_mapping, 1);
+  payload.push_back(config.vrb_to_prb_mapping != vrb_to_prb::mapping_type::non_interleaved, 1);
 
   // Modulation coding scheme - 5 bits.
   payload.push_back(config.modulation_coding_scheme, 5);
@@ -1056,7 +1056,7 @@ dci_payload srsran::dci_1_0_p_rnti_pack(const dci_1_0_p_rnti_configuration& conf
     payload.push_back(config.time_resource, 4);
 
     // VRB-to-PRB mapping - 1 bit.
-    payload.push_back(config.vrb_to_prb_mapping, 1);
+    payload.push_back(config.vrb_to_prb_mapping != vrb_to_prb::mapping_type::non_interleaved, 1);
 
     // Modulation and coding scheme - 5 bits.
     payload.push_back(config.modulation_coding_scheme, 5);
@@ -1083,7 +1083,7 @@ dci_payload srsran::dci_1_0_si_rnti_pack(const dci_1_0_si_rnti_configuration& co
   payload.push_back(config.time_resource, 4);
 
   // VRB-to-PRB mapping - 1 bit.
-  payload.push_back(config.vrb_to_prb_mapping, 1);
+  payload.push_back(config.vrb_to_prb_mapping != vrb_to_prb::mapping_type::non_interleaved, 1);
 
   // Modulation coding scheme - 5 bits.
   payload.push_back(config.modulation_coding_scheme, 5);
@@ -1112,7 +1112,7 @@ dci_payload srsran::dci_1_0_ra_rnti_pack(const dci_1_0_ra_rnti_configuration& co
   payload.push_back(config.time_resource, 4);
 
   // VRB-to-PRB mapping - 1 bit.
-  payload.push_back(config.vrb_to_prb_mapping, 1);
+  payload.push_back(config.vrb_to_prb_mapping != vrb_to_prb::mapping_type::non_interleaved, 1);
 
   // Modulation and coding scheme - 5 bits.
   payload.push_back(config.modulation_coding_scheme, 5);
@@ -1141,7 +1141,7 @@ dci_payload srsran::dci_1_0_tc_rnti_pack(const dci_1_0_tc_rnti_configuration& co
   payload.push_back(config.time_resource, 4);
 
   // VRB-to-PRB mapping - 1 bit.
-  payload.push_back(config.vrb_to_prb_mapping, 1);
+  payload.push_back(config.vrb_to_prb_mapping != vrb_to_prb::mapping_type::non_interleaved, 1);
 
   // Modulation coding scheme - 5 bits.
   payload.push_back(config.modulation_coding_scheme, 5);
@@ -1371,7 +1371,8 @@ dci_payload srsran::dci_1_1_pack(const dci_1_1_configuration& config)
 
   // VRB-to-PRB mapping - 0 or 1 bit.
   if (config.vrb_prb_mapping.has_value()) {
-    payload.push_back(config.vrb_prb_mapping.value(), config.payload_size.vrb_prb_mapping.value());
+    payload.push_back(config.vrb_prb_mapping.value() != vrb_to_prb::mapping_type::non_interleaved ? 1U : 0U,
+                      config.payload_size.vrb_prb_mapping.value());
   }
 
   // PRB bundling size indicator - 0 or 1 bit.
@@ -1505,8 +1506,8 @@ error_type<std::string> srsran::validate_dci_size_config(const dci_size_config& 
   static constexpr unsigned max_nof_time_domain_res = 16;
 
   // Valid bandwidth range.
-  static constexpr interval<unsigned, true> bwp_bw_range(1, MAX_RB);
-  static constexpr interval<unsigned, true> coreset0_bw_range(0, MAX_RB);
+  static constexpr interval<unsigned, true> bwp_bw_range(1, MAX_NOF_PRBS);
+  static constexpr interval<unsigned, true> coreset0_bw_range(0, MAX_NOF_PRBS);
   static constexpr interval<unsigned, true> nof_bwp_rrc_range(0, max_nof_bwp_rrc);
   static constexpr interval<unsigned, true> nof_time_domain_res_range(1, max_nof_time_domain_res);
   static constexpr interval<unsigned, true> non_codebook_nof_srs_res_range(1, 4);

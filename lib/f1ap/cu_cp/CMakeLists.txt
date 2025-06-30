@@ -25,6 +25,7 @@ add_library(srsran_f1ap_cu
         procedures/f1_setup_procedure.cpp
         procedures/f1_removal_procedure.cpp
         procedures/f1ap_stop_procedure.cpp
+        procedures/gnb_cu_configuration_update_procedure.cpp
         procedures/ue_context_setup_procedure.cpp
         procedures/ue_context_modification_procedure.cpp
         procedures/ue_context_release_procedure.cpp
@@ -32,4 +33,4 @@ add_library(srsran_f1ap_cu
         ue_context/ue_ul_bearer_manager.cpp)
 
 target_include_directories(srsran_f1ap_cu PRIVATE ..)
-target_link_libraries(srsran_f1ap_cu srsran_support srsran_f1ap_common f1ap_asn1)
+target_link_libraries(srsran_f1ap_cu srsran_support srsran_ran srsran_f1ap_common f1ap_asn1)

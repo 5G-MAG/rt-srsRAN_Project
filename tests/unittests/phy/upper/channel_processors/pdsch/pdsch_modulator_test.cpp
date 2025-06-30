@@ -30,7 +30,7 @@ using namespace srsran;
 
 int main()
 {
-  std::shared_ptr<channel_modulation_factory> modulator_factory = create_channel_modulation_sw_factory();
+  std::shared_ptr<modulation_mapper_factory> modulator_factory = create_modulation_mapper_factory();
   TESTASSERT(modulator_factory);
 
   std::shared_ptr<pseudo_random_generator_factory> prg_factory = create_pseudo_random_generator_sw_factory();
@@ -51,8 +51,9 @@ int main()
   TESTASSERT(pdsch);
 
   for (const test_case_t& test_case : pdsch_modulator_test_data) {
-    bounded_bitset<MAX_RB> prb_mask =
-        test_case.config.freq_allocation.get_prb_mask(test_case.config.bwp_start_rb, test_case.config.bwp_size_rb);
+    prb_bitmap prb_mask =
+        test_case.config.freq_allocation.get_crb_mask(test_case.config.bwp_start_rb, test_case.config.bwp_size_rb)
+            .convert_to<prb_bitmap>();
     int prb_idx_high = prb_mask.find_highest();
     TESTASSERT(prb_idx_high > 1);
     unsigned max_prb   = static_cast<unsigned>(prb_idx_high + 1);

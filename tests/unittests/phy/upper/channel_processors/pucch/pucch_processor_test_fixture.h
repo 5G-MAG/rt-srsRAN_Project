@@ -76,15 +76,15 @@ protected:
     ASSERT_NE(equalizer_factory, nullptr) << "Cannot create equalizer factory.";
 
     std::shared_ptr<pucch_detector_factory> detector_factory =
-        create_pucch_detector_factory_sw(lpc_factory, prg_factory, equalizer_factory);
+        create_pucch_detector_factory_sw(lpc_factory, prg_factory, equalizer_factory, dft_factory);
     ASSERT_NE(detector_factory, nullptr);
 
-    std::shared_ptr<channel_modulation_factory> demod_factory = create_channel_modulation_sw_factory();
+    std::shared_ptr<demodulation_mapper_factory> demod_factory = create_demodulation_mapper_factory();
     ASSERT_NE(demod_factory, nullptr) << "Cannot create channel modulation factory.";
 
     std::shared_ptr<transform_precoder_factory> precoding_factory =
         create_dft_transform_precoder_factory(dft_factory, pucch_constants::FORMAT3_MAX_NPRB + 1);
-    ASSERT_NE(precoding_factory, nullptr) << "Cannot create transform precoder factory";
+    ASSERT_NE(precoding_factory, nullptr) << "Cannot create transform precoder factory.";
 
     // Create PUCCH demodulator factory.
     std::shared_ptr<pucch_demodulator_factory> pucch_demod_factory =

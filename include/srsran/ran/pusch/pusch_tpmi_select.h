@@ -39,7 +39,9 @@ public:
     /// Most suitable Transmit Precoding Matrix Indicator.
     unsigned tpmi;
     /// Average Signal-to-Interference-plus-Noise Ratio (SINR) in decibels.
-    float sinr_dB;
+    float avg_sinr_dB;
+    /// SINR per layer in decibels.
+    static_vector<float, pusch_constants::MAX_NOF_LAYERS> sinr_dB_layer;
   };
 
   /// Gets the maximum number of layers.
@@ -67,6 +69,12 @@ public:
 
   /// Constructs a PUSCH TPMI information from an initializer list.
   pusch_tpmi_select_info(const std::initializer_list<tpmi_info>& info_) : info(info_.begin(), info_.end()) {}
+
+  /// Copy constructor.
+  pusch_tpmi_select_info(const pusch_tpmi_select_info& other) noexcept : info(other.info.begin(), other.info.end())
+  {
+    // Do nothing.
+  }
 
 private:
   /// TPMI information for each number of layers.

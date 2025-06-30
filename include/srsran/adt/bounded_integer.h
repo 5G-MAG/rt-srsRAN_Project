@@ -33,8 +33,7 @@ namespace detail {
 
 /// Tag struct to uniquely identify bounded integers by template types and values.
 template <typename Integer>
-struct bounded_integer_tag {
-};
+struct bounded_integer_tag {};
 
 template <typename Integer>
 using bounded_integer_base = strong_type<Integer,
@@ -53,7 +52,7 @@ struct bounded_integer_invalid_tag {};
 template <typename Integer, Integer MIN_VALUE, Integer MAX_VALUE>
 class bounded_integer : public detail::bounded_integer_base<Integer>
 {
-  static_assert(std::is_integral<Integer>::value, "Template argument must be an integer");
+  static_assert(std::is_integral_v<Integer>, "Template argument must be an integer");
   static_assert(MIN_VALUE <= MAX_VALUE, "Provided bounds for bounded_integer are not valid");
 
   using base_class = detail::bounded_integer_base<Integer>;
@@ -95,6 +94,8 @@ public:
   {
     return base_class::value();
   }
+
+  constexpr Integer value() const { return base_class::value(); }
 
   bounded_integer& operator++()
   {

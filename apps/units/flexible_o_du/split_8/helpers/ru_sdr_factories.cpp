@@ -24,7 +24,7 @@
 #include "apps/services/worker_manager/worker_manager.h"
 #include "apps/units/flexible_o_du/split_helpers/flexible_o_du_configs.h"
 #include "ru_sdr_config_translator.h"
-#include "srsran/ru/ru_generic_factory.h"
+#include "srsran/ru/generic/ru_generic_factory.h"
 
 using namespace srsran;
 
@@ -32,13 +32,13 @@ std::unique_ptr<radio_unit> srsran::create_sdr_radio_unit(const ru_sdr_unit_conf
                                                           const flexible_o_du_ru_config&       ru_config,
                                                           const flexible_o_du_ru_dependencies& ru_dependencies)
 {
-  ru_generic_configuration config = generate_ru_sdr_config(ru_cfg, ru_config.du_cells, ru_config.max_processing_delay);
+  ru_generic_configuration config = generate_ru_sdr_config(ru_cfg, ru_config.cells, ru_config.max_processing_delay);
 
-  config.rf_logger                   = &srslog::fetch_basic_logger("RF");
-  config.radio_exec                  = ru_dependencies.workers.radio_exec;
-  config.statistics_printer_executor = ru_dependencies.workers.ru_printer_exec;
-  config.timing_notifier             = &ru_dependencies.timing_notifier;
-  config.symbol_notifier             = &ru_dependencies.symbol_notifier;
+  config.rf_logger       = &srslog::fetch_basic_logger("RF");
+  config.radio_exec      = ru_dependencies.workers.radio_exec;
+  config.timing_notifier = &ru_dependencies.timing_notifier;
+  config.symbol_notifier = &ru_dependencies.symbol_notifier;
+  config.error_notifier  = &ru_dependencies.error_notifier;
 
   for (unsigned i = 0, e = config.lower_phy_config.size(); i != e; ++i) {
     lower_phy_configuration& low_phy_cfg = config.lower_phy_config[i];

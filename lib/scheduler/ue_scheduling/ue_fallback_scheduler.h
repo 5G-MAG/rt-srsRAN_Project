@@ -22,11 +22,18 @@
 
 #pragma once
 
-#include "../policy/ue_allocator.h"
 #include "../support/sch_pdu_builder.h"
 #include "ue_repository.h"
 
 namespace srsran {
+
+class pdcch_resource_allocator;
+class pucch_allocator;
+class uci_allocator;
+struct cell_resource_allocator;
+struct pdcch_dl_information;
+struct pdcch_ul_information;
+struct uci_allocation;
 
 /// Defines the scheduler that is used to allocate grants for DL SRB0 and SRB1 messages and UL SRB1 messages for UE in
 /// fallback state.
@@ -127,7 +134,8 @@ private:
                                        cell_resource_allocator&                     res_alloc,
                                        unsigned                                     pusch_time_res,
                                        const pusch_time_domain_resource_allocation& pusch_td,
-                                       std::optional<ul_harq_process_handle>        h_ul_retx);
+                                       std::optional<ul_harq_process_handle>        h_ul_retx,
+                                       bool                                         remove_pucch);
 
   /// \return A pair with the number of SRB bytes allocated and which DL HARQ process was used.
   dl_harq_process_handle fill_dl_srb_grant(ue&                                   u,

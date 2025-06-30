@@ -33,13 +33,14 @@ du_high_worker_manager::du_high_worker_manager()
   using exec_config = srs_du::du_high_executor_config;
 
   exec_config cfg;
-  cfg.cell_executors = exec_config::strand_based_worker_pool{nof_cell_strands, task_worker_queue_size, &high_prio_exec};
-  cfg.ue_executors   = {exec_config::ue_executor_config::map_policy::per_cell,
-                        nof_ue_strands,
-                        task_worker_queue_size,
-                        task_worker_queue_size,
-                        &low_prio_exec};
-  cfg.ctrl_executors = {task_worker_queue_size, &high_prio_exec};
+  cfg.cell_executors = exec_config::strand_based_worker_pool{
+      nof_cell_strands, task_worker_queue_size, std::vector<task_executor*>{&high_prio_exec}};
+  cfg.ue_executors       = {exec_config::ue_executor_config::map_policy::per_cell,
+                            nof_ue_strands,
+                            task_worker_queue_size,
+                            task_worker_queue_size,
+                            &low_prio_exec};
+  cfg.ctrl_executors     = {task_worker_queue_size, &high_prio_exec};
   cfg.is_rt_mode_enabled = true;
   cfg.trace_exec_tasks   = false;
 
@@ -70,4 +71,13 @@ void du_high_worker_manager::flush_pending_dl_pdus()
   for (unsigned i = 0; i != nof_ue_strands; ++i) {
     futures[i].get();
   }
+}
+
+void du_high_worker_manager::flush_pending_control_tasks()
+{
+  std::promise<void> prom;
+  std::future<void>  fut = prom.get_future();
+  bool               ret = exec_mapper->du_control_executor().defer([&prom]() { prom.set_value(); });
+  report_fatal_error_if_not(ret, "unable to dispatch task");
+  fut.wait();
 }

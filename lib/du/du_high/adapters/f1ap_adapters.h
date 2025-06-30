@@ -108,12 +108,20 @@ public:
     return du_mng->handle_ue_deactivation_request(ue_index);
   }
 
+  async_task<gnbcu_config_update_response>
+  request_cu_context_update(const gnbcu_config_update_request& request) override
+  {
+    return du_mng->handle_cu_context_update_request(request);
+  }
+
   void notify_reestablishment_of_old_ue(du_ue_index_t new_ue_index, du_ue_index_t old_ue_index) override
   {
     du_mng->handle_ue_reestablishment(new_ue_index, old_ue_index);
   }
 
   void on_ue_config_applied(du_ue_index_t ue_index) override { du_mng->handle_ue_config_applied(ue_index); }
+
+  f1ap_du_positioning_handler& get_positioning_handler() override { return du_mng->get_positioning_handler(); }
 
 private:
   timer_factory                                                 timers;

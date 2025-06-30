@@ -56,7 +56,7 @@ public:
   void on_rlf_detected() override
   {
     // Dispatch RLF handling to DU manager execution context.
-    bool dispatched = ctrl_exec.execute([ue_idx = ue_index, ue_db_ptr = &ue_db]() {
+    bool dispatched = ctrl_exec.execute(TRACE_TASK([ue_idx = ue_index, ue_db_ptr = &ue_db]() {
       // Note: The UE might have already been deleted by the time this method is called, so we need to check if it still
       // exists.
       du_ue* u = ue_db_ptr->find_ue(ue_idx);
@@ -64,7 +64,7 @@ public:
         return;
       }
       u->handle_rlf_detection(rlf_cause::max_mac_kos_reached);
-    });
+    }));
     if (not dispatched) {
       logger.warning("ue={}: Failed to dispatch RLF detection handling", fmt::underlying(ue_index));
     }
@@ -72,13 +72,13 @@ public:
 
   void on_crnti_ce_received() override
   {
-    bool dispatched = ctrl_exec.execute([ue_idx = ue_index, ue_db_ptr = &ue_db]() {
+    bool dispatched = ctrl_exec.execute(TRACE_TASK([ue_idx = ue_index, ue_db_ptr = &ue_db]() {
       du_ue* u = ue_db_ptr->find_ue(ue_idx);
       if (u == nullptr) {
         return;
       }
       u->handle_crnti_ce_detection();
-    });
+    }));
     if (not dispatched) {
       logger.warning("ue={}: Failed to dispatch RLF detection handling", fmt::underlying(ue_index));
     }
@@ -112,7 +112,7 @@ private:
       return;
     }
     // Dispatch RLF handling to DU manager execution context.
-    bool dispatched = ctrl_exec.execute([ue_idx = ue_index, ue_db_ptr = &ue_db, cause]() {
+    bool dispatched = ctrl_exec.execute(TRACE_TASK([ue_idx = ue_index, ue_db_ptr = &ue_db, cause]() {
       // Note: The UE might have already been deleted by the time this method is called, so we need to check if it still
       // exists.
       du_ue* u = ue_db_ptr->find_ue(ue_idx);
@@ -120,7 +120,7 @@ private:
         return;
       }
       u->handle_rlf_detection(cause);
-    });
+    }));
     if (not dispatched) {
       logger.warning("ue={}: Failed to dispatch RLF detection handling", fmt::underlying(ue_index));
       rlf_triggered.store(false, std::memory_order_relaxed);
@@ -226,8 +226,9 @@ private:
                 get_rlf_cause_str(*current_cause));
 
     // Request UE release to the CU.
-    cfg.f1ap.ue_mng.handle_ue_context_release_request(
-        srs_du::f1ap_ue_context_release_request{ue_ctx.ue_index, *current_cause});
+    using cause_type = f1ap_ue_context_release_request::cause_type;
+    cause_type cause = *current_cause == rlf_cause::max_mac_kos_reached ? cause_type::rlf_mac : cause_type::rlf_rlc;
+    cfg.f1ap.ue_mng.handle_ue_context_release_request(srs_du::f1ap_ue_context_release_request{ue_ctx.ue_index, cause});
 
     // Stop handling of RLFs, so that no new RLFs are triggered after the UE is scheduled for release.
     deactivate();

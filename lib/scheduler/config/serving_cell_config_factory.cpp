@@ -308,6 +308,7 @@ srsran::config_helpers::generate_k2_candidates(cyclic_prefix cp, const tdd_ul_dl
   const unsigned nof_full_ul_slots = nof_full_ul_slots_per_tdd_period(tdd_cfg);
 
   std::vector<pusch_time_domain_resource_allocation> result;
+  result.reserve(pusch_constants::MAX_NOF_PUSCH_TD_RES_ALLOCS);
   for (unsigned idx = 0; idx < tdd_period_slots and result.size() < pusch_constants::MAX_NOF_PUSCH_TD_RES_ALLOCS;
        ++idx) {
     // For every slot containing DL symbols check for corresponding k2 value.
@@ -642,6 +643,10 @@ uplink_config srsran::config_helpers::make_default_ue_uplink_config(const cell_c
   pucch_cfg.format_1_common_param.emplace();
   pucch_cfg.format_2_common_param.emplace(
       pucch_common_all_formats{.max_c_rate = max_pucch_code_rate::dot_25, .simultaneous_harq_ack_csi = true});
+  pucch_cfg.format_3_common_param.emplace(
+      pucch_common_all_formats{.max_c_rate = max_pucch_code_rate::dot_25, .simultaneous_harq_ack_csi = true});
+  pucch_cfg.format_4_common_param.emplace(
+      pucch_common_all_formats{.max_c_rate = max_pucch_code_rate::dot_25, .simultaneous_harq_ack_csi = true});
 
   // >>> dl-DataToUl-Ack
   // TS38.213, 9.1.2.1 - "If a UE is provided dl-DataToUL-ACK, the UE does not expect to be indicated by DCI format 1_0
@@ -665,6 +670,18 @@ uplink_config srsran::config_helpers::make_default_ue_uplink_config(const cell_c
   const auto& res_f2 = std::get<pucch_format_2_3_cfg>(res_basic_f2.format_params);
   pucch_cfg.format_max_payload[pucch_format_to_uint(pucch_format::FORMAT_2)] = get_pucch_format2_max_payload(
       res_f2.nof_prbs, res_f2.nof_symbols, to_max_code_rate_float(pucch_cfg.format_2_common_param.value().max_c_rate));
+  pucch_cfg.set_1_format = pucch_format::FORMAT_2;
+
+  // Add the PUCCH power configuration.
+  auto& pucch_pw_ctrl          = pucch_cfg.pucch_pw_control.emplace();
+  pucch_pw_ctrl.delta_pucch_f0 = 0;
+  pucch_pw_ctrl.delta_pucch_f1 = 0;
+  pucch_pw_ctrl.delta_pucch_f2 = 0;
+  pucch_pw_ctrl.delta_pucch_f3 = 0;
+  pucch_pw_ctrl.delta_pucch_f4 = 0;
+  auto& pucch_pw_set           = pucch_pw_ctrl.p0_set.emplace_back();
+  pucch_pw_set.id              = 0U;
+  pucch_pw_set.value           = 0;
 
   // > PUSCH config.
   ul_config.init_ul_bwp.pusch_cfg.emplace(make_default_pusch_config());
@@ -699,8 +716,8 @@ static csi_helper::csi_builder_params make_default_csi_builder_params(const cell
 
     constexpr unsigned default_ssb_period_ms = 10U;
 
-    const unsigned max_csi_symbol = *std::max_element(csi_params.tracking_csi_ofdm_symbol_indexes.begin(),
-                                                      csi_params.tracking_csi_ofdm_symbol_indexes.end());
+    const unsigned max_csi_symbol = *std::max_element(csi_params.tracking_csi_ofdm_symbol_indices.begin(),
+                                                      csi_params.tracking_csi_ofdm_symbol_indices.end());
 
     if (not csi_helper::derive_valid_csi_rs_slot_offsets(
             csi_params, std::nullopt, std::nullopt, std::nullopt, tdd_pattern, max_csi_symbol, default_ssb_period_ms)) {

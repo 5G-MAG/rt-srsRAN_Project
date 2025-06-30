@@ -31,6 +31,8 @@ class shared_resource_grid;
 
 namespace ofh {
 
+class error_notifier;
+
 /// \brief Open Fronthaul uplink request handler.
 ///
 /// Handles PRACH and uplink data requests to capture uplink data. The uplink received data will be notified through the

@@ -43,12 +43,20 @@ mac_impl::mac_impl(const mac_config& params) :
                         rnti_table,
                         params.pcap,
                         params.timers}),
-  ctrl_unit(
-      mac_control_config{params.ul_ccch_notifier, params.ue_exec_mapper, params.cell_exec_mapper, params.ctrl_exec},
-      ul_unit,
-      dl_unit,
-      rnti_table,
-      *mac_sched)
+  ctrl_unit(mac_control_config{params.ul_ccch_notifier,
+                               params.ue_exec_mapper,
+                               params.cell_exec_mapper,
+                               params.ctrl_exec,
+                               params.timer_exec,
+                               params.timers,
+                               mac_control_config::metrics_config{params.metrics.period,
+                                                                  params.metrics.notifier,
+                                                                  params.metrics.sched_notifier,
+                                                                  params.metrics.max_nof_ue_events}},
+            ul_unit,
+            dl_unit,
+            rnti_table,
+            *mac_sched)
 {
 }
 

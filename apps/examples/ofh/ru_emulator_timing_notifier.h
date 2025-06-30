@@ -32,7 +32,7 @@ namespace srsran {
 /// Realtime worker that generates OTA symbol notifications.
 class ru_emulator_timing_notifier : public ofh::ota_symbol_boundary_notifier_manager
 {
-  enum class worker_status { idle, running, stop_requested, stopped };
+  enum class worker_status { running, stop_requested, stopped };
 
   srslog::basic_logger&                           logger;
   std::vector<ofh::ota_symbol_boundary_notifier*> ota_notifiers;
@@ -40,11 +40,11 @@ class ru_emulator_timing_notifier : public ofh::ota_symbol_boundary_notifier_man
   subcarrier_spacing                              scs;
   const unsigned                                  nof_symbols_per_slot;
   const unsigned                                  nof_symbols_per_sec;
-  const unsigned                                  nof_slots_per_system_frame;
+  const unsigned                                  nof_slots_per_hyper_system_frame;
   const std::chrono::duration<double, std::nano>  symbol_duration;
   const std::chrono::nanoseconds                  sleep_time;
   unsigned                                        previous_symb_index = 0;
-  std::atomic<worker_status>                      status{worker_status::idle};
+  std::atomic<worker_status>                      status{worker_status::running};
 
 public:
   ru_emulator_timing_notifier(srslog::basic_logger& logger_, task_executor& executor_);

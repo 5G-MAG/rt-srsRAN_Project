@@ -24,9 +24,10 @@
 #include "lib/scheduler/logging/scheduler_result_logger.h"
 #include "lib/scheduler/pdcch_scheduling/pdcch_resource_allocator_impl.h"
 #include "lib/scheduler/pucch_scheduling/pucch_allocator_impl.h"
-#include "lib/scheduler/slicing/slice_scheduler.h"
+#include "lib/scheduler/slicing/inter_slice_scheduler.h"
 #include "lib/scheduler/uci_scheduling/uci_allocator_impl.h"
 #include "lib/scheduler/ue_context/ue.h"
+#include "lib/scheduler/ue_scheduling/intra_slice_scheduler.h"
 #include "lib/scheduler/ue_scheduling/ue_cell_grid_allocator.h"
 #include "tests/test_doubles/scheduler/scheduler_config_helper.h"
 #include "tests/unittests/scheduler/test_utils/dummy_test_components.h"
@@ -42,8 +43,8 @@ using namespace srsran;
 ///
 /// The current types are:
 /// - time_rr - Time based Round-Robin scheduler.
-/// - time_pf - Time based Proportional Fair scheduler.
-enum class policy_scheduler_type { time_rr, time_pf };
+/// - time_qos - Time based QoS-aware scheduler.
+enum class policy_scheduler_type { time_rr, time_qos };
 
 class base_scheduler_policy_test
 {
@@ -56,21 +57,22 @@ protected:
     logger(srslog::fetch_basic_logger("SCHED", true)),
     res_logger(false, msg.pci),
     sched_cfg([&sched_cfg_, policy]() {
-      if (policy == policy_scheduler_type::time_pf) {
-        sched_cfg_.ue.strategy_cfg = time_pf_scheduler_expert_config{};
+      if (policy == policy_scheduler_type::time_qos) {
+        sched_cfg_.ue.strategy_cfg = time_qos_scheduler_expert_config{};
       }
       return sched_cfg_;
     }()),
     cell_cfg(*[this, &msg]() {
       return cell_cfg_list.emplace(to_du_cell_index(0), std::make_unique<cell_configuration>(sched_cfg, msg)).get();
     }()),
-    slice_sched(cell_cfg, ues)
+    slice_sched(cell_cfg, ues),
+    cell_metrics(cell_cfg, msg.metrics),
+    intra_slice_sched(cell_cfg.expert_cfg.ue, ues, pdcch_alloc, uci_alloc, res_grid, cell_metrics, cell_harqs, logger)
   {
     logger.set_level(srslog::basic_levels::debug);
     srslog::init();
 
-    grid_alloc.add_cell(to_du_cell_index(0), pdcch_alloc, uci_alloc, res_grid);
-    ue_res_grid.add_cell(res_grid);
+    cfg_pool.add_cell(msg);
   }
 
   ~base_scheduler_policy_test() { srslog::flush(); }
@@ -80,28 +82,19 @@ protected:
     logger.set_context(next_slot.sfn(), next_slot.slot_index());
 
     res_grid.slot_indication(next_slot);
-    grid_alloc.slot_indication(next_slot);
     cell_harqs.slot_indication(next_slot);
     pdcch_alloc.slot_indication(next_slot);
     pucch_alloc.slot_indication(next_slot);
     uci_alloc.slot_indication(next_slot);
-
-    slice_sched.slot_indication(next_slot, ue_res_grid.get_grid(to_du_cell_index(0)));
+    intra_slice_sched.slot_indication(next_slot);
+    slice_sched.slot_indication(next_slot, res_grid);
 
     if (cell_cfg.is_dl_enabled(next_slot)) {
-      auto dl_slice_candidate = slice_sched.get_next_dl_candidate();
-      while (dl_slice_candidate.has_value()) {
-        auto&                           policy = slice_sched.get_policy(dl_slice_candidate->id());
-        dl_slice_ue_cell_grid_allocator slice_pdsch_alloc{grid_alloc, *dl_slice_candidate};
-        policy.dl_sched(slice_pdsch_alloc, ue_res_grid, *dl_slice_candidate, cell_harqs.pending_dl_retxs());
-        dl_slice_candidate = slice_sched.get_next_dl_candidate();
+      while (auto dl_slice_candidate = slice_sched.get_next_dl_candidate()) {
+        intra_slice_sched.dl_sched(dl_slice_candidate.value(), slice_sched.get_policy(dl_slice_candidate->id()));
       }
-      auto ul_slice_candidate = slice_sched.get_next_ul_candidate();
-      while (ul_slice_candidate.has_value()) {
-        auto&                           policy = slice_sched.get_policy(ul_slice_candidate->id());
-        ul_slice_ue_cell_grid_allocator slice_pusch_alloc{grid_alloc, *ul_slice_candidate};
-        policy.ul_sched(slice_pusch_alloc, ue_res_grid, *ul_slice_candidate, cell_harqs.pending_ul_retxs());
-        ul_slice_candidate = slice_sched.get_next_ul_candidate();
+      while (auto ul_slice_candidate = slice_sched.get_next_ul_candidate()) {
+        intra_slice_sched.ul_sched(ul_slice_candidate.value(), slice_sched.get_policy(ul_slice_candidate->id()));
       }
     }
 
@@ -132,7 +125,7 @@ protected:
   ue& add_ue(const sched_ue_creation_request_message& ue_req)
   {
     ue_ded_cell_cfg_list.push_back(
-        std::make_unique<ue_configuration>(ue_req.ue_index, ue_req.crnti, cell_cfg_list, ue_req.cfg));
+        std::make_unique<ue_configuration>(ue_req.ue_index, ue_req.crnti, cell_cfg_list, cfg_pool.add_ue(ue_req)));
     ues.add_ue(
         std::make_unique<ue>(ue_creation_command{*ue_ded_cell_cfg_list.back(), ue_req.starts_in_fallback, cell_harqs}));
     slice_sched.add_ue(ue_req.ue_index);
@@ -168,11 +161,7 @@ protected:
 
   void push_dl_bs(du_ue_index_t ue_index, lcid_t lcid, unsigned bytes)
   {
-    dl_buffer_state_indication_message ind{};
-    ind.ue_index = ue_index;
-    ind.lcid     = lcid;
-    ind.bs       = bytes;
-    ues[ue_index].handle_dl_buffer_state_indication(ind);
+    ues[ue_index].handle_dl_buffer_state_indication(lcid, bytes);
   }
 
   void notify_ul_bsr(du_ue_index_t ue_index, lcg_id_t lcg_id, unsigned bytes)
@@ -191,6 +180,7 @@ protected:
   scheduler_result_logger                        res_logger;
   scheduler_expert_config                        sched_cfg;
   cell_common_configuration_list                 cell_cfg_list;
+  du_cell_group_config_pool                      cfg_pool;
   std::vector<std::unique_ptr<ue_configuration>> ue_ded_cell_cfg_list;
 
   const cell_configuration&           cell_cfg;
@@ -202,13 +192,13 @@ protected:
                                MAX_NOF_HARQS,
                                std::make_unique<scheduler_harq_timeout_dummy_notifier>()};
   pdcch_resource_allocator_impl pdcch_alloc{cell_cfg};
-  pucch_allocator_impl   pucch_alloc{cell_cfg, sched_cfg.ue.max_pucchs_per_slot, sched_cfg.ue.max_ul_grants_per_slot};
-  uci_allocator_impl     uci_alloc{pucch_alloc};
-  ue_resource_grid_view  ue_res_grid;
-  ue_repository          ues;
-  ue_cell_grid_allocator grid_alloc{sched_cfg.ue, ues, logger};
+  pucch_allocator_impl pucch_alloc{cell_cfg, sched_cfg.ue.max_pucchs_per_slot, sched_cfg.ue.max_ul_grants_per_slot};
+  uci_allocator_impl   uci_alloc{pucch_alloc};
+  ue_repository        ues;
   // NOTE: Policy scheduler is part of RAN slice instances created in slice scheduler.
-  slice_scheduler slice_sched;
+  inter_slice_scheduler slice_sched;
+  cell_metrics_handler  cell_metrics;
+  intra_slice_scheduler intra_slice_sched;
 
   slot_point next_slot{0, test_rgen::uniform_int<unsigned>(0, 10239)};
 };
@@ -231,7 +221,7 @@ TEST_P(scheduler_policy_test, when_coreset0_used_then_dl_grant_is_within_bounds_
   ue& u = add_ue(ue_req);
   // Note: set CQI=15 to use low aggregation level.
   u.get_pcell().handle_csi_report(
-      csi_report_data{std::nullopt, std::nullopt, std::nullopt, std::nullopt, cqi_value{15U}});
+      csi_report_data{std::nullopt, std::nullopt, std::nullopt, std::nullopt, cqi_value{15U}, true});
   push_dl_bs(u.ue_index, uint_to_lcid(4), 100000000);
 
   run_slot();
@@ -385,33 +375,22 @@ TEST_P(scheduler_policy_test, scheduler_allocates_ues_with_dl_retx_first_than_ue
   const slot_point  current_slot = next_slot - 1;
   const pucch_info& pucch        = this->res_grid[0].result.ul.pucchs[0];
   // Auto NACK HARQ.
-  unsigned      nof_ack_bits = 0;
-  du_ue_index_t ue_with_retx;
-  switch (pucch.format) {
-    case pucch_format::FORMAT_0:
-      nof_ack_bits = pucch.format_0.harq_ack_nof_bits;
-      break;
-    case pucch_format::FORMAT_1:
-      nof_ack_bits = pucch.format_1.harq_ack_nof_bits;
-      break;
-    case pucch_format::FORMAT_2:
-      nof_ack_bits = pucch.format_2.harq_ack_nof_bits;
-      break;
-    default:
-      break;
-  }
+  const unsigned nof_ack_bits = pucch.uci_bits.harq_ack_nof_bits;
+  du_ue_index_t  ue_with_retx;
+
   if (pucch.crnti == u1.crnti) {
     ue_with_retx = u1.ue_index;
     for (unsigned harq_bit_idx = 0; harq_bit_idx < nof_ack_bits; ++harq_bit_idx) {
-      u1.get_pcell().handle_dl_ack_info(current_slot, mac_harq_ack_report_status::ack, harq_bit_idx, 100);
+      u1.get_pcell().handle_dl_ack_info(current_slot, mac_harq_ack_report_status::nack, harq_bit_idx, 100);
     }
   } else if (pucch.crnti == u2.crnti) {
     ue_with_retx = u2.ue_index;
     for (unsigned harq_bit_idx = 0; harq_bit_idx < nof_ack_bits; ++harq_bit_idx) {
-      u2.get_pcell().handle_dl_ack_info(current_slot, mac_harq_ack_report_status::ack, harq_bit_idx, 100);
+      u2.get_pcell().handle_dl_ack_info(current_slot, mac_harq_ack_report_status::nack, harq_bit_idx, 100);
     }
   }
 
+  run_slot();
   pdsch_scheduled = run_until([this]() { return not this->res_grid[0].result.dl.ue_grants.empty(); });
   ASSERT_TRUE(pdsch_scheduled);
   ASSERT_EQ(this->res_grid[0].result.dl.ue_grants[0].context.ue_index, ue_with_retx);
@@ -573,7 +552,7 @@ TEST_F(scheduler_round_robin_test, round_robin_must_not_attempt_to_allocate_twic
 class scheduler_pf_test : public base_scheduler_policy_test, public ::testing::Test
 {
 protected:
-  scheduler_pf_test() : base_scheduler_policy_test(policy_scheduler_type::time_pf) {}
+  scheduler_pf_test() : base_scheduler_policy_test(policy_scheduler_type::time_qos) {}
 };
 
 TEST_F(scheduler_pf_test, pf_does_not_account_ues_with_empty_buffers)
@@ -626,12 +605,12 @@ TEST_F(scheduler_pf_test, pf_ensures_fairness_in_dl_when_ues_have_different_chan
     // Report different CQIs for different UEs.
     // Best channel condition.
     u1.get_pcell().handle_csi_report(
-        csi_report_data{std::nullopt, std::nullopt, std::nullopt, std::nullopt, cqi_value{15U}});
+        csi_report_data{std::nullopt, std::nullopt, std::nullopt, std::nullopt, cqi_value{15U}, true});
     // Worst channel condition.
     u2.get_pcell().handle_csi_report(
-        csi_report_data{std::nullopt, std::nullopt, std::nullopt, std::nullopt, cqi_value{10U}});
+        csi_report_data{std::nullopt, std::nullopt, std::nullopt, std::nullopt, cqi_value{10U}, true});
     u3.get_pcell().handle_csi_report(
-        csi_report_data{std::nullopt, std::nullopt, std::nullopt, std::nullopt, cqi_value{12U}});
+        csi_report_data{std::nullopt, std::nullopt, std::nullopt, std::nullopt, cqi_value{12U}, true});
 
     run_slot();
     const slot_point current_slot = next_slot - 1;
@@ -641,20 +620,7 @@ TEST_F(scheduler_pf_test, pf_ensures_fairness_in_dl_when_ues_have_different_chan
 
     // Auto ACK HARQs.
     for (const pucch_info& pucch : this->res_grid[0].result.ul.pucchs) {
-      unsigned nof_ack_bits = 0;
-      switch (pucch.format) {
-        case pucch_format::FORMAT_0:
-          nof_ack_bits = pucch.format_0.harq_ack_nof_bits;
-          break;
-        case pucch_format::FORMAT_1:
-          nof_ack_bits = pucch.format_1.harq_ack_nof_bits;
-          break;
-        case pucch_format::FORMAT_2:
-          nof_ack_bits = pucch.format_2.harq_ack_nof_bits;
-          break;
-        default:
-          break;
-      }
+      const unsigned nof_ack_bits = pucch.uci_bits.harq_ack_nof_bits;
       if (pucch.crnti == u1.crnti) {
         for (unsigned harq_bit_idx = 0; harq_bit_idx < nof_ack_bits; ++harq_bit_idx) {
           u1.get_pcell().handle_dl_ack_info(current_slot, mac_harq_ack_report_status::ack, harq_bit_idx, 100);
@@ -673,8 +639,8 @@ TEST_F(scheduler_pf_test, pf_ensures_fairness_in_dl_when_ues_have_different_chan
 
   // PF scheduler ensures fairness by scheduling UE2 more than UE1 and UE3 due to having worse channel conditions when
   // compared to that of UE1 and UE3.
-  ASSERT_TRUE(ue_pdsch_scheduled_count[u2.ue_index] > ue_pdsch_scheduled_count[u1.ue_index] and
-              ue_pdsch_scheduled_count[u2.ue_index] > ue_pdsch_scheduled_count[u3.ue_index]);
+  ASSERT_GT(ue_pdsch_scheduled_count[u2.ue_index], ue_pdsch_scheduled_count[u1.ue_index]);
+  ASSERT_GT(ue_pdsch_scheduled_count[u2.ue_index], ue_pdsch_scheduled_count[u3.ue_index]);
 }
 
 TEST_F(scheduler_pf_test, pf_ensures_fairness_in_ul_when_ues_have_different_channel_conditions)
@@ -729,7 +695,7 @@ using gbr_bitrate_bps = uint64_t;
 class scheduler_pf_qos_test : public base_scheduler_policy_test, public ::testing::TestWithParam<gbr_bitrate_bps>
 {
 protected:
-  scheduler_pf_qos_test() : base_scheduler_policy_test(policy_scheduler_type::time_pf) {}
+  scheduler_pf_qos_test() : base_scheduler_policy_test(policy_scheduler_type::time_qos) {}
 
   static double to_bytes_per_slot(uint64_t bitrate_bps, subcarrier_spacing bwp_scs)
   {
@@ -754,7 +720,8 @@ TEST_P(scheduler_pf_qos_test, pf_upholds_qos_in_dl_gbr_flows)
   ue& ue_with_gbr =
       add_ue(make_ue_create_req(to_du_ue_index(0), to_rnti(0x4601), {non_gbr_bearer_lcid, gbr_bearer_lcid}, lcg_id));
   // Prepare request with GBR bearer information.
-  sched_ue_config_request cfg_req{};
+  sched_ue_reconfiguration_message recfg_req{};
+  sched_ue_config_request&         cfg_req = recfg_req.cfg;
   cfg_req.lc_config_list.emplace();
   cfg_req.lc_config_list->resize(4);
   (*cfg_req.lc_config_list)[0]          = config_helpers::create_default_logical_channel_config(lcid_t::LCID_SRB0);
@@ -769,7 +736,7 @@ TEST_P(scheduler_pf_qos_test, pf_upholds_qos_in_dl_gbr_flows)
   (*cfg_req.lc_config_list)[3].qos.emplace();
   (*cfg_req.lc_config_list)[3].qos->qos          = *get_5qi_to_qos_characteristics_mapping(uint_to_five_qi(1));
   (*cfg_req.lc_config_list)[3].qos->gbr_qos_info = gbr_qos_flow_information{brate, brate, brate, brate};
-  ue_ded_cell_cfg_list[0]->update(cell_cfg_list, cfg_req);
+  ue_ded_cell_cfg_list[0]->update(cell_cfg_list, cfg_pool.reconf_ue(recfg_req));
   // Add UE with no GBR bearer.
   ue& ue_with_no_gbr = add_ue(make_ue_create_req(to_du_ue_index(1), to_rnti(0x4602), {non_gbr_bearer_lcid}, lcg_id));
 
@@ -780,9 +747,9 @@ TEST_P(scheduler_pf_qos_test, pf_upholds_qos_in_dl_gbr_flows)
 
   // Report best channel condition for different UEs.
   ue_with_gbr.get_pcell().handle_csi_report(
-      csi_report_data{std::nullopt, std::nullopt, std::nullopt, std::nullopt, cqi_value{15U}});
+      csi_report_data{std::nullopt, std::nullopt, std::nullopt, std::nullopt, cqi_value{15U}, true});
   ue_with_no_gbr.get_pcell().handle_csi_report(
-      csi_report_data{std::nullopt, std::nullopt, std::nullopt, std::nullopt, cqi_value{15U}});
+      csi_report_data{std::nullopt, std::nullopt, std::nullopt, std::nullopt, cqi_value{15U}, true});
 
   unsigned              scheduled_bytes_for_gbr_bearer = 0;
   static const unsigned max_nof_slots                  = 50;
@@ -808,20 +775,7 @@ TEST_P(scheduler_pf_qos_test, pf_upholds_qos_in_dl_gbr_flows)
     // Auto ACK HARQs.
     const slot_point current_slot = next_slot - 1;
     for (const pucch_info& pucch : this->res_grid[0].result.ul.pucchs) {
-      unsigned nof_ack_bits = 0;
-      switch (pucch.format) {
-        case pucch_format::FORMAT_0:
-          nof_ack_bits = pucch.format_0.harq_ack_nof_bits;
-          break;
-        case pucch_format::FORMAT_1:
-          nof_ack_bits = pucch.format_1.harq_ack_nof_bits;
-          break;
-        case pucch_format::FORMAT_2:
-          nof_ack_bits = pucch.format_2.harq_ack_nof_bits;
-          break;
-        default:
-          break;
-      }
+      const unsigned nof_ack_bits = pucch.uci_bits.harq_ack_nof_bits;
       if (pucch.crnti == ue_with_gbr.crnti) {
         for (unsigned harq_bit_idx = 0; harq_bit_idx < nof_ack_bits; ++harq_bit_idx) {
           ue_with_gbr.get_pcell().handle_dl_ack_info(current_slot, mac_harq_ack_report_status::ack, harq_bit_idx, 100);
@@ -870,8 +824,9 @@ TEST_P(scheduler_policy_alloc_bounds_test, scheduler_allocates_pdsch_within_conf
 
   // Expected CRBs is based on the expert configuration passed to scheduler during class initialization.
   crb_interval expected_crb_allocation{10, 15};
-  prb_interval expected_prb_interval = crb_to_prb(
-      u1.get_pcell().cfg().bwp(u1.get_pcell().active_bwp_id()).dl_common->generic_params.crbs, expected_crb_allocation);
+  prb_interval expected_prb_interval =
+      crb_to_prb(u1.get_pcell().cfg().bwp(u1.get_pcell().active_bwp_id()).dl_common->value().generic_params.crbs,
+                 expected_crb_allocation);
   vrb_interval expected_vrb_interval{expected_prb_interval.start(), expected_prb_interval.stop()};
 
   ASSERT_EQ(this->res_grid[0].result.dl.ue_grants.size(), 1);
@@ -893,8 +848,9 @@ TEST_P(scheduler_policy_alloc_bounds_test, scheduler_allocates_pusch_within_conf
 
   // Expected CRBs is based on the expert configuration passed to scheduler during class initialization.
   crb_interval expected_crb_allocation{10, 15};
-  prb_interval expected_prb_interval = crb_to_prb(
-      u1.get_pcell().cfg().bwp(u1.get_pcell().active_bwp_id()).ul_common->generic_params.crbs, expected_crb_allocation);
+  prb_interval expected_prb_interval =
+      crb_to_prb(u1.get_pcell().cfg().bwp(u1.get_pcell().active_bwp_id()).ul_common->value().generic_params.crbs,
+                 expected_crb_allocation);
   vrb_interval expected_vrb_interval{expected_prb_interval.start(), expected_prb_interval.stop()};
 
   ASSERT_TRUE(this->res_grid[0].result.ul.puschs.back().pusch_cfg.rbs.type1() == expected_vrb_interval);
@@ -902,11 +858,11 @@ TEST_P(scheduler_policy_alloc_bounds_test, scheduler_allocates_pusch_within_conf
 
 INSTANTIATE_TEST_SUITE_P(scheduler_policy,
                          scheduler_policy_test,
-                         testing::Values(policy_scheduler_type::time_rr, policy_scheduler_type::time_pf));
+                         testing::Values(policy_scheduler_type::time_rr, policy_scheduler_type::time_qos));
 INSTANTIATE_TEST_SUITE_P(scheduler_policy,
                          scheduler_policy_partial_slot_tdd_test,
-                         testing::Values(policy_scheduler_type::time_rr, policy_scheduler_type::time_pf));
+                         testing::Values(policy_scheduler_type::time_rr, policy_scheduler_type::time_qos));
 INSTANTIATE_TEST_SUITE_P(scheduler_policy,
                          scheduler_policy_alloc_bounds_test,
-                         testing::Values(policy_scheduler_type::time_rr, policy_scheduler_type::time_pf));
+                         testing::Values(policy_scheduler_type::time_rr, policy_scheduler_type::time_qos));
 INSTANTIATE_TEST_SUITE_P(scheduler_policy, scheduler_pf_qos_test, testing::Values(128000, 256000));

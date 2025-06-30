@@ -45,13 +45,17 @@ using trace_point    = trace_clock::time_point;
 using trace_duration = std::chrono::microseconds;
 
 /// Trace point value when tracing is disabled.
-constexpr static trace_point null_trace_point = {};
+static constexpr trace_point null_trace_point = {};
 
 /// Resource usaged value when tracing is disabled.
-constexpr static resource_usage::snapshot null_rusage_snapshot{0, 0};
+static constexpr resource_usage::snapshot null_rusage_snapshot{};
 
 /// Open a file to write trace events to.
-void open_trace_file(std::string_view trace_file_name = "/tmp/srsran_trace.json");
+/// \param[in] trace_file_name Name of the generated file.
+/// \param[in] split_after_n If positive, the events will be written into split files, each with a number of events
+/// lower or equal to \c split_after_n. This way, we avoid generating an enormous single trace file. If
+/// \c trace_file_name is "trace.json", the splitted files will be called "trace0.json", "trace1.json", etc.
+void open_trace_file(std::string_view trace_file_name = "/tmp/srsran_trace.json", unsigned split_after_n = 1e6);
 
 /// Close the trace file. This function is called automatically when the program exits.
 void close_trace_file();
@@ -174,8 +178,7 @@ public:
 /// Specialization of file_event_tracer that does not write any events.
 template <>
 class file_event_tracer<false> : public detail::null_event_tracer
-{
-};
+{};
 
 /// Class that repurposes a log channel to write trace events.
 template <bool Enabled = true>
@@ -217,8 +220,7 @@ private:
 
 template <>
 class logger_event_tracer<false> : public detail::null_event_tracer
-{
-};
+{};
 
 /// Class that writes trace events to a vector of strings for testing purposes.
 class test_event_tracer

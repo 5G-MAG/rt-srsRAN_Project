@@ -22,8 +22,8 @@
 
 #pragma once
 
-#include "apps/services/application_command.h"
 #include "apps/services/metrics/metrics_config.h"
+#include "apps/units/application_unit_commands.h"
 #include "srsran/du/du_high/o_du_high.h"
 #include "srsran/du/du_high/o_du_high_config.h"
 
@@ -63,9 +63,9 @@ void announce_du_high_cells(const du_high_unit_config& du_high_unit_cfg);
 
 /// O-RAN DU high unit.
 struct o_du_high_unit {
-  std::unique_ptr<srs_du::o_du_high>                              o_du_hi;
-  std::vector<std::unique_ptr<app_services::application_command>> commands;
-  std::vector<app_services::metrics_config>                       metrics;
+  std::unique_ptr<srs_du::o_du_high>        o_du_hi;
+  application_unit_commands                 commands;
+  std::vector<app_services::metrics_config> metrics;
 };
 
 /// O-RAN DU high unit dependencies.
@@ -78,7 +78,6 @@ struct o_du_high_unit_dependencies {
   rlc_pcap&                        rlc_p;
   e2_connection_client&            e2_client_handler;
   e2_du_metrics_connector_manager& e2_metric_connectors;
-  srslog::sink&                    json_sink;
   app_services::metrics_notifier&  metrics_notifier;
   srs_du::o_du_high_dependencies   o_du_hi_dependencies;
 };

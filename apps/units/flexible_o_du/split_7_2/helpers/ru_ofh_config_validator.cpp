@@ -123,7 +123,7 @@ static bool validate_ru_ofh_unit_config(span<const ru_ofh_unit_cell_config>     
       return false;
     }
 
-    if (!ofh_cell.cell.is_downlink_broadcast_enabled && cell_cfg.nof_antennas_dl != ofh_cell.ru_dl_port_id.size()) {
+    if (cell_cfg.nof_antennas_dl != ofh_cell.ru_dl_port_id.size()) {
       fmt::print("RU number of downlink ports={} must match the number of transmission antennas={}\n",
                  ofh_cell.ru_dl_port_id.size(),
                  cell_cfg.nof_antennas_dl);
@@ -134,6 +134,14 @@ static bool validate_ru_ofh_unit_config(span<const ru_ofh_unit_cell_config>     
     if (cell_cfg.nof_antennas_ul > ofh_cell.ru_ul_port_id.size()) {
       fmt::print("RU number of uplink ports={} must be equal or greater than the number of reception antennas={}\n",
                  ofh_cell.ru_ul_port_id.size(),
+                 cell_cfg.nof_antennas_ul);
+
+      return false;
+    }
+
+    if (cell_cfg.nof_antennas_ul > ofh_cell.ru_prach_port_id.size()) {
+      fmt::print("RU number of PRACH ports={} must be equal or greater than the number of reception antennas={}\n",
+                 ofh_cell.ru_prach_port_id.size(),
                  cell_cfg.nof_antennas_ul);
 
       return false;
@@ -174,11 +182,6 @@ static bool validate_hal_config(const std::optional<ru_ofh_unit_hal_config>& con
 #ifdef DPDK_FOUND
   if (config && config->eal_args.empty()) {
     fmt::print("It is mandatory to fill the EAL configuration arguments to initialize DPDK correctly\n");
-    return false;
-  }
-#else
-  if (config) {
-    fmt::print("Unable to use DPDK as the application was not compiled with DPDK support\n");
     return false;
   }
 #endif

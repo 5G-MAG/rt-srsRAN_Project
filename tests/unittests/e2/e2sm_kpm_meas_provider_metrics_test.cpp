@@ -68,7 +68,6 @@ rlc_metrics generate_non_zero_rlc_metrics(uint32_t ue_idx, uint32_t bearer_id)
   rlc_metric.rx.num_malformed_pdus = 1;
   rlc_metric.rx.sdu_latency_us     = 1000;
 
-  rlc_metric.tx.tx_low.mode                          = rlc_mode::am;
   rlc_metric.tx.tx_high.num_sdus                     = 10;
   rlc_metric.tx.tx_high.num_sdu_bytes                = rlc_metric.tx.tx_high.num_sdus * 1000;
   rlc_metric.tx.tx_high.num_dropped_sdus             = 1;
@@ -78,9 +77,12 @@ rlc_metrics generate_non_zero_rlc_metrics(uint32_t ue_idx, uint32_t bearer_id)
   rlc_metric.tx.tx_low.num_of_pulled_sdus            = 1;
   rlc_metric.tx.tx_low.num_pdus_no_segmentation      = 10;
   rlc_metric.tx.tx_low.num_pdu_bytes_no_segmentation = rlc_metric.tx.tx_low.num_pdus_no_segmentation * 1000;
-  rlc_metric.tx.tx_low.mode_specific.am.num_pdus_with_segmentation = 2;
-  rlc_metric.tx.tx_low.mode_specific.am.num_pdu_bytes_with_segmentation =
-      rlc_metric.tx.tx_low.mode_specific.am.num_pdus_with_segmentation * 1000;
+
+  rlc_metric.tx.tx_low.mode_specific = rlc_am_tx_metrics_lower{};
+  auto& am                           = std::get<rlc_am_tx_metrics_lower>(rlc_metric.tx.tx_low.mode_specific);
+  am.num_pdus_with_segmentation      = 2;
+  am.num_pdu_bytes_with_segmentation = am.num_pdus_with_segmentation * 1000;
+
   return rlc_metric;
 }
 
@@ -95,9 +97,9 @@ scheduler_cell_metrics generate_non_zero_sched_metrics()
   scheduler_ue_metrics ue_metrics = {0};
   ue_metrics.pci                  = 1;
   ue_metrics.rnti                 = static_cast<rnti_t>(0x1000 + 1);
-  ue_metrics.tot_dl_prbs_used     = 1200;
-  ue_metrics.tot_ul_prbs_used     = 1200;
-  ue_metrics.crc_delay_ms         = 100;
+  ue_metrics.tot_pdsch_prbs_used  = 1200;
+  ue_metrics.tot_pusch_prbs_used  = 1200;
+  ue_metrics.avg_crc_delay_ms     = 100;
   ue_metrics.pusch_snr_db         = 10;
   for (auto i = 0; i < 10; i++) {
     ue_metrics.cqi_stats.update(i);
@@ -192,11 +194,8 @@ TEST_F(e2sm_kpm_meas_provider_metrics_test, e2sm_kpm_supported_metrics_are_suppo
 TEST_F(e2sm_kpm_meas_provider_metrics_test, e2sm_kpm_return_e2_level_metric_with_no_measurements)
 {
   // metrics that return no_value when no measurements are present. Specifically, they should not return 0
-  std::vector<std::string> no_value_metrics = {"DRB.AirIfDelayUl",
-                                               "DRB.PacketSuccessRateUlgNBUu",
-                                               "DRB.RlcDelayUl",
-                                               "DRB.RlcPacketDropRateDl",
-                                               "DRB.RlcSduDelayDl"};
+  std::vector<std::string> no_value_metrics = {
+      "DRB.AirIfDelayUl", "DRB.RlcSduDelayDl", "DRB.RlcDelayUl", "DRB.RlcPacketDropRateDl", "DRB.RlcSduDelayDl"};
 
   // E2-NODE-LEVEL metrics have to be always returned, even if 0 or NAN
   e2sm_kpm_metric_level_enum       metric_level = E2_NODE_LEVEL;

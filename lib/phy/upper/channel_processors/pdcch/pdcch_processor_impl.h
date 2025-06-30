@@ -26,6 +26,7 @@
 #include "srsran/phy/upper/channel_processors/pdcch/pdcch_modulator.h"
 #include "srsran/phy/upper/channel_processors/pdcch/pdcch_processor.h"
 #include "srsran/phy/upper/signal_processors/dmrs_pdcch_processor.h"
+#include "srsran/ran/resource_allocation/rb_bitmap.h"
 
 namespace srsran {
 
@@ -37,14 +38,6 @@ struct pdcch_processor_config_t {
   std::unique_ptr<pdcch_modulator> modulator;
   /// Provides the DMRS for PDCCH. Ownership is transferred to the PDCCH processor.
   std::unique_ptr<dmrs_pdcch_processor> dmrs;
-};
-
-/// Implements a parameter validator for \ref pdcch_processor_impl.
-class pdcch_processor_validator_impl : public pdcch_pdu_validator
-{
-public:
-  // See interface for documentation.
-  bool is_valid(const pdcch_processor::pdu_t& pdu) const override { return true; }
 };
 
 /// Describes a generic PDCCH processor.
@@ -68,11 +61,11 @@ private:
     return aggregation_level * pdcch_constants::NOF_REG_PER_CCE * pdcch_constants::NOF_RE_PDCCH_PER_RB * 2;
   }
 
-  /// \brief Computes the allocation mask as per TS38.211 Section 7.3.2.2.
+  /// \brief Computes the Common Resource Blocks (CRBs) allocation mask as per TS38.211 Section 7.3.2.2.
   /// \param[in] coreset Provides CORESET parameters.
   /// \param[in] dci Provides DCI parameters.
   /// \return The PRB allocation mask for the PDCCH transmission.
-  static bounded_bitset<MAX_RB> compute_rb_mask(const coreset_description& coreset, const dci_description& dci);
+  static crb_bitmap compute_rb_mask(const coreset_description& coreset, const dci_description& dci);
 
 public:
   /// Generic PDSCH modulator instance constructor.

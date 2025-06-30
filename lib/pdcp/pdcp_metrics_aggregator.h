@@ -37,13 +37,14 @@ public:
                           rb_id_t                rb_id_,
                           timer_duration         metrics_period_,
                           pdcp_metrics_notifier* pdcp_metrics_notif_,
-                          task_executor&         ue_executor_);
+                          task_executor&         ue_executor_,
+                          bool                   report_tx_rx_in_same_report_ = true);
 
   void push_tx_metrics(pdcp_tx_metrics_container m_tx_);
 
   void push_rx_metrics(pdcp_rx_metrics_container m_rx_);
 
-  const timer_duration& get_metrics_period() const { return metrics_period; };
+  const timer_duration& get_metrics_period() const { return metrics_period; }
 
 private:
   void push_report();
@@ -51,7 +52,9 @@ private:
   void push_tx_metrics_impl(pdcp_tx_metrics_container m_tx_);
   void push_rx_metrics_impl(pdcp_rx_metrics_container m_rx_);
 
+  const bool                report_tx_rx_in_same_report;
   uint32_t                  ue_index;
+  rb_id_t                   rb_id;
   pdcp_rx_metrics_container m_rx;
   pdcp_tx_metrics_container m_tx;
   timer_duration            metrics_period;

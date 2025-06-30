@@ -51,12 +51,14 @@ static cu_up_manager_impl_config generate_cu_up_manager_impl_config(const cu_up_
   return {config.qos, config.n3_cfg, config.test_mode_cfg};
 }
 
-static cu_up_manager_impl_dependencies generate_cu_up_manager_impl_dependencies(const cu_up_dependencies& dependencies,
-                                                                                e1ap_interface&           e1ap,
-                                                                                gtpu_demux&               ngu_demux,
-                                                                                ngu_session_manager& ngu_session_mngr,
-                                                                                gtpu_teid_pool&      n3_teid_allocator,
-                                                                                gtpu_teid_pool&      f1u_teid_allocator)
+static cu_up_manager_impl_dependencies
+generate_cu_up_manager_impl_dependencies(const cu_up_dependencies&  dependencies,
+                                         e1ap_interface&            e1ap,
+                                         gtpu_demux&                ngu_demux,
+                                         ngu_session_manager&       ngu_session_mngr,
+                                         gtpu_teid_pool&            n3_teid_allocator,
+                                         gtpu_teid_pool&            f1u_teid_allocator,
+                                         fifo_async_task_scheduler& main_ctrl_loop)
 {
   return {e1ap,
           ngu_demux,
@@ -66,7 +68,8 @@ static cu_up_manager_impl_dependencies generate_cu_up_manager_impl_dependencies(
           *dependencies.exec_mapper,
           *dependencies.f1u_gateway,
           *dependencies.timers,
-          *dependencies.gtpu_pcap};
+          *dependencies.gtpu_pcap,
+          main_ctrl_loop};
 }
 
 cu_up::cu_up(const cu_up_config& config_, const cu_up_dependencies& dependencies) :
@@ -82,20 +85,24 @@ cu_up::cu_up(const cu_up_config& config_, const cu_up_dependencies& dependencies
   // Create GTP-U demux
   gtpu_demux_creation_request demux_msg = {};
   demux_msg.cfg.warn_on_drop            = cfg.n3_cfg.warn_on_drop;
+  demux_msg.cfg.queue_size              = cfg.n3_cfg.gtpu_queue_size;
+  demux_msg.cfg.batch_size              = cfg.n3_cfg.gtpu_batch_size;
   demux_msg.cfg.test_mode               = cfg.test_mode_cfg.enabled;
   demux_msg.gtpu_pcap                   = dependencies.gtpu_pcap;
   ngu_demux                             = create_gtpu_demux(demux_msg);
 
-  ctrl_exec_mapper = dependencies.exec_mapper->create_ue_executor_mapper();
-  report_error_if_not(ctrl_exec_mapper != nullptr, "Could not create CU-UP executor for control TEID");
+  echo_exec_mapper = dependencies.exec_mapper->create_ue_executor_mapper();
+  report_error_if_not(echo_exec_mapper != nullptr, "Could not create CU-UP executor for control TEID");
 
   // Create GTP-U echo and register it at demux
-  gtpu_echo_creation_message ngu_echo_msg = {};
-  ngu_echo_msg.gtpu_pcap                  = dependencies.gtpu_pcap;
-  ngu_echo_msg.tx_upper                   = &gtpu_gw_adapter;
-  ngu_echo                                = create_gtpu_echo(ngu_echo_msg);
-  ngu_demux->add_tunnel(
-      GTPU_PATH_MANAGEMENT_TEID, ctrl_exec_mapper->dl_pdu_executor(), ngu_echo->get_rx_upper_layer_interface());
+  gtpu_echo_creation_message ngu_echo_msg                      = {};
+  ngu_echo_msg.gtpu_pcap                                       = dependencies.gtpu_pcap;
+  ngu_echo_msg.tx_upper                                        = &gtpu_gw_adapter;
+  ngu_echo                                                     = create_gtpu_echo(ngu_echo_msg);
+  expected<std::unique_ptr<gtpu_demux_dispatch_queue>> batch_q = ngu_demux->add_tunnel(
+      GTPU_PATH_MANAGEMENT_TEID, echo_exec_mapper->dl_pdu_executor(), ngu_echo->get_rx_upper_layer_interface());
+  report_error_if_not(batch_q.has_value(), "Could not create GTP-U echo tunnel.");
+  echo_batched_queue = std::move(batch_q.value());
 
   // Connect GTP-U DEMUX to adapter.
   gw_data_gtpu_demux_adapter.connect_gtpu_demux(*ngu_demux);
@@ -126,7 +133,8 @@ cu_up::cu_up(const cu_up_config& config_, const cu_up_dependencies& dependencies
   f1u_teid_allocator                            = create_gtpu_allocator(f1u_alloc_msg);
 
   /// > Create e1ap
-  e1ap = create_e1ap(*dependencies.e1_conn_client,
+  e1ap = create_e1ap(cfg.e1ap,
+                     *dependencies.e1_conn_client,
                      e1ap_cu_up_mng_adapter,
                      *dependencies.timers,
                      dependencies.exec_mapper->ctrl_executor());
@@ -135,7 +143,7 @@ cu_up::cu_up(const cu_up_config& config_, const cu_up_dependencies& dependencies
   cu_up_mng = std::make_unique<cu_up_manager_impl>(
       generate_cu_up_manager_impl_config(cfg),
       generate_cu_up_manager_impl_dependencies(
-          dependencies, *e1ap, *ngu_demux, *ngu_session_mngr, *n3_teid_allocator, *f1u_teid_allocator));
+          dependencies, *e1ap, *ngu_demux, *ngu_session_mngr, *n3_teid_allocator, *f1u_teid_allocator, main_ctrl_loop));
 
   /// > Connect E1AP to CU-UP manager
   e1ap_cu_up_mng_adapter.connect_cu_up_manager(*cu_up_mng);
@@ -244,16 +252,18 @@ async_task<void> cu_up::handle_stop_command()
   // Stop statistics report timer.
   statistics_report_timer.stop();
 
-  gw_data_gtpu_demux_adapter.disconnect();
   gtpu_gw_adapter.disconnect();
+
   e1ap_cu_up_mng_adapter.disconnect();
+  // Do not disconnect GTP-U Demux as it is being concurrently accessed from the thread pool.
+  // It will be safely stopped from inside the CU-UP manager.
 
   return launch_async([this](coro_context<async_task<void>>& ctx) {
     CORO_BEGIN(ctx);
 
     // Stop dedicated executor for control TEID.
-    CORO_AWAIT(ctrl_exec_mapper->stop());
-    ctrl_exec_mapper = nullptr;
+    CORO_AWAIT(echo_exec_mapper->stop());
+    echo_exec_mapper = nullptr;
 
     // Stop CU-UP manager and remove all UEs.
     CORO_AWAIT(cu_up_mng->stop());

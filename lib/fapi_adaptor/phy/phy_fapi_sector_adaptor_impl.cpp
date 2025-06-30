@@ -41,24 +41,25 @@ static slot_last_message_notifier_dummy dummy_notifier;
 
 /// Generates and returns a FAPI-to-PHY translator configuration from the given PHY adaptor configuration.
 static fapi_to_phy_translator_config
-generate_fapi_to_phy_translator_config(const phy_fapi_sector_adaptor_impl_config& config)
+generate_fapi_to_phy_translator_config(const phy_fapi_sector_adaptor_config& config)
 {
   fapi_to_phy_translator_config fapi_config;
 
-  fapi_config.sector_id                  = config.sector_id;
-  fapi_config.nof_slots_request_headroom = config.nof_slots_request_headroom;
-  fapi_config.scs                        = config.scs;
-  fapi_config.scs_common                 = config.scs_common;
-  fapi_config.prach_cfg                  = config.prach_cfg;
-  fapi_config.carrier_cfg                = config.carrier_cfg;
-  fapi_config.prach_ports                = config.prach_ports;
+  fapi_config.sector_id                     = config.sector_id;
+  fapi_config.nof_slots_request_headroom    = config.nof_slots_request_headroom;
+  fapi_config.allow_request_on_empty_ul_tti = config.allow_request_on_empty_ul_tti;
+  fapi_config.scs                           = config.scs;
+  fapi_config.scs_common                    = config.scs_common;
+  fapi_config.prach_cfg                     = config.prach_cfg;
+  fapi_config.carrier_cfg                   = config.carrier_cfg;
+  fapi_config.prach_ports                   = config.prach_ports;
 
   return fapi_config;
 }
 
 /// Generates and returns a FAPI-to-PHY translator dependencies from the given PHY adaptor dependencies.
 static fapi_to_phy_translator_dependencies
-generate_fapi_to_phy_translator_dependencies(phy_fapi_sector_adaptor_impl_dependencies&& dependencies)
+generate_fapi_to_phy_translator_dependencies(phy_fapi_sector_adaptor_dependencies&& dependencies)
 {
   fapi_to_phy_translator_dependencies fapi_dependencies;
 
@@ -67,7 +68,6 @@ generate_fapi_to_phy_translator_dependencies(phy_fapi_sector_adaptor_impl_depend
   fapi_dependencies.dl_rg_pool           = dependencies.dl_rg_pool;
   fapi_dependencies.dl_pdu_validator     = dependencies.dl_pdu_validator;
   fapi_dependencies.ul_request_processor = dependencies.ul_request_processor;
-  fapi_dependencies.ul_rg_pool           = dependencies.ul_rg_pool;
   fapi_dependencies.ul_pdu_repository    = dependencies.ul_pdu_repository;
   fapi_dependencies.ul_pdu_validator     = dependencies.ul_pdu_validator;
   fapi_dependencies.pm_repo              = std::move(dependencies.pm_repo);
@@ -76,9 +76,9 @@ generate_fapi_to_phy_translator_dependencies(phy_fapi_sector_adaptor_impl_depend
   return fapi_dependencies;
 }
 
-phy_fapi_sector_adaptor_impl::phy_fapi_sector_adaptor_impl(const phy_fapi_sector_adaptor_impl_config&  config,
-                                                           phy_fapi_sector_adaptor_impl_dependencies&& dependencies) :
-  results_translator(*dependencies.logger),
+phy_fapi_sector_adaptor_impl::phy_fapi_sector_adaptor_impl(const phy_fapi_sector_adaptor_config&  config,
+                                                           phy_fapi_sector_adaptor_dependencies&& dependencies) :
+  results_translator(config.sector_id, *dependencies.logger),
   fapi_translator(generate_fapi_to_phy_translator_config(config),
                   generate_fapi_to_phy_translator_dependencies(std::move(dependencies))),
   time_translator(fapi_translator)

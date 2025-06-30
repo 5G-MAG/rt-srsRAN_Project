@@ -24,7 +24,7 @@
 #include "apps/services/worker_manager/worker_manager.h"
 #include "apps/units/flexible_o_du/split_helpers/flexible_o_du_configs.h"
 #include "ru_ofh_config_translator.h"
-#include "srsran/ru/ru_ofh_factory.h"
+#include "srsran/ru/ofh/ru_ofh_factory.h"
 
 using namespace srsran;
 
@@ -49,8 +49,8 @@ std::unique_ptr<radio_unit> srsran::create_ofh_radio_unit(const ru_ofh_unit_conf
 
   // Configure sector.
   for (unsigned i = 0; i != nof_sectors; ++i) {
-    dependencies.sector_dependencies.emplace_back();
-    ru_ofh_sector_dependencies& sector_deps = dependencies.sector_dependencies.back();
+    ofh::sector_dependencies& sector_deps = dependencies.sector_dependencies.emplace_back();
+
     // Note, one executor for transmitter and receiver tasks is shared per two sectors.
     sector_deps.txrx_executor     = ru_dependencies.workers.ru_txrx_exec[i / nof_sectors_per_txrx_thread];
     sector_deps.uplink_executor   = ru_dependencies.workers.ru_rx_exec[i];
@@ -58,6 +58,6 @@ std::unique_ptr<radio_unit> srsran::create_ofh_radio_unit(const ru_ofh_unit_conf
     sector_deps.logger            = dependencies.logger;
   }
 
-  return create_ofh_ru(generate_ru_ofh_config(ru_cfg, ru_config.du_cells, ru_config.max_processing_delay),
+  return create_ofh_ru(generate_ru_ofh_config(ru_cfg, ru_config.cells, ru_config.max_processing_delay),
                        std::move(dependencies));
 }

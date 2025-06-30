@@ -22,12 +22,14 @@
 
 #pragma once
 
+#include "srsran/instrumentation/traces/du_traces.h"
 #include "srsran/phy/support/prach_buffer_context.h"
 #include "srsran/phy/support/shared_resource_grid.h"
 #include "srsran/phy/upper/upper_phy_error_handler.h"
 #include "srsran/phy/upper/upper_phy_rg_gateway.h"
 #include "srsran/phy/upper/upper_phy_rx_symbol_handler.h"
 #include "srsran/phy/upper/upper_phy_rx_symbol_request_notifier.h"
+#include "srsran/phy/upper/upper_phy_timing_context.h"
 #include "srsran/phy/upper/upper_phy_timing_handler.h"
 #include "srsran/ru/ru_downlink_plane.h"
 #include "srsran/ru/ru_error_notifier.h"
@@ -118,11 +120,11 @@ public:
   explicit upper_phy_ru_timing_adapter(unsigned nof_sectors) : handlers(nof_sectors) {}
 
   // See interface for documentation.
-  void on_tti_boundary(slot_point slot) override
+  void on_tti_boundary(const tti_boundary_context& slot_context) override
   {
     srsran_assert(!handlers.empty(), "Adapter is not connected");
     for (auto& handler : handlers) {
-      handler->handle_tti_boundary({slot});
+      handler->handle_tti_boundary({slot_context.slot, slot_context.time_point});
     }
   }
 
@@ -169,6 +171,27 @@ public:
     srsran_assert(handlers[context.sector], "Adapter for sector '{}' is not connected", context.sector);
 
     handlers[context.sector]->handle_late_downlink_message(context.slot);
+    l1_dl_tracer << instant_trace_event{"handle_dl_data_late", instant_trace_event::cpu_scope::thread};
+  }
+
+  // See interface for documentation.
+  void on_late_uplink_message(const ru_error_context& context) override
+  {
+    srsran_assert(context.sector < handlers.size(), "Invalid sector '{}'", context.sector);
+    srsran_assert(handlers[context.sector], "Adapter for sector '{}' is not connected", context.sector);
+
+    handlers[context.sector]->handle_late_uplink_message(context.slot);
+    l1_ul_tracer << instant_trace_event{"handle_ul_request_late", instant_trace_event::cpu_scope::thread};
+  }
+
+  // See interface for documentation.
+  void on_late_prach_message(const ru_error_context& context) override
+  {
+    srsran_assert(context.sector < handlers.size(), "Invalid sector '{}'", context.sector);
+    srsran_assert(handlers[context.sector], "Adapter for sector '{}' is not connected", context.sector);
+
+    handlers[context.sector]->handle_late_prach_message(context.slot);
+    l1_ul_tracer << instant_trace_event{"handle_late_prach_message", instant_trace_event::cpu_scope::thread};
   }
 
   /// Maps the given upper PHY error handler and sector to this adapter.

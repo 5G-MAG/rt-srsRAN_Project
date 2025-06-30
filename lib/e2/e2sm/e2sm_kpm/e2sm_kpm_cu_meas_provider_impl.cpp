@@ -174,7 +174,6 @@ float e2sm_kpm_cu_meas_provider_impl::bytes_to_kbits(float value)
 
 void e2sm_kpm_cu_meas_provider_impl::report_metrics(const pdcp_metrics_container& metrics)
 {
-  printf("report pdcp metrics %d\n", metrics.rx.reordering_delay_us);
   ue_aggr_pdcp_metrics[metrics.ue_index].push_back(metrics);
   if (ue_aggr_pdcp_metrics[metrics.ue_index].size() > max_pdcp_metrics) {
     ue_aggr_pdcp_metrics[metrics.ue_index].pop_front();
@@ -186,7 +185,11 @@ e2sm_kpm_cu_up_meas_provider_impl::e2sm_kpm_cu_up_meas_provider_impl() : e2sm_kp
   supported_metrics.emplace(
       "DRB.PdcpReordDelayUl",
       e2sm_kpm_supported_metric_t{
-          NO_LABEL, ALL_LEVELS, false, &e2sm_kpm_cu_up_meas_provider_impl::get_pdcp_reordering_delay_ul});
+          NO_LABEL, E2_NODE_LEVEL, false, &e2sm_kpm_cu_up_meas_provider_impl::get_pdcp_reordering_delay_ul});
+  supported_metrics.emplace(
+      "DRB.PacketSuccessRateUlgNBUu",
+      e2sm_kpm_supported_metric_t{
+          NO_LABEL, E2_NODE_LEVEL, false, &e2sm_kpm_cu_up_meas_provider_impl::get_packet_success_rate_ul_gnb_uu});
 }
 
 bool e2sm_kpm_cu_meas_provider_impl::get_pdcp_reordering_delay_ul(const asn1::e2sm::label_info_list_l label_info_list,
@@ -224,7 +227,7 @@ bool e2sm_kpm_cu_meas_provider_impl::get_pdcp_reordering_delay_ul(const asn1::e2
     }
     if (av_ue_reordering_delay_us) {
       meas_record_item.set_real();
-      meas_record_item.real().value = (float)av_ue_reordering_delay_us / ue_aggr_pdcp_metrics.size();
+      meas_record_item.real().value = (av_ue_reordering_delay_us / ue_aggr_pdcp_metrics.size()) / 100; // unit is 0.1ms
       items.push_back(meas_record_item);
       meas_collected = true;
     } else {
@@ -232,5 +235,50 @@ bool e2sm_kpm_cu_meas_provider_impl::get_pdcp_reordering_delay_ul(const asn1::e2
       return meas_collected;
     }
   }
+  return meas_collected;
+}
+
+bool e2sm_kpm_cu_meas_provider_impl::get_packet_success_rate_ul_gnb_uu(const label_info_list_l          label_info_list,
+                                                                       const std::vector<ue_id_c>&      ues,
+                                                                       const std::optional<cgi_c>       cell_global_id,
+                                                                       std::vector<meas_record_item_c>& items)
+{
+  bool meas_collected = false;
+  if (ue_aggr_pdcp_metrics.empty()) {
+    return handle_no_meas_data_available(ues, items, meas_record_item_c::types::options::no_value);
+  }
+  if ((label_info_list.size() > 1 or
+       (label_info_list.size() == 1 and not label_info_list[0].meas_label.no_label_present))) {
+    logger.debug("Metric: DRB.PacketSuccessRateUlgNBUu supports only NO_LABEL label.");
+    return meas_collected;
+  }
+  if (cell_global_id.has_value()) {
+    logger.debug("Metric: DRB.PacketSuccessRateUlgNBUu currently does not support cell_global_id filter.");
+  }
+  if (ues.empty()) {
+    // E2 level measurements.
+    meas_record_item_c meas_record_item;
+    float              success_rate = 0;
+    uint32_t           total_sdus   = 0;
+    uint32_t           total_pdus   = 0;
+    for (auto& ue_metric : ue_aggr_pdcp_metrics) {
+      total_sdus += std::accumulate(
+          ue_metric.second.begin(), ue_metric.second.end(), 0, [](size_t sum, const pdcp_metrics_container& metric) {
+            return sum + metric.rx.num_sdus;
+          });
+      total_pdus += std::accumulate(
+          ue_metric.second.begin(), ue_metric.second.end(), 0, [](size_t sum, const pdcp_metrics_container& metric) {
+            return sum + metric.rx.num_data_pdus;
+          });
+    }
+    if (total_pdus) {
+      success_rate = 1.0 * (total_sdus / total_pdus);
+    }
+    uint32_t success_rate_int      = success_rate * 100;
+    meas_record_item.set_integer() = success_rate_int;
+    items.push_back(meas_record_item);
+    meas_collected = true;
+  }
+
   return meas_collected;
 }

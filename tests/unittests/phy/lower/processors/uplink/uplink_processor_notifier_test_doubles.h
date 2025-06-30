@@ -85,7 +85,7 @@ private:
 class lower_phy_cfo_controller_spy : public lower_phy_cfo_controller
 {
 public:
-  bool schedule_cfo_command(time_point time, float cfo_Hz) override { return false; }
+  bool schedule_cfo_command(time_point time, float cfo_Hz, float cfo_drift_Hz_s) override { return false; }
 };
 
 class lower_phy_uplink_processor_spy : public lower_phy_uplink_processor
@@ -101,6 +101,8 @@ public:
     prach_notifier = &prach_notifier_;
     puxch_notifier = &puxch_notifier_;
   }
+
+  void stop() override {}
 
   lower_phy_cfo_controller& get_cfo_handler() override { return cfo_processor_spy; }
 

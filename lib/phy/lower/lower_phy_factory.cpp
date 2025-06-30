@@ -183,6 +183,7 @@ public:
     proc_bb_adaptor_config.tx_buffer_size         = tx_buffer_size;
     proc_bb_adaptor_config.nof_tx_buffers         = std::max(4U, rx_to_tx_max_delay / tx_buffer_size);
     proc_bb_adaptor_config.system_time_throttling = config.system_time_throttling;
+    proc_bb_adaptor_config.stop_nof_slots         = 2 * config.max_processing_delay_slots;
 
     // Create lower PHY controller from the processor baseband adaptor.
     std::unique_ptr<lower_phy_controller> controller =
@@ -190,7 +191,7 @@ public:
     srsran_assert(controller, "Failed to create the lower PHY controller.");
 
     // Prepare lower PHY configuration.
-    lower_phy_impl::configuration lower_phy_config;
+    ue_lower_phy_impl::configuration lower_phy_config;
     lower_phy_config.downlink_proc      = std::move(dl_proc);
     lower_phy_config.uplink_proc        = std::move(ul_proc);
     lower_phy_config.controller         = std::move(controller);
@@ -199,7 +200,7 @@ public:
     lower_phy_config.error_notifier     = config.error_notifier;
     lower_phy_config.metrics_notifier   = config.metric_notifier;
 
-    return std::make_unique<lower_phy_impl>(lower_phy_config);
+    return std::make_unique<ue_lower_phy_impl>(lower_phy_config);
   }
 
 private:

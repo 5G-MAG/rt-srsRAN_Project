@@ -45,6 +45,29 @@ class ngap_network_adapter : public n2_connection_client,
                              public sctp_network_gateway_control_notifier,
                              public network_gateway_data_notifier
 {
+  class dummy_ngap_pdu_notifier : public ngap_message_notifier
+  {
+  public:
+    dummy_ngap_pdu_notifier(ngap_network_adapter& parent_) : parent(parent_) {}
+
+    [[nodiscard]] bool on_new_message(const ngap_message& msg) override
+    {
+      byte_buffer pdu;
+      {
+        asn1::bit_ref bref{pdu};
+        if (msg.pdu.pack(bref) != asn1::SRSASN_SUCCESS) {
+          parent.test_logger.error("Failed to pack PDU");
+          return false;
+        }
+      }
+      parent.gw->handle_pdu(pdu);
+      return true;
+    }
+
+  private:
+    ngap_network_adapter& parent;
+  };
+
 public:
   ngap_network_adapter(const sctp_network_connector_config& nw_config_) :
     nw_config(nw_config_),
@@ -58,36 +81,14 @@ public:
   }
 
   std::unique_ptr<ngap_message_notifier>
-  handle_cu_cp_connection_request(std::unique_ptr<ngap_message_notifier> cu_cp_rx_pdu_notifier) override
+  handle_cu_cp_connection_request(std::unique_ptr<ngap_rx_message_notifier> cu_cp_rx_pdu_notifier) override
   {
-    class dummy_ngap_pdu_notifier : public ngap_message_notifier
-    {
-    public:
-      dummy_ngap_pdu_notifier(ngap_network_adapter& parent_) : parent(parent_) {}
-
-      void on_new_message(const ngap_message& msg) override
-      {
-        byte_buffer pdu;
-        {
-          asn1::bit_ref bref{pdu};
-          if (msg.pdu.pack(bref) != asn1::SRSASN_SUCCESS) {
-            parent.test_logger.error("Failed to pack PDU");
-            return;
-          }
-        }
-        parent.gw->handle_pdu(pdu);
-      }
-
-    private:
-      ngap_network_adapter& parent;
-    };
-
     rx_pdu_notifier = std::move(cu_cp_rx_pdu_notifier);
     return std::make_unique<dummy_ngap_pdu_notifier>(*this);
   }
 
 private:
-  // SCTP network gateway calls interface to inject received PDUs (ASN1 packed)
+  // SCTP network gateway calls interface to inject received PDUs (ASN1 packed).
   void on_new_pdu(byte_buffer pdu) override
   {
     ngap_message msg;
@@ -95,17 +96,17 @@ private:
       asn1::cbit_ref bref{pdu};
       if (msg.pdu.unpack(bref) != asn1::SRSASN_SUCCESS) {
         test_logger.error("Sending Error Indication. Cause: Could not unpack Rx PDU");
-        send_error_indication(*rx_pdu_notifier, test_logger);
+        send_error_indication(*std::make_unique<dummy_ngap_pdu_notifier>(*this), test_logger);
       }
     }
     rx_pdu_notifier->on_new_message(msg);
   }
 
-  /// \brief Simply log those events for now
+  /// \brief Simply log those events for now.
   void on_connection_loss() override { test_logger.info("on_connection_loss"); }
   void on_connection_established() override { test_logger.info("on_connection_established"); }
 
-  /// We require a network gateway and a packer
+  /// We require a network gateway and a packer.
   const sctp_network_connector_config&  nw_config;
   inline_task_executor                  rx_executor;
   std::unique_ptr<io_broker>            epoll_broker;
@@ -113,7 +114,7 @@ private:
 
   srslog::basic_logger& test_logger = srslog::fetch_basic_logger("TEST");
 
-  std::unique_ptr<ngap_message_notifier> rx_pdu_notifier;
+  std::unique_ptr<ngap_rx_message_notifier> rx_pdu_notifier;
 };
 
 class ngap_integration_test : public ::testing::Test
@@ -134,14 +135,14 @@ protected:
       cu_cp_configuration cucfg     = config_helpers::make_default_cu_cp_config();
       cucfg.services.timers         = &timers;
       cucfg.services.cu_cp_executor = &ctrl_worker;
-      cucfg.ngaps.push_back(cu_cp_configuration::ngap_params{
+      cucfg.ngap.ngaps.push_back(cu_cp_configuration::ngap_config{
           adapter.get(), {{7, {{plmn_identity::test_value(), {{slice_service_type{1}}}}}}}});
       return cucfg;
     }())
   {
     cfg.gnb_id                      = cu_cp_cfg.node.gnb_id;
     cfg.ran_node_name               = cu_cp_cfg.node.ran_node_name;
-    cfg.supported_tas               = cu_cp_cfg.ngaps.front().supported_tas;
+    cfg.supported_tas               = cu_cp_cfg.ngap.ngaps.front().supported_tas;
     cfg.request_pdu_session_timeout = cu_cp_cfg.ue.request_pdu_session_timeout;
   }
 
@@ -150,7 +151,7 @@ protected:
     srslog::fetch_basic_logger("TEST").set_level(srslog::basic_levels::debug);
     srslog::init();
 
-    ngap = create_ngap(cfg, cu_cp_notifier, *cu_cp_cfg.ngaps.front().n2_gw, timers, ctrl_worker);
+    ngap = create_ngap(cfg, cu_cp_notifier, *cu_cp_cfg.ngap.ngaps.front().n2_gw, timers, ctrl_worker);
   }
 
   timer_manager       timers;
@@ -166,7 +167,7 @@ protected:
   srslog::basic_logger& test_logger = srslog::fetch_basic_logger("TEST");
 };
 
-/// Test successful ng setup procedure
+/// Test successful NG Setup procedure.
 TEST_F(ngap_integration_test, when_ng_setup_response_received_then_amf_connected)
 {
   test_logger.info("Launching NG setup procedure...");

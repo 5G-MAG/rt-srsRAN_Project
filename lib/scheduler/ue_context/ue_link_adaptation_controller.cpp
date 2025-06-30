@@ -33,19 +33,18 @@ ue_link_adaptation_controller::ue_link_adaptation_controller(const cell_configur
     dl_olla.emplace(cell_cfg.expert_cfg.ue.olla_dl_target_bler,
                     cell_cfg.expert_cfg.ue.olla_cqi_inc,
                     cell_cfg.expert_cfg.ue.olla_max_cqi_offset);
-
-    last_dl_mcs_table = pdsch_mcs_table::qam64LowSe; // Set a different value to force update.
-    update_dl_mcs_lims(pdsch_mcs_table::qam64);
   }
+  last_dl_mcs_table = pdsch_mcs_table::qam64LowSe; // Set a different value to force update.
+  update_dl_mcs_lims(pdsch_mcs_table::qam64);
+
   if (cell_cfg.expert_cfg.ue.olla_ul_snr_inc > 0) {
     ul_olla.emplace(cell_cfg.expert_cfg.ue.olla_ul_target_bler,
                     cell_cfg.expert_cfg.ue.olla_ul_snr_inc,
                     cell_cfg.expert_cfg.ue.olla_max_ul_snr_offset);
-
-    // Set a different value to force update.
-    last_ul_mcs_table = pusch_mcs_table::qam64LowSe;
-    update_ul_mcs_lims(pusch_mcs_table::qam64, cell_cfg.use_msg3_transform_precoder());
   }
+  // Set a different value to force update.
+  last_ul_mcs_table = pusch_mcs_table::qam64LowSe;
+  update_ul_mcs_lims(pusch_mcs_table::qam64, cell_cfg.use_msg3_transform_precoder());
 }
 
 void ue_link_adaptation_controller::handle_dl_ack_info(bool                         ack_value,
@@ -96,8 +95,8 @@ float ue_link_adaptation_controller::get_effective_cqi() const
 {
   float eff_cqi = static_cast<float>(ue_ch_st.get_wideband_cqi().value());
   if (eff_cqi == 0.0F) {
-    // CQI==0 is a special case, where the channel is not considered in a valid state.
-    return eff_cqi;
+    // Reported CQI==0 is a special case, where the channel is not considered in a valid state.
+    return -1;
   }
 
   if (dl_olla.has_value()) {
@@ -123,7 +122,7 @@ std::optional<sch_mcs_index> ue_link_adaptation_controller::calculate_dl_mcs(pds
 
   // Derive MCS using the combination of CQI + outer loop link adaptation.
   const float eff_cqi = get_effective_cqi();
-  if (eff_cqi == 0.0F) {
+  if (eff_cqi <= 0.0F) {
     // Special case, where reported CQI==0.
     return std::nullopt;
   }
@@ -140,7 +139,8 @@ std::optional<sch_mcs_index> ue_link_adaptation_controller::calculate_dl_mcs(pds
   return mcs;
 }
 
-sch_mcs_index ue_link_adaptation_controller::calculate_ul_mcs(pusch_mcs_table mcs_table) const
+sch_mcs_index ue_link_adaptation_controller::calculate_ul_mcs(pusch_mcs_table mcs_table,
+                                                              bool            use_transform_precoder) const
 {
   if (cell_cfg.expert_cfg.ue.ul_mcs.length() == 0) {
     // Fixed MCS.
@@ -148,7 +148,7 @@ sch_mcs_index ue_link_adaptation_controller::calculate_ul_mcs(pusch_mcs_table mc
   }
 
   // Derive MCS using the combination of estimated UL SNR + outer loop link adaptation.
-  sch_mcs_index mcs = map_snr_to_mcs_ul(get_effective_snr(), mcs_table);
+  sch_mcs_index mcs = map_snr_to_mcs_ul(get_effective_snr(), mcs_table, use_transform_precoder);
   mcs               = std::min(std::max(mcs, ul_mcs_lims.start()), ul_mcs_lims.stop());
 
   return mcs;

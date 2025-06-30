@@ -29,7 +29,6 @@ target_include_directories(gnb_base PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(gnb_base PRIVATE
         srsran_app_services
         srsran_f1u_connector
-        srsran_network
         srsran_ngap
         ngap_asn1
         srsran_e2
@@ -60,8 +59,8 @@ target_link_libraries(gnb PRIVATE gnb_base srsran_flexible_o_du_split_dynamic)
 notify_binary_target(gnb)
 
 # Add the targets for the rest of the splits.
-set(EXTENSIONS gnb_split_7_2 gnb_split_8)
-set(LIBRARIES srsran_flexible_o_du_split_7_2 srsran_flexible_o_du_split_8)
+set(EXTENSIONS gnb_split_6 gnb_split_7_2 gnb_split_8)
+set(LIBRARIES srsran_flexible_o_du_split_6 srsran_flexible_o_du_split_7_2 srsran_flexible_o_du_split_8)
 
 foreach (NAME LIB IN ZIP_LISTS EXTENSIONS LIBRARIES)
     add_executable(${NAME} gnb.cpp)

@@ -25,6 +25,7 @@
 #include "du/ue_context/f1ap_du_ue_manager.h"
 #include "f1ap_du_connection_handler.h"
 #include "f1ap_du_context.h"
+#include "f1ap_du_metrics_collector_impl.h"
 #include "srsran/asn1/f1ap/f1ap.h"
 #include "srsran/f1ap/du/f1ap_du.h"
 #include <memory>
@@ -49,8 +50,9 @@ public:
   bool connect_to_cu_cp() override;
 
   // F1AP interface management procedures functions as per TS38.473, Section 8.2.
-  async_task<f1_setup_response_message> handle_f1_setup_request(const f1_setup_request_message& request) override;
-  async_task<void>                      handle_f1_removal_request() override;
+  async_task<f1_setup_result>              handle_f1_setup_request(const f1_setup_request_message& request) override;
+  async_task<void>                         handle_f1_removal_request() override;
+  async_task<gnbdu_config_update_response> handle_du_config_update(const gnbdu_config_update_request& request) override;
 
   // F1AP RRC Message Transfer Procedure functions as per TS38.473, Section 8.4.
   void handle_rrc_delivery_report(const f1ap_rrc_delivery_report_msg& report) override {}
@@ -77,6 +79,8 @@ public:
   gnb_du_ue_f1ap_id_t get_gnb_du_ue_f1ap_id(const gnb_cu_ue_f1ap_id_t& gnb_cu_ue_f1ap_id) override;
   du_ue_index_t       get_ue_index(const gnb_du_ue_f1ap_id_t& gnb_du_ue_f1ap_id) override;
   du_ue_index_t       get_ue_index(const gnb_cu_ue_f1ap_id_t& gnb_cu_ue_f1ap_id) override;
+
+  f1ap_metrics_collector& get_metrics_collector() override { return metrics; }
 
 private:
   class tx_pdu_notifier_with_logging;
@@ -121,6 +125,15 @@ private:
   /// \brief Handle Paging as per TS38.473, Section 8.7.
   void handle_paging_request(const asn1::f1ap::paging_s& msg);
 
+  /// \brief Handle POSITIONING MEASUREMENT REQUEST as per TS 38.473, Section 8.13.3.
+  void handle_positioning_measurement_request(const asn1::f1ap::positioning_meas_request_s& msg);
+
+  /// \brief Handle TRP INFORMATION REQUEST as per TS 38.473, Section 8.13.8.
+  void handle_trp_information_request(const asn1::f1ap::trp_info_request_s& msg);
+
+  /// \brief Handle POSITIONING INFORMATION REQUEST as per TS 38.473, Section 8.13.9.
+  void handle_positioning_information_request(const asn1::f1ap::positioning_info_request_s& msg);
+
   /// \brief Log F1AP PDU.
   void log_pdu(bool is_rx, const f1ap_message& pdu);
 
@@ -138,6 +151,8 @@ private:
   std::unique_ptr<f1ap_event_manager> events;
 
   std::unique_ptr<f1ap_message_notifier> tx_pdu_notifier;
+
+  f1ap_metrics_collector_impl metrics;
 };
 
 } // namespace srs_du

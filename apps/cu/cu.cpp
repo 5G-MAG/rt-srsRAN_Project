@@ -21,12 +21,16 @@
  */
 
 #include "apps/cu/cu_appconfig_cli11_schema.h"
+#include "apps/helpers/f1u/f1u_appconfig.h"
+#include "apps/helpers/metrics/metrics_helpers.h"
+#include "apps/services/app_resource_usage/app_resource_usage.h"
 #include "apps/services/application_message_banners.h"
 #include "apps/services/application_tracer.h"
 #include "apps/services/buffer_pool/buffer_pool_manager.h"
+#include "apps/services/cmdline/cmdline_command_dispatcher.h"
 #include "apps/services/metrics/metrics_manager.h"
 #include "apps/services/metrics/metrics_notifier_proxy.h"
-#include "apps/services/stdin_command_dispatcher.h"
+#include "apps/services/remote_control/remote_server.h"
 #include "apps/services/worker_manager/worker_manager.h"
 #include "apps/services/worker_manager/worker_manager_config.h"
 #include "apps/units/o_cu_cp/o_cu_cp_application_unit.h"
@@ -38,11 +42,13 @@
 #include "cu_appconfig.h"
 #include "cu_appconfig_validator.h"
 #include "cu_appconfig_yaml_writer.h"
+#include "srsran/cu_cp/cu_cp_operation_controller.h"
 #include "srsran/e1ap/gateways/e1_local_connector_factory.h"
 #include "srsran/e2/e2ap_config_translators.h"
 #include "srsran/f1ap/gateways/f1c_network_server_factory.h"
-#include "srsran/f1u/cu_up/f1u_session_manager_factory.h"
+#include "srsran/f1u/cu_up/f1u_gateway.h"
 #include "srsran/f1u/cu_up/split_connector/f1u_split_connector_factory.h"
+#include "srsran/f1u/split_connector/f1u_five_qi_gw_maps.h"
 #include "srsran/gateways/udp_network_gateway.h"
 #include "srsran/gtpu/gtpu_config.h"
 #include "srsran/gtpu/gtpu_demux_factory.h"
@@ -102,12 +108,14 @@ static signal_dispatcher cleanup_signal_dispatcher;
 static void cleanup_signal_handler(int signal)
 {
   cleanup_signal_dispatcher.notify_signal(signal);
+  srslog::fetch_basic_logger("APP").error("Emergency flush of the logger");
   srslog::flush();
 }
 
 /// Function to call when an error is reported by the application.
 static void app_error_report_handler()
 {
+  srslog::fetch_basic_logger("APP").error("Emergency flush of the logger");
   srslog::flush();
 }
 
@@ -121,12 +129,13 @@ static void initialize_log(const std::string& filename)
   srslog::init();
 }
 
-static void register_app_logs(const logger_appconfig&   log_cfg,
+static void register_app_logs(const cu_appconfig&       cu_cfg,
                               o_cu_cp_application_unit& cu_cp_app_unit,
                               o_cu_up_application_unit& cu_up_app_unit)
 {
+  const logger_appconfig& log_cfg = cu_cfg.log_cfg;
   // Set log-level of app and all non-layer specific components to app level.
-  for (const auto& id : {"ALL", "SCTP-GW", "IO-EPOLL", "UDP-GW", "PCAP"}) {
+  for (const auto& id : {"ALL", "SCTP-GW", "IO-EPOLL", "UDP-GW", "PCAP", "ASN1"}) {
     auto& logger = srslog::fetch_basic_logger(id, false);
     logger.set_level(log_cfg.lib_level);
     logger.set_hex_dump_max_size(log_cfg.hex_max_size);
@@ -135,16 +144,22 @@ static void register_app_logs(const logger_appconfig&   log_cfg,
   auto& app_logger = srslog::fetch_basic_logger("CU", false);
   app_logger.set_level(srslog::basic_levels::info);
   app_services::application_message_banners::log_build_info(app_logger);
-  app_logger.set_level(log_cfg.config_level);
+  app_logger.set_level(log_cfg.all_level);
   app_logger.set_hex_dump_max_size(log_cfg.hex_max_size);
+
+  {
+    auto& logger = srslog::fetch_basic_logger("APP", false);
+    logger.set_level(log_cfg.all_level);
+    logger.set_hex_dump_max_size(log_cfg.hex_max_size);
+  }
 
   auto& config_logger = srslog::fetch_basic_logger("CONFIG", false);
   config_logger.set_level(log_cfg.config_level);
   config_logger.set_hex_dump_max_size(log_cfg.hex_max_size);
 
-  auto& metrics_logger = srslog::fetch_basic_logger("METRICS", false);
-  metrics_logger.set_level(log_cfg.metrics_level.level);
-  metrics_logger.set_hex_dump_max_size(log_cfg.metrics_level.hex_max_size);
+  // Metrics log channels.
+  const app_helpers::metrics_config& metrics_cfg = cu_cfg.metrics_cfg.rusage_config.metrics_consumers_cfg;
+  app_helpers::initialize_metrics_log_channels(metrics_cfg, log_cfg.hex_max_size);
 
   // Register units logs.
   cu_cp_app_unit.on_loggers_registration();
@@ -170,7 +185,7 @@ static void autoderive_cu_up_parameters_after_parsing(cu_appconfig&            c
   }
   // If no F1-U socket configuration is derived, we set a default configuration.
   if (cu_config.f1u_cfg.f1u_socket_cfg.empty()) {
-    srs_cu::cu_f1u_socket_appconfig sock_cfg;
+    f1u_socket_appconfig sock_cfg;
     cu_config.f1u_cfg.f1u_socket_cfg.push_back(sock_cfg);
   }
 }
@@ -219,16 +234,31 @@ int main(int argc, char** argv)
   // Parse arguments.
   CLI11_PARSE(app, argc, argv);
 
+  // Dry run mode, exit.
+  if (cu_cfg.enable_dryrun) {
+    return 0;
+  }
+
   // Check the modified configuration.
   if (!validate_cu_appconfig(cu_cfg) ||
       !o_cu_cp_app_unit->on_configuration_validation(os_sched_affinity_bitmask::available_cpus()) ||
-      !o_cu_up_app_unit->on_configuration_validation(os_sched_affinity_bitmask::available_cpus())) {
+      !o_cu_up_app_unit->on_configuration_validation(not cu_cfg.log_cfg.tracing_filename.empty())) {
     report_error("Invalid configuration detected.\n");
   }
 
   // Set up logging.
   initialize_log(cu_cfg.log_cfg.filename);
-  register_app_logs(cu_cfg.log_cfg, *o_cu_cp_app_unit, *o_cu_up_app_unit);
+  register_app_logs(cu_cfg, *o_cu_cp_app_unit, *o_cu_up_app_unit);
+
+  // Check the metrics and metrics consumers.
+  srslog::basic_logger& cu_logger = srslog::fetch_basic_logger("CU");
+  bool metrics_enabled = o_cu_cp_app_unit->are_metrics_enabled() || o_cu_up_app_unit->are_metrics_enabled() ||
+                         cu_cfg.metrics_cfg.rusage_config.enable_app_usage;
+
+  if (!metrics_enabled && cu_cfg.metrics_cfg.rusage_config.metrics_consumers_cfg.enabled()) {
+    cu_logger.warning("Logger or JSON metrics output enabled but no metrics will be reported as no layer was enabled");
+    fmt::println("Logger or JSON metrics output enabled but no metrics will be reported as no layer was enabled");
+  }
 
   // Log input configuration.
   srslog::basic_logger& config_logger = srslog::fetch_basic_logger("CONFIG");
@@ -242,7 +272,6 @@ int main(int argc, char** argv)
     config_logger.info("Input configuration (only non-default values): \n{}", app.config_to_str(false, false));
   }
 
-  srslog::basic_logger&            cu_logger = srslog::fetch_basic_logger("CU");
   app_services::application_tracer app_tracer;
   if (not cu_cfg.log_cfg.tracing_filename.empty()) {
     app_tracer.enable_tracer(cu_cfg.log_cfg.tracing_filename, cu_logger);
@@ -312,8 +341,8 @@ int main(int argc, char** argv)
   cu_f1u_gtpu_msg.gtpu_pcap                     = cu_up_dlt_pcaps.f1u.get();
   std::unique_ptr<gtpu_demux> cu_f1u_gtpu_demux = create_gtpu_demux(cu_f1u_gtpu_msg);
   // > Create UDP gateway(s).
-  std::vector<std::unique_ptr<gtpu_gateway>> cu_f1u_gws;
-  for (const srs_cu::cu_f1u_socket_appconfig& sock_cfg : cu_cfg.f1u_cfg.f1u_socket_cfg) {
+  gtpu_gateway_maps f1u_gw_maps;
+  for (const f1u_socket_appconfig& sock_cfg : cu_cfg.f1u_cfg.f1u_socket_cfg) {
     udp_network_gateway_config cu_f1u_gw_config = {};
     cu_f1u_gw_config.bind_address               = sock_cfg.bind_addr;
     cu_f1u_gw_config.ext_bind_addr              = sock_cfg.udp_config.ext_addr;
@@ -321,12 +350,17 @@ int main(int argc, char** argv)
     cu_f1u_gw_config.reuse_addr                 = false;
     cu_f1u_gw_config.pool_occupancy_threshold   = sock_cfg.udp_config.pool_threshold;
     cu_f1u_gw_config.rx_max_mmsg                = sock_cfg.udp_config.rx_max_msgs;
+    cu_f1u_gw_config.dscp                       = sock_cfg.udp_config.dscp;
     std::unique_ptr<gtpu_gateway> cu_f1u_gw     = create_udp_gtpu_gateway(
         cu_f1u_gw_config, *epoll_broker, workers.cu_up_exec_mapper->io_ul_executor(), *workers.non_rt_low_prio_exec);
-    cu_f1u_gws.push_back(std::move(cu_f1u_gw));
+    if (not sock_cfg.five_qi.has_value()) {
+      f1u_gw_maps.default_gws.push_back(std::move(cu_f1u_gw));
+    } else {
+      f1u_gw_maps.five_qi_gws[sock_cfg.five_qi.value()].push_back(std::move(cu_f1u_gw));
+    }
   }
   std::unique_ptr<f1u_cu_up_udp_gateway> cu_f1u_conn =
-      srs_cu_up::create_split_f1u_gw({cu_f1u_gws, *cu_f1u_gtpu_demux, *cu_up_dlt_pcaps.f1u, GTPU_PORT});
+      srs_cu_up::create_split_f1u_gw({f1u_gw_maps, *cu_f1u_gtpu_demux, *cu_up_dlt_pcaps.f1u, GTPU_PORT});
 
   // Create E1AP local connector
   std::unique_ptr<e1_local_connector> e1_gw =
@@ -352,6 +386,12 @@ int main(int argc, char** argv)
 
   app_services::metrics_notifier_proxy_impl metrics_notifier_forwarder;
 
+  // Create app-level resource usage service and metrics.
+  auto app_resource_usage_service = app_services::build_app_resource_usage_service(
+      metrics_notifier_forwarder, cu_cfg.metrics_cfg.rusage_config, cu_logger);
+
+  std::vector<app_services::metrics_config> metrics_configs = std::move(app_resource_usage_service.metrics);
+
   // Create O-CU-CP dependencies.
   o_cu_cp_unit_dependencies o_cucp_deps;
   o_cucp_deps.cu_cp_executor       = workers.cu_cp_exec;
@@ -367,17 +407,25 @@ int main(int argc, char** argv)
   auto                o_cucp_unit = o_cu_cp_app_unit->create_o_cu_cp(o_cucp_deps);
   srs_cu_cp::o_cu_cp& o_cucp_obj  = *o_cucp_unit.unit;
 
+  if (std::unique_ptr<app_services::cmdline_command> cmd = app_services::create_stdout_metrics_app_command(
+          {{o_cucp_unit.commands.cmdline.metrics_subcommands}}, false)) {
+    o_cucp_unit.commands.cmdline.commands.push_back(std::move(cmd));
+  }
+
   // Create console helper object for commands and metrics printing.
-  app_services::stdin_command_dispatcher command_parser(
-      *epoll_broker, *workers.non_rt_low_prio_exec, o_cucp_unit.commands);
-  std::vector<app_services::metrics_config> metrics_configs = std::move(o_cucp_unit.metrics);
+  app_services::cmdline_command_dispatcher command_parser(
+      *epoll_broker, *workers.non_rt_medium_prio_exec, o_cucp_unit.commands.cmdline.commands);
+
+  for (auto& metric : o_cucp_unit.metrics) {
+    metrics_configs.push_back(std::move(metric));
+  }
 
   // Connect E1AP to O-CU-CP.
   e1_gw->attach_cu_cp(o_cucp_obj.get_cu_cp().get_e1_handler());
 
   // start O-CU-CP
   cu_logger.info("Starting CU-CP...");
-  o_cucp_obj.get_cu_cp().start();
+  o_cucp_obj.get_operation_controller().start();
   cu_logger.info("CU-CP started successfully");
 
   // Check connection to AMF
@@ -405,24 +453,42 @@ int main(int argc, char** argv)
     metrics_configs.push_back(std::move(metric));
   }
   app_services::metrics_manager metrics_mngr(
-      srslog::fetch_basic_logger("CU"), *workers.metrics_hub_exec, metrics_configs);
+      srslog::fetch_basic_logger("CU"),
+      *workers.metrics_exec,
+      metrics_configs,
+      app_timers,
+      std::chrono::milliseconds(cu_cfg.metrics_cfg.metrics_service_cfg.app_usage_report_period));
+
   // Connect the forwarder to the metrics manager.
   metrics_notifier_forwarder.connect(metrics_mngr);
 
-  o_cuup_unit.unit->get_power_controller().start();
+  o_cuup_unit.unit->get_operation_controller().start();
+
+  metrics_mngr.start();
+
+  std::unique_ptr<app_services::remote_server> remote_control_server =
+      app_services::create_remote_server(cu_cfg.remote_control_config, {});
+
   {
-    app_services::application_message_banners app_banner(app_name);
+    app_services::application_message_banners app_banner(
+        app_name, cu_cfg.log_cfg.filename == "stdout" ? std::string_view() : cu_cfg.log_cfg.filename);
 
     while (is_app_running) {
       std::this_thread::sleep_for(std::chrono::milliseconds(250));
     }
   }
 
+  metrics_mngr.stop();
+
+  if (remote_control_server) {
+    remote_control_server->stop();
+  }
+
   // Stop O-CU-UP activity.
-  o_cuup_unit.unit->get_power_controller().stop();
+  o_cuup_unit.unit->get_operation_controller().stop();
 
   // Stop O-CU-CP activity.
-  o_cucp_obj.get_cu_cp().stop();
+  o_cucp_obj.get_operation_controller().stop();
 
   // Stop the timer source before stopping the workers.
   time_source.reset();

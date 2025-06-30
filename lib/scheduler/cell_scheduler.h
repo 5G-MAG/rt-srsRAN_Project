@@ -27,8 +27,7 @@
 #include "common_scheduling/paging_scheduler.h"
 #include "common_scheduling/prach_scheduler.h"
 #include "common_scheduling/ra_scheduler.h"
-#include "common_scheduling/si_message_scheduler.h"
-#include "common_scheduling/sib_scheduler.h"
+#include "common_scheduling/si_scheduler.h"
 #include "common_scheduling/ssb_scheduler.h"
 #include "config/cell_configuration.h"
 #include "logging/scheduler_event_logger.h"
@@ -38,8 +37,6 @@
 #include "pucch_scheduling/pucch_guardbands_scheduler.h"
 #include "uci_scheduling/uci_allocator_impl.h"
 #include "ue_scheduling/ue_scheduler.h"
-#include "srsran/scheduler/config/scheduler_config.h"
-#include "srsran/support/tracing/rusage_trace_recorder.h"
 
 namespace srsran {
 
@@ -58,7 +55,18 @@ public:
 
   void run_slot(slot_point sl_tx);
 
+  /// Activate cell.
+  void start();
+
+  /// Deactivate cell.
+  void stop();
+
   const sched_result& last_result() const { return res_grid[0].result; }
+
+  /// Check if the cell is running.
+  bool is_running() const { return active; }
+
+  void handle_si_update_request(const si_scheduling_update_request& msg);
 
   void handle_rach_indication(const rach_indication_message& msg) { ra_sch.handle_rach_indication(msg); }
 
@@ -72,6 +80,10 @@ public:
   ue_scheduler& ue_sched;
 
 private:
+  void handle_pending_cell_activity_commands();
+
+  void reset_resource_grid(slot_point sl_tx);
+
   /// Resource grid of this cell.
   cell_resource_allocator res_grid;
 
@@ -83,18 +95,21 @@ private:
 
   ssb_scheduler                 ssb_sch;
   pdcch_resource_allocator_impl pdcch_sch;
+  si_scheduler                  si_sch;
   csi_rs_scheduler              csi_sch;
   ra_scheduler                  ra_sch;
   prach_scheduler               prach_sch;
   pucch_allocator_impl          pucch_alloc;
   uci_allocator_impl            uci_alloc;
-  sib1_scheduler                sib1_sch;
-  si_message_scheduler          si_msg_sch;
   pucch_guardbands_scheduler    pucch_guard_sch;
   paging_scheduler              pg_sch;
 
-  // Tracer of resource usage (e.g. context switches)
-  rusage_trace_recorder<logger_event_tracer<true>> res_usage_tracer;
+  // Current state of the cell.
+  bool active = true;
+
+  // Pending command for cell start/stop.
+  enum class activation_command { no_cmd, start_cmd, stop_cmd };
+  std::atomic<activation_command> activ_cmd{activation_command::no_cmd};
 };
 
 } // namespace srsran

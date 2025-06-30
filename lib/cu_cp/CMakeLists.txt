@@ -26,6 +26,7 @@ add_subdirectory(ue_security_manager)
 set(SOURCES
       cu_cp_factory.cpp
       cu_cp_impl.cpp
+      cu_configurator_impl.cpp
       cu_cp_controller/cu_cp_controller.cpp
       cu_cp_controller/amf_connection_manager.cpp
       cu_cp_controller/du_connection_manager.cpp
@@ -39,8 +40,12 @@ set(SOURCES
       du_processor/du_processor_repository.cpp
       metrics_handler/metrics_handler_impl.cpp
       ngap_repository.cpp
+      routines/amf_connection_loss_routine.cpp
       routines/amf_connection_setup_routine.cpp
       routines/amf_connection_removal_routine.cpp
+      routines/amf_reconnection_routine.cpp
+      routines/cell_activation_routine.cpp
+      routines/cell_deactivation_routine.cpp
       routines/initial_context_setup_routine.cpp
       routines/pdu_session_routine_helpers.cpp
       routines/pdu_session_resource_setup_routine.cpp
@@ -53,10 +58,11 @@ set(SOURCES
       routines/ue_amf_context_release_request_routine.cpp
       routines/mobility/mobility_helpers.cpp
       routines/mobility/intra_cu_handover_routine.cpp
+      routines/mobility/intra_cu_handover_target_routine.cpp
       routines/mobility/inter_cu_handover_target_routine.cpp
       routines/mobility/handover_reconfiguration_routine.cpp
+      task_schedulers/ngap_task_scheduler.cpp
       task_schedulers/cu_up_task_scheduler.cpp
-      task_schedulers/du_task_scheduler.cpp
       ue_manager/cu_cp_ue_impl.cpp
       ue_manager/ue_manager_impl.cpp
       ue_manager/ue_task_scheduler_impl.cpp

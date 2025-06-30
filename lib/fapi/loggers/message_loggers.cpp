@@ -21,17 +21,30 @@
  */
 
 #include "message_loggers.h"
-#include "srsran/fapi/messages.h"
+#include "srsran/fapi/messages/crc_indication.h"
+#include "srsran/fapi/messages/dl_tti_request.h"
+#include "srsran/fapi/messages/error_indication.h"
+#include "srsran/fapi/messages/rach_indication.h"
+#include "srsran/fapi/messages/rx_data_indication.h"
+#include "srsran/fapi/messages/slot_indication.h"
+#include "srsran/fapi/messages/srs_indication.h"
+#include "srsran/fapi/messages/tx_data_request.h"
+#include "srsran/fapi/messages/uci_indication.h"
+#include "srsran/fapi/messages/ul_dci_request.h"
+#include "srsran/fapi/messages/ul_tti_request.h"
 #include "srsran/support/format/fmt_to_c_str.h"
 
 using namespace srsran;
 using namespace fapi;
 
-void srsran::fapi::log_error_indication(const error_indication_message& msg, srslog::basic_logger& logger)
+void srsran::fapi::log_error_indication(const error_indication_message& msg,
+                                        unsigned                        sector_id,
+                                        srslog::basic_logger&           logger)
 {
   fmt::memory_buffer buffer;
   fmt::format_to(std::back_inserter(buffer),
-                 "Error.indication slot={}.{} error_code={} msg_id={}",
+                 "Sector#{}: Error.indication slot={}.{} error_code={} msg_id={}",
+                 sector_id,
                  msg.sfn,
                  msg.slot,
                  fmt::underlying(msg.error_code),
@@ -56,10 +69,12 @@ static float to_crc_ul_rsrp(unsigned rsrp)
   return static_cast<float>(static_cast<int>(rsrp) - 1280) * 0.1F;
 }
 
-void srsran::fapi::log_crc_indication(const crc_indication_message& msg, srslog::basic_logger& logger)
+void srsran::fapi::log_crc_indication(const crc_indication_message& msg,
+                                      unsigned                      sector_id,
+                                      srslog::basic_logger&         logger)
 {
   fmt::memory_buffer buffer;
-  fmt::format_to(std::back_inserter(buffer), "CRC.indication slot={}.{}", msg.sfn, msg.slot);
+  fmt::format_to(std::back_inserter(buffer), "Sector#{}: CRC.indication slot={}.{}", sector_id, msg.sfn, msg.slot);
 
   for (const auto& pdu : msg.pdus) {
     fmt::format_to(std::back_inserter(buffer),
@@ -142,14 +157,30 @@ static void log_csi_rs_pdu(const dl_csi_rs_pdu& pdu, fmt::memory_buffer& buffer)
   }
 }
 
-void srsran::fapi::log_dl_tti_request(const dl_tti_request_message& msg, srslog::basic_logger& logger)
+static void log_prs_pdu(const dl_prs_pdu& pdu, fmt::memory_buffer& buffer)
+{
+  fmt::format_to(std::back_inserter(buffer),
+                 "\n\t- PRS comb_size={} comb_offset={} symb={}:{} RBs={}:{} n_id={}",
+                 static_cast<unsigned>(pdu.comb_size),
+                 pdu.comb_offset,
+                 pdu.first_symbol,
+                 static_cast<unsigned>(pdu.num_symbols),
+                 pdu.start_rb,
+                 pdu.num_rbs,
+                 pdu.nid_prs);
+}
+
+void srsran::fapi::log_dl_tti_request(const dl_tti_request_message& msg,
+                                      unsigned                      sector_id,
+                                      srslog::basic_logger&         logger)
 {
   fmt::memory_buffer buffer;
   fmt::format_to(std::back_inserter(buffer),
-                 "DL_TTI.request slot={}.{}, is_last_message_in_slot={}",
+                 "Sector#{}: DL_TTI.request slot={}.{}, is_last_message_in_slot={}",
+                 sector_id,
                  msg.sfn,
                  msg.slot,
-                 msg.is_last_message_in_slot);
+                 msg.is_last_dl_message_in_slot);
 
   for (const auto& pdu : msg.pdus) {
     switch (pdu.pdu_type) {
@@ -164,6 +195,9 @@ void srsran::fapi::log_dl_tti_request(const dl_tti_request_message& msg, srslog:
         break;
       case fapi::dl_pdu_type::SSB:
         log_ssb_pdu(pdu.ssb_pdu, buffer);
+        break;
+      case fapi::dl_pdu_type::PRS:
+        log_prs_pdu(pdu.prs_pdu, buffer);
         break;
     }
   }
@@ -189,10 +223,12 @@ static float to_rach_preamble_snr_dB(int fapi_snr)
   return (fapi_snr - 128) * 0.5F;
 }
 
-void srsran::fapi::log_rach_indication(const rach_indication_message& msg, srslog::basic_logger& logger)
+void srsran::fapi::log_rach_indication(const rach_indication_message& msg,
+                                       unsigned                       sector_id,
+                                       srslog::basic_logger&          logger)
 {
   fmt::memory_buffer buffer;
-  fmt::format_to(std::back_inserter(buffer), "RACH.indication slot={}.{}", msg.sfn, msg.slot);
+  fmt::format_to(std::back_inserter(buffer), "Sector#{}: RACH.indication slot={}.{}", sector_id, msg.sfn, msg.slot);
 
   for (const auto& pdu : msg.pdus) {
     fmt::format_to(std::back_inserter(buffer), "\n\t- PRACH symb_idx={} slot_idx={}", pdu.symbol_index, pdu.slot_index);
@@ -220,10 +256,12 @@ void srsran::fapi::log_rach_indication(const rach_indication_message& msg, srslo
   logger.debug("{}", to_c_str(buffer));
 }
 
-void srsran::fapi::log_rx_data_indication(const rx_data_indication_message& msg, srslog::basic_logger& logger)
+void srsran::fapi::log_rx_data_indication(const rx_data_indication_message& msg,
+                                          unsigned                          sector_id,
+                                          srslog::basic_logger&             logger)
 {
   fmt::memory_buffer buffer;
-  fmt::format_to(std::back_inserter(buffer), "Rx_Data.indication slot={}.{}", msg.sfn, msg.slot);
+  fmt::format_to(std::back_inserter(buffer), "Sector#{}: Rx_Data.indication slot={}.{}", sector_id, msg.sfn, msg.slot);
 
   for (const auto& pdu : msg.pdus) {
     fmt::format_to(
@@ -233,9 +271,11 @@ void srsran::fapi::log_rx_data_indication(const rx_data_indication_message& msg,
   logger.debug("{}", to_c_str(buffer));
 }
 
-void srsran::fapi::log_tx_data_request(const tx_data_request_message& msg, srslog::basic_logger& logger)
+void srsran::fapi::log_tx_data_request(const tx_data_request_message& msg,
+                                       unsigned                       sector_id,
+                                       srslog::basic_logger&          logger)
 {
-  logger.debug("Tx_Data.request slot={}.{} nof_pdus={}", msg.sfn, msg.slot, msg.pdus.size());
+  logger.debug("Sector#{}: Tx_Data.request slot={}.{} nof_pdus={}", sector_id, msg.sfn, msg.slot, msg.pdus.size());
 }
 
 /// Converts the given FAPI UCI SINR to dB as per SCF-222 v4.0 section 3.4.9.
@@ -346,10 +386,12 @@ static void log_uci_pusch_pdu(const uci_pusch_pdu& pdu, fmt::memory_buffer& buff
   }
 }
 
-void srsran::fapi::log_uci_indication(const uci_indication_message& msg, srslog::basic_logger& logger)
+void srsran::fapi::log_uci_indication(const uci_indication_message& msg,
+                                      unsigned                      sector_id,
+                                      srslog::basic_logger&         logger)
 {
   fmt::memory_buffer buffer;
-  fmt::format_to(std::back_inserter(buffer), "UCI.indication slot={}.{}", msg.sfn, msg.slot);
+  fmt::format_to(std::back_inserter(buffer), "Sector#{}: UCI.indication slot={}.{}", sector_id, msg.sfn, msg.slot);
 
   for (const auto& pdu : msg.pdus) {
     switch (pdu.pdu_type) {
@@ -362,6 +404,27 @@ void srsran::fapi::log_uci_indication(const uci_indication_message& msg, srslog:
       case fapi::uci_pdu_type::PUCCH_format_2_3_4:
         log_uci_pucch_f234_pdu(pdu.pucch_pdu_f234, buffer);
         break;
+    }
+  }
+
+  logger.debug("{}", to_c_str(buffer));
+}
+
+void srsran::fapi::log_srs_indication(const srs_indication_message& msg,
+                                      unsigned                      sector_id,
+                                      srslog::basic_logger&         logger)
+{
+  fmt::memory_buffer buffer;
+  fmt::format_to(std::back_inserter(buffer), "Sector#{}: SRS.indication slot={}.{}", sector_id, msg.sfn, msg.slot);
+
+  for (const auto& pdu : msg.pdus) {
+    fmt::format_to(std::back_inserter(buffer), "\n\t-  rnti={}", pdu.rnti);
+    if (pdu.timing_advance_offset_ns != std::numeric_limits<decltype(pdu.timing_advance_offset_ns)>::min()) {
+      fmt::format_to(std::back_inserter(buffer), " ta_ns={}", pdu.timing_advance_offset_ns);
+    }
+    fmt::format_to(std::back_inserter(buffer), " report_type={}", to_string(pdu.report_type));
+    if (pdu.report_type == srs_report_type::positioning && pdu.positioning.ul_relative_toa) {
+      fmt::format_to(std::back_inserter(buffer), " RTOA_s={}", pdu.positioning.ul_relative_toa.value().to_seconds());
     }
   }
 
@@ -440,7 +503,7 @@ static void log_srs_pdu(const ul_srs_pdu& pdu, fmt::memory_buffer& buffer)
   fmt::format_to(
       std::back_inserter(buffer),
       "\n\t- SRS rnti={} bwp={}:{} nof_ports={} symb={}:{} config_idx={} comb=(size={} offset={} cyclic_shift={}) "
-      "freq_shift={} type={}",
+      "freq_shift={} type={} normalized_channel_iq_matrix_req={} positioning_report_req={}",
       pdu.rnti,
       pdu.bwp_start,
       pdu.bwp_size,
@@ -452,13 +515,17 @@ static void log_srs_pdu(const ul_srs_pdu& pdu, fmt::memory_buffer& buffer)
       pdu.comb_offset,
       pdu.cyclic_shift,
       pdu.frequency_shift,
-      to_string(pdu.resource_type));
+      to_string(pdu.resource_type),
+      pdu.srs_params_v4.report_type.test(to_value(srs_report_type::normalized_channel_iq_matrix)),
+      pdu.srs_params_v4.report_type.test(to_value(srs_report_type::positioning)));
 }
 
-void srsran::fapi::log_ul_tti_request(const ul_tti_request_message& msg, srslog::basic_logger& logger)
+void srsran::fapi::log_ul_tti_request(const ul_tti_request_message& msg,
+                                      unsigned                      sector_id,
+                                      srslog::basic_logger&         logger)
 {
   fmt::memory_buffer buffer;
-  fmt::format_to(std::back_inserter(buffer), "UL_TTI.request slot={}.{}", msg.sfn, msg.slot);
+  fmt::format_to(std::back_inserter(buffer), "Sector#{}: UL_TTI.request slot={}.{}", sector_id, msg.sfn, msg.slot);
 
   for (const auto& pdu : msg.pdus) {
     switch (pdu.pdu_type) {
@@ -482,17 +549,22 @@ void srsran::fapi::log_ul_tti_request(const ul_tti_request_message& msg, srslog:
   logger.debug("{}", to_c_str(buffer));
 }
 
-void srsran::fapi::log_slot_indication(const slot_indication_message& msg, srslog::basic_logger& logger)
+void srsran::fapi::log_slot_indication(const slot_indication_message& msg,
+                                       unsigned                       sector_id,
+                                       srslog::basic_logger&          logger)
 {
   logger.set_context(msg.sfn, msg.slot);
-  logger.debug("Slot.indication");
+  logger.debug("Sector#{}: Slot.indication time_point={}", sector_id, msg.time_point.time_since_epoch().count());
 }
 
-void srsran::fapi::log_ul_dci_request(const ul_dci_request_message& msg, srslog::basic_logger& logger)
+void srsran::fapi::log_ul_dci_request(const ul_dci_request_message& msg,
+                                      unsigned                      sector_id,
+                                      srslog::basic_logger&         logger)
 {
   fmt::memory_buffer buffer;
   fmt::format_to(std::back_inserter(buffer),
-                 "UL_DCI.request slot={}.{}, is_last_message_in_slot={}",
+                 "Sector#{}: UL_DCI.request slot={}.{}, is_last_message_in_slot={}",
+                 sector_id,
                  msg.sfn,
                  msg.slot,
                  msg.is_last_message_in_slot);

@@ -71,6 +71,10 @@ void rrc_ue_impl::handle_ul_ccch_pdu(byte_buffer pdu)
 
 void rrc_ue_impl::handle_rrc_setup_request(const asn1::rrc_nr::rrc_setup_request_s& request_msg)
 {
+  // Notify metrics about attempted RRC connection establishment.
+  metrics_notifier.on_attempted_rrc_connection_establishment(
+      static_cast<establishment_cause_t>(request_msg.rrc_setup_request.establishment_cause.value));
+
   // Perform various checks to make sure we can serve the RRC Setup Request.
   if (not cu_cp_notifier.on_ue_setup_request(context.cell.cgi.plmn_id)) {
     logger.log_error("Sending Connection Reject. Cause: RRC connections not allowed");
@@ -102,11 +106,17 @@ void rrc_ue_impl::handle_rrc_setup_request(const asn1::rrc_nr::rrc_setup_request
       on_ue_release_required(ngap_cause_radio_network_t::unspecified);
       return;
   }
-  context.connection_cause.value = request_ies.establishment_cause.value;
+  context.connection_cause = static_cast<establishment_cause_t>(request_ies.establishment_cause.value);
 
   // Launch RRC setup procedure.
-  cu_cp_ue_notifier.schedule_async_task(launch_async<rrc_setup_procedure>(
-      context, du_to_cu_container, *this, get_rrc_ue_control_message_handler(), ngap_notifier, *event_mng, logger));
+  cu_cp_ue_notifier.schedule_async_task(launch_async<rrc_setup_procedure>(context,
+                                                                          du_to_cu_container,
+                                                                          *this,
+                                                                          get_rrc_ue_control_message_handler(),
+                                                                          metrics_notifier,
+                                                                          ngap_notifier,
+                                                                          *event_mng,
+                                                                          logger));
 }
 
 void rrc_ue_impl::handle_rrc_reest_request(const asn1::rrc_nr::rrc_reest_request_s& msg)
@@ -121,6 +131,7 @@ void rrc_ue_impl::handle_rrc_reest_request(const asn1::rrc_nr::rrc_reest_request
                                                   get_rrc_ue_control_message_handler(),
                                                   cu_cp_notifier,
                                                   cu_cp_ue_notifier,
+                                                  metrics_notifier,
                                                   ngap_notifier,
                                                   *event_mng,
                                                   logger));
@@ -452,12 +463,11 @@ rrc_ue_impl::get_rrc_ue_handover_reconfiguration_context(const rrc_reconfigurati
   return ho_reconf_ctxt;
 }
 
-async_task<bool> rrc_ue_impl::handle_handover_reconfiguration_complete_expected(uint8_t transaction_id)
+async_task<bool> rrc_ue_impl::handle_handover_reconfiguration_complete_expected(uint8_t transaction_id,
+                                                                                std::chrono::milliseconds timeout_ms)
 {
-  return launch_async([this,
-                       timeout_ms = context.cfg.rrc_procedure_timeout_ms,
-                       transaction_id,
-                       transaction = rrc_transaction{}](coro_context<async_task<bool>>& ctx) mutable {
+  return launch_async([this, timeout_ms, transaction_id, transaction = rrc_transaction{}](
+                          coro_context<async_task<bool>>& ctx) mutable {
     CORO_BEGIN(ctx);
 
     logger.log_debug("Awaiting RRC Reconfiguration Complete (timeout={}ms)", timeout_ms.count());
@@ -474,8 +484,11 @@ async_task<bool> rrc_ue_impl::handle_handover_reconfiguration_complete_expected(
       // The UE in the target cell is in connected state on RRCReconfigurationComplete reception.
       context.state = rrc_state::connected;
 
+      // Notify metrics.
+      metrics_notifier.on_new_rrc_connection();
+
     } else {
-      logger.log_debug("Did not receive RRC Reconfiguration Complete after HO. Cause: {}. Requesting UE release",
+      logger.log_debug("Did not receive RRC Reconfiguration Complete after HO. Cause: {}. Requesting target UE release",
                        transaction.failure_cause() == protocol_transaction_failure::timeout ? "timeout" : "canceled");
       on_ue_release_required(ngap_cause_radio_network_t::ho_fail_in_target_5_gc_ngran_node_or_target_sys);
     }
@@ -524,7 +537,8 @@ async_task<bool> rrc_ue_impl::handle_rrc_ue_capability_transfer_request(const rr
   return launch_async<rrc_ue_capability_transfer_procedure>(context, *this, *event_mng, logger);
 }
 
-rrc_ue_release_context rrc_ue_impl::get_rrc_ue_release_context(bool requires_rrc_message)
+rrc_ue_release_context rrc_ue_impl::get_rrc_ue_release_context(bool                                requires_rrc_message,
+                                                               std::optional<std::chrono::seconds> release_wait_time)
 {
   // Prepare location info to return.
   rrc_ue_release_context release_context;
@@ -557,8 +571,14 @@ rrc_ue_release_context rrc_ue_impl::get_rrc_ue_release_context(bool requires_rrc
         return release_context;
       }
 
-      dl_dcch_msg_s dl_dcch_msg;
-      dl_dcch_msg.msg.set_c1().set_rrc_release().crit_exts.set_rrc_release();
+      dl_dcch_msg_s      dl_dcch_msg;
+      rrc_release_ies_s& release = dl_dcch_msg.msg.set_c1().set_rrc_release().crit_exts.set_rrc_release();
+      if (release_wait_time.has_value()) {
+        release.non_crit_ext_present = true;
+        // If wait time is provided, set it.
+        release.non_crit_ext.wait_time_present = true;
+        release.non_crit_ext.wait_time         = release_wait_time.value().count();
+      }
 
       // Pack DL CCCH msg.
       pdcp_tx_result pdcp_packing_result =

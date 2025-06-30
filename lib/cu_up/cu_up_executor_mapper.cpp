@@ -22,17 +22,54 @@
 
 #include "srsran/cu_up/cu_up_executor_mapper.h"
 #include "srsran/adt/mpmc_queue.h"
-#include "srsran/support/async/async_no_op_task.h"
-#include "srsran/support/async/execute_on.h"
 #include "srsran/support/async/execute_on_blocking.h"
+#include "srsran/support/executors/executor_decoration_factory.h"
 #include "srsran/support/executors/inline_task_executor.h"
 #include "srsran/support/executors/strand_executor.h"
+#include "srsran/support/tracing/event_tracing.h"
 #include <variant>
 
 using namespace srsran;
 using namespace srs_cu_up;
 
 namespace {
+
+/// Helper class to decorate executors with extra functionalities.
+struct executor_decorator {
+  template <typename Exec>
+  task_executor& decorate(Exec&&                                          exec,
+                          bool                                            is_sync,
+                          bool                                            tracing_enabled,
+                          std::optional<unsigned>                         throttle_thres,
+                          const std::optional<std::chrono::milliseconds>& metrics_period,
+                          const std::string&                              exec_name = "")
+  {
+    if (not is_sync and not tracing_enabled and not metrics_period and not throttle_thres) {
+      // No decoration needed, return the original executor.
+      return exec;
+    }
+
+    execution_decoration_config cfg;
+    if (is_sync) {
+      cfg.sync = execution_decoration_config::sync_option{};
+    }
+    if (throttle_thres.has_value()) {
+      cfg.throttle = execution_decoration_config::throttle_option{*throttle_thres};
+    }
+    if (tracing_enabled) {
+      cfg.trace = execution_decoration_config::trace_option{exec_name};
+    }
+    if (metrics_period) {
+      cfg.metrics = execution_decoration_config::metrics_option{exec_name, *metrics_period};
+    }
+    decorators.push_back(decorate_executor(std::forward<Exec>(exec), cfg));
+
+    return *decorators.back();
+  }
+
+private:
+  std::vector<std::unique_ptr<task_executor>> decorators;
+};
 
 /// Task executor adaptor that allows cancelling pending tasks, from within the executor's context.
 class cancellable_task_executor final : public task_executor
@@ -45,7 +82,9 @@ public:
 
   ~cancellable_task_executor() override
   {
-    srsran_assert(cancelled, "cancellable_task_executor destroyed before tasks being cancelled");
+    if (!cancelled) {
+      logger.error("cancellable_task_executor destroyed before tasks being cancelled");
+    }
   }
 
   [[nodiscard]] bool execute(unique_task task) override
@@ -78,6 +117,9 @@ private:
   task_executor*           exec;
   const std::atomic<bool>& cancelled;
   timer_manager&           timers;
+
+  // logger
+  srslog::basic_logger& logger = srslog::fetch_basic_logger("CU-UP", false);
 };
 
 /// Implementation of the UE executor mapper.
@@ -99,8 +141,9 @@ public:
 
   ~ue_executor_mapper_impl() override
   {
-    srsran_assert(cancelled_flag.load(std::memory_order_relaxed),
-                  "cancellable_task_executor destroyed before tasks being cancelled");
+    if (!cancelled_flag.load(std::memory_order_relaxed)) {
+      logger.error("ue_executor_mapper_impl destroyed before tasks being cancelled");
+    }
   }
 
   async_task<void> stop() override
@@ -135,15 +178,20 @@ private:
   cancellable_task_executor ul_exec;
   cancellable_task_executor dl_exec;
   task_executor&            crypto_exec;
+
+  // logger
+  srslog::basic_logger& logger = srslog::fetch_basic_logger("CU-UP", false);
 };
 
 struct base_cu_up_executor_pool_config {
-  task_executor&       main_exec;
-  span<task_executor*> dl_executors;
-  span<task_executor*> ul_executors;
-  span<task_executor*> ctrl_executors;
-  task_executor&       crypto_exec;
-  timer_manager&       timers;
+  task_executor&                           main_exec;
+  span<task_executor*>                     dl_executors;
+  span<task_executor*>                     ul_executors;
+  span<task_executor*>                     ctrl_executors;
+  task_executor&                           crypto_exec;
+  timer_manager&                           timers;
+  bool                                     tracing_enabled;
+  std::optional<std::chrono::milliseconds> metrics_period;
 };
 
 class round_robin_cu_up_exec_pool
@@ -166,8 +214,13 @@ public:
     }
 
     for (unsigned i = 0; i != config.ctrl_executors.size(); ++i) {
-      execs.emplace_back(
-          *config.ctrl_executors[i], *config.ul_executors[i], *config.dl_executors[i], config.crypto_exec);
+      execs.emplace_back(i,
+                         *config.ctrl_executors[i],
+                         *config.ul_executors[i],
+                         *config.dl_executors[i],
+                         config.crypto_exec,
+                         config.tracing_enabled,
+                         config.metrics_period);
     }
   }
 
@@ -180,16 +233,31 @@ public:
 
 private:
   struct ue_executor_context {
+    // Tracing helpers.
+    executor_decorator decorator;
+    std::string        ctrl_exec_name;
+    std::string        dl_exec_name;
+    std::string        ul_exec_name;
+
     task_executor& ctrl_exec;
     task_executor& ul_exec;
     task_executor& dl_exec;
     task_executor& crypto_exec;
 
-    ue_executor_context(task_executor& ctrl_exec_,
-                        task_executor& ul_exec_,
-                        task_executor& dl_exec_,
-                        task_executor& crypto_exec_) :
-      ctrl_exec(ctrl_exec_), ul_exec(ul_exec_), dl_exec(dl_exec_), crypto_exec(crypto_exec_)
+    ue_executor_context(unsigned                                 index_,
+                        task_executor&                           ctrl_exec_,
+                        task_executor&                           ul_exec_,
+                        task_executor&                           dl_exec_,
+                        task_executor&                           crypto_exec_,
+                        bool                                     tracing_enabled,
+                        std::optional<std::chrono::milliseconds> metrics_period) :
+      ctrl_exec_name("cu_up_ue_ctrl_exec_" + std::to_string(index_)),
+      dl_exec_name("cu_up_ue_dl_exec_" + std::to_string(index_)),
+      ul_exec_name("cu_up_ue_ul_exec_" + std::to_string(index_)),
+      ctrl_exec(decorator.decorate(ctrl_exec_, false, tracing_enabled, std::nullopt, metrics_period, ctrl_exec_name)),
+      ul_exec(decorator.decorate(ul_exec_, false, tracing_enabled, std::nullopt, metrics_period, ul_exec_name)),
+      dl_exec(decorator.decorate(dl_exec_, false, tracing_enabled, std::nullopt, metrics_period, dl_exec_name)),
+      crypto_exec(crypto_exec_)
     {
     }
   };
@@ -219,15 +287,31 @@ class strand_based_cu_up_executor_mapper final : public cu_up_executor_mapper
 {
 public:
   strand_based_cu_up_executor_mapper(const strand_based_executor_config& config) :
-    cu_up_strand(&config.worker_pool_executor, config.default_task_queue_size), cu_up_exec_pool(create_strands(config))
+    cu_up_strand(&config.medium_prio_executor,
+                 std::array<concurrent_queue_params, 2>{
+                     {{concurrent_queue_policy::lockfree_mpmc, config.default_task_queue_size},
+                      {concurrent_queue_policy::lockfree_mpmc, config.default_task_queue_size}}},
+                 config.strand_batch_size),
+    ctrl_exec(decorator.decorate(cu_up_strand.get_executors()[0],
+                                 false,
+                                 config.tracing_enabled,
+                                 std::nullopt,
+                                 config.metrics_period,
+                                 "cu_up_strand_ctrl_exec")),
+    n3_exec(
+        decorator
+            .decorate(config.low_prio_executor, false, config.tracing_enabled, std::nullopt, std::nullopt, "n3_exec")),
+    cu_up_exec_pool(create_strands(config))
   {
   }
 
-  task_executor& ctrl_executor() override { return cu_up_strand; }
+  task_executor& ctrl_executor() override { return ctrl_exec; }
 
   task_executor& io_ul_executor() override { return *io_ul_exec_ptr; }
 
-  task_executor& e2_executor() override { return cu_up_strand; }
+  task_executor& e2_executor() override { return ctrl_exec; }
+
+  task_executor& n3_executor() override { return n3_exec; }
 
   std::unique_ptr<ue_executor_mapper> create_ue_executor_mapper() override
   {
@@ -235,18 +319,20 @@ public:
   }
 
 private:
-  using cu_up_strand_type        = task_strand<task_executor*, concurrent_queue_policy::lockfree_mpmc>;
+  using cu_up_strand_type        = priority_task_strand<task_executor*>;
   using io_dedicated_strand_type = task_strand<task_executor*, concurrent_queue_policy::lockfree_mpmc>;
-  using ue_strand_type           = priority_task_strand<cu_up_strand_type*>;
+  using ue_strand_type = priority_task_strand<priority_task_strand_executor<priority_task_strand<task_executor*>&>>;
 
   base_cu_up_executor_pool_config create_strands(const strand_based_executor_config& config)
   {
-    concurrent_queue_params qparams{srsran::concurrent_queue_policy::lockfree_mpmc, config.default_task_queue_size};
-    concurrent_queue_params data_qparams{srsran::concurrent_queue_policy::lockfree_mpmc, config.gtpu_task_queue_size};
+    concurrent_queue_params dl_ue_qparams{concurrent_queue_policy::lockfree_mpmc, config.dl_ue_task_queue_size};
+    concurrent_queue_params ul_ue_qparams{concurrent_queue_policy::lockfree_mpmc, config.ul_ue_task_queue_size};
+    concurrent_queue_params ctrl_ue_qparams{concurrent_queue_policy::lockfree_mpmc, config.ctrl_ue_task_queue_size};
 
     // Create IO executor that can be either inlined with CU-UP strand or its own strand.
     if (config.dedicated_io_strand) {
-      io_ul_exec.emplace<io_dedicated_strand_type>(&config.worker_pool_executor, config.gtpu_task_queue_size);
+      io_ul_exec.emplace<io_dedicated_strand_type>(
+          &config.medium_prio_executor, config.ul_ue_task_queue_size, config.strand_batch_size);
       io_ul_exec_ptr = &std::get<io_dedicated_strand_type>(io_ul_exec);
     } else {
       io_ul_exec.emplace<inline_task_executor>();
@@ -258,9 +344,10 @@ private:
     ue_ctrl_execs.resize(config.max_nof_ue_strands);
     ue_ul_execs.resize(config.max_nof_ue_strands);
     ue_dl_execs.resize(config.max_nof_ue_strands);
-    std::array<concurrent_queue_params, 3> ue_queue_params = {qparams, data_qparams, data_qparams};
+    std::array<concurrent_queue_params, 3> ue_queue_params = {ctrl_ue_qparams, ul_ue_qparams, dl_ue_qparams};
     for (unsigned i = 0; i != config.max_nof_ue_strands; ++i) {
-      ue_strands[i]                             = std::make_unique<ue_strand_type>(&cu_up_strand, ue_queue_params);
+      ue_strands[i] =
+          std::make_unique<ue_strand_type>(cu_up_strand.get_executors()[1], ue_queue_params, config.strand_batch_size);
       span<ue_strand_type::executor_type> execs = ue_strands[i]->get_executors();
       srsran_assert(execs.size() == 3, "Three executors should have been created for the three priorities");
       ue_ctrl_execs[i] = &execs[0];
@@ -268,16 +355,27 @@ private:
       ue_dl_execs[i]   = &execs[2];
     }
 
-    return base_cu_up_executor_pool_config{
-        cu_up_strand, ue_dl_execs, ue_ul_execs, ue_ctrl_execs, config.worker_pool_executor, *config.timers};
+    return base_cu_up_executor_pool_config{ctrl_exec,
+                                           ue_dl_execs,
+                                           ue_ul_execs,
+                                           ue_ctrl_execs,
+                                           config.medium_prio_executor,
+                                           *config.timers,
+                                           config.tracing_enabled,
+                                           config.metrics_period};
   }
+  // Tracing helpers.
+  executor_decorator decorator = {};
 
   // Base strand that sequentializes accesses to the worker pool executor.
   cu_up_strand_type cu_up_strand;
+  task_executor&    ctrl_exec; // Executor associated with CU-UP control tasks of the CU-UP strand.
 
   // IO executor with two modes
   std::variant<inline_task_executor, io_dedicated_strand_type> io_ul_exec;
   task_executor*                                               io_ul_exec_ptr;
+
+  task_executor& n3_exec; // Executor reception of N3 packets from io_broker.
 
   // UE strands and respective executors.
   std::vector<std::unique_ptr<ue_strand_type>> ue_strands;

@@ -21,7 +21,7 @@
  */
 
 #include "o_cu_up_e2_config_yaml_writer.h"
-#include "apps/services/e2/e2_config_yaml_writer.h"
+#include "apps/helpers/e2/e2_config_yaml_writer.h"
 #include "o_cu_up_e2_config.h"
 
 using namespace srsran;
@@ -29,7 +29,7 @@ using namespace srsran;
 static void fill_o_cu_up_e2_pcap_section(YAML::Node node, const o_cu_up_e2_pcap_config& config)
 {
   node["e2ap_cu_up_filename"] = config.filename;
-  node["e2ap_enable"]         = config.enabled;
+  node["e2ap_cu_up_enable"]   = config.enabled;
 }
 
 void srsran::fill_o_cu_up_e2_config_in_yaml_schema(YAML::Node& node, const o_cu_up_e2_config& config)

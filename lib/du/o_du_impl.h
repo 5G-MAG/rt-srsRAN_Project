@@ -23,28 +23,27 @@
 #pragma once
 
 #include "srsran/du/du_high/o_du_high.h"
+#include "srsran/du/du_high/o_du_high_metrics_notifier.h"
 #include "srsran/du/du_low/o_du_low.h"
-#include "srsran/du/du_power_controller.h"
+#include "srsran/du/du_operation_controller.h"
 #include "srsran/du/o_du.h"
+#include "srsran/du/o_du_config.h"
 #include <memory>
 
 namespace srsran {
 namespace srs_du {
 
-/// O-RAN DU implementation dependencies.
-struct o_du_impl_dependencies {
-  std::unique_ptr<o_du_low>  du_lo;
-  std::unique_ptr<o_du_high> du_hi;
-};
-
 /// O-RAN DU implementation.
-class o_du_impl final : public o_du, public du_power_controller
+class o_du_impl final : public o_du, public du_operation_controller, public o_du_high_metrics_notifier
 {
 public:
-  explicit o_du_impl(o_du_impl_dependencies&& du_cfg);
+  explicit o_du_impl(o_du_dependencies&& dependencies);
 
   // See interface for documentation.
-  du_power_controller& get_power_controller() override { return *this; }
+  du_operation_controller& get_operation_controller() override { return *this; }
+
+  // See interface for documentation.
+  void on_new_metrics(const o_du_high_metrics& metrics) override;
 
   // See interface for documentation.
   void start() override;
@@ -59,8 +58,9 @@ public:
   o_du_low& get_o_du_low() override;
 
 private:
-  std::unique_ptr<o_du_high> du_hi;
-  std::unique_ptr<o_du_low>  du_lo;
+  o_du_metrics_notifier&     metrics_notifier;
+  std::unique_ptr<o_du_high> odu_hi;
+  std::unique_ptr<o_du_low>  odu_lo;
 };
 
 } // namespace srs_du

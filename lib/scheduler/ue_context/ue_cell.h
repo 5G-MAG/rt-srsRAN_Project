@@ -25,25 +25,19 @@
 #include "../cell/cell_harq_manager.h"
 #include "../config/ue_configuration.h"
 #include "../support/bwp_helpers.h"
-#include "../support/sch_pdu_builder.h"
-#include "../support/ul_power_controller.h"
+#include "../support/pucch_power_controller.h"
+#include "../support/pusch_power_controller.h"
 #include "ue_channel_state_manager.h"
+#include "ue_drx_controller.h"
 #include "ue_link_adaptation_controller.h"
-#include "srsran/ran/uci/uci_constants.h"
 #include "srsran/scheduler/config/scheduler_expert_config.h"
 #include "srsran/scheduler/scheduler_feedback_handler.h"
 
 namespace srsran {
 
 struct ul_crc_pdu_indication;
-class ue_drx_controller;
-
-struct grant_prbs_mcs {
-  /// MCS to use for the UE's PxSCH.
-  sch_mcs_index mcs;
-  /// Number of PRBs to be allocated for the UE's PxSCH.
-  unsigned n_prbs;
-};
+struct pdsch_config_params;
+struct pusch_config_params;
 
 /// \brief Context respective to a UE serving cell.
 class ue_cell
@@ -62,7 +56,8 @@ public:
 
   rnti_t rnti() const { return crnti_; }
 
-  bwp_id_t active_bwp_id() const { return to_bwp_id(0); }
+  bwp_id_t          active_bwp_id() const { return to_bwp_id(0); }
+  const bwp_config& active_bwp() const { return cfg().bwp(active_bwp_id()); }
 
   /// \brief Determines whether the UE cell is currently active.
   bool is_active() const { return active; }
@@ -79,9 +74,37 @@ public:
 
   void set_fallback_state(bool in_fallback);
 
-  bool is_pdcch_enabled(slot_point dl_slot) const;
-  bool is_pdsch_enabled(slot_point dl_slot) const;
-  bool is_ul_enabled(slot_point ul_slot) const;
+  bool is_pdcch_enabled(slot_point dl_slot) const
+  {
+    return active and cfg().is_dl_enabled(dl_slot) and drx_ctrl.is_pdcch_enabled();
+  }
+  bool is_pdsch_enabled(slot_point pdcch_slot, slot_point pdsch_slot) const
+  {
+    // Verify that the DL is activated for the chosen slots (e.g. they are not UL slots in TDD or there is no measGap).
+    return is_pdcch_enabled(pdcch_slot) and (pdcch_slot == pdsch_slot or cfg().is_dl_enabled(pdsch_slot)) and
+           // Verify only one PDSCH exists for the same RNTI in the same slot, and that the PDSCHs are in the same order
+           // as PDCCHs. [TS 38.214, 5.1] "For any HARQ process ID(s) in a given scheduled cell, the UE is not expected
+           // to receive a PDSCH that overlaps in time with another PDSCH". [TS 38.214, 5.1] "For any two HARQ process
+           // IDs in a given scheduled cell, if the UE is scheduled to start receiving a first PDSCH starting in symbol
+           // j by a PDCCH ending in symbol i, the UE is not expected to be scheduled to receive a PDSCH starting
+           // earlier than the end of the first PDSCH with a PDCCH that ends later than symbol i.".
+           (not harqs.last_pdsch_slot().valid() or harqs.last_pdsch_slot() < pdsch_slot) and
+           // Verify that CQI > 0, meaning that the UE is not out-of-reach.
+           channel_state_manager().get_wideband_cqi() != csi_report_wideband_cqi_type{0};
+  }
+  bool is_pusch_enabled(slot_point pdcch_slot, slot_point pusch_slot) const
+  {
+    // Verify that the DL is activated for the chosen PDCCH slot and UL is activated for the chosen PUSCH slot
+    // (e.g the chosen slots fall in DL and UL slots of a TDD pattern respective, and there is no measGap).
+    return is_pdcch_enabled(pdcch_slot) and cfg().is_ul_enabled(pusch_slot) and
+           // Verify that the order of PUSCHs for the same UE matches the order of PDCCHs and that there is at most one
+           // PUSCH per slot. [TS 38.214, 6.1] "For any HARQ process ID(s) in a given scheduled cell, the UE is not
+           // expected to transmit a PUSCH that overlaps in time with another PUSCH". [TS 38.214, 6.1] "For any two HARQ
+           // process IDs in a given scheduled cell, if the UE is scheduled to start a first PUSCH transmission starting
+           // in symbol j by a PDCCH ending in symbol i, the UE is not expected to be scheduled to transmit a PUSCH
+           // starting earlier than the end of the first PUSCH by a PDCCH that ends later than symbol i".
+           (not harqs.last_pusch_slot().valid() or harqs.last_pusch_slot() < pusch_slot);
+  }
 
   struct dl_ack_info_result {
     dl_harq_process_handle::status_update update;
@@ -91,16 +114,6 @@ public:
                                                        mac_harq_ack_report_status ack_value,
                                                        unsigned                   harq_bit_idx,
                                                        std::optional<float>       pucch_snr);
-
-  /// \brief Estimate the number of required DL PRBs to allocate the given number of bytes.
-  grant_prbs_mcs required_dl_prbs(const pdsch_time_domain_resource_allocation& pdsch_td_cfg,
-                                  unsigned                                     pending_bytes,
-                                  dci_dl_rnti_config_type                      dci_type) const;
-
-  /// \brief Estimate the number of required UL PRBs to allocate the given number of bytes.
-  grant_prbs_mcs required_ul_prbs(const pusch_time_domain_resource_allocation& pusch_td_cfg,
-                                  unsigned                                     pending_bytes,
-                                  dci_ul_rnti_config_type                      dci_type) const;
 
   uint8_t get_pdsch_rv(unsigned nof_retxs) const
   {
@@ -120,7 +133,10 @@ public:
   /// Update UE with the latest CSI report for a given cell.
   void handle_csi_report(const csi_report_data& csi_report);
 
-  sch_mcs_index get_ul_mcs(pusch_mcs_table mcs_table) const { return ue_mcs_calculator.calculate_ul_mcs(mcs_table); }
+  sch_mcs_index get_ul_mcs(pusch_mcs_table mcs_table, bool use_transform_precoder) const
+  {
+    return ue_mcs_calculator.calculate_ul_mcs(mcs_table, use_transform_precoder);
+  }
 
   /// \brief Get recommended aggregation level for PDCCH at a given CQI.
   aggregation_level get_aggregation_level(float cqi, const search_space_info& ss_info, bool is_dl) const;
@@ -141,8 +157,11 @@ public:
 
   const ue_link_adaptation_controller& link_adaptation_controller() const { return ue_mcs_calculator; }
 
-  ul_power_controller&       get_ul_power_controller() { return ul_pwr_controller; }
-  const ul_power_controller& get_ul_power_controller() const { return ul_pwr_controller; }
+  pusch_power_controller&       get_pusch_power_controller() { return pusch_pwr_controller; }
+  const pusch_power_controller& get_pusch_power_controller() const { return pusch_pwr_controller; }
+
+  pucch_power_controller&       get_pucch_power_controller() { return pucch_pwr_controller; }
+  const pucch_power_controller& get_pucch_power_controller() const { return pucch_pwr_controller; }
 
   /// \brief Returns an estimated DL rate in bytes per slot based on the given input parameters.
   double get_estimated_dl_rate(const pdsch_config_params& pdsch_cfg, sch_mcs_index mcs, unsigned nof_prbs) const;
@@ -171,7 +190,8 @@ private:
 
   ue_link_adaptation_controller ue_mcs_calculator;
 
-  ul_power_controller ul_pwr_controller;
+  pusch_power_controller pusch_pwr_controller;
+  pucch_power_controller pucch_pwr_controller;
 };
 
 } // namespace srsran

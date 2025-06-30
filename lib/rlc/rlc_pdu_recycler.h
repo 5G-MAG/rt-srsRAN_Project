@@ -53,7 +53,7 @@ public:
   void clear_by_executor(task_executor& executor)
   {
     // Redirect recycling of unused byte_buffers to ue_executor
-    auto handle_func = [this]() mutable { clear(); };
+    auto handle_func = TRACE_TASK([this]() mutable { clear(); });
     if (not executor.execute(std::move(handle_func))) {
       logger.log_error("Failed to delegate deletion of PDUs to given executor.");
     }
@@ -74,7 +74,8 @@ private:
     trace_point clear_tp   = up_tracer.now();
     uint32_t    queue_size = recycle_bin->size();
     for (uint32_t i = 0; i < queue_size; ++i) {
-      recycle_bin->try_pop();
+      auto discard = recycle_bin->try_pop();
+      (void)discard;
     }
 
     up_tracer << trace_event{"rlc_clear_pdus", clear_tp};

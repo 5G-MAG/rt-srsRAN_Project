@@ -173,5 +173,23 @@ public:
   }
 };
 
+class dummy_rrc_ue_rrc_du_adapter : public rrc_ue_event_notifier
+{
+public:
+  void on_new_rrc_connection() override {}
+
+  void on_successful_rrc_release() override {}
+
+  void on_attempted_rrc_connection_establishment(establishment_cause_t cause) override {}
+
+  void on_successful_rrc_connection_establishment(establishment_cause_t cause) override {}
+
+  void on_attempted_rrc_connection_reestablishment() override {}
+
+  void on_successful_rrc_connection_reestablishment() override {}
+
+  void on_successful_rrc_connection_reestablishment_fallback() override {}
+};
+
 } // namespace srs_cu_cp
 } // namespace srsran

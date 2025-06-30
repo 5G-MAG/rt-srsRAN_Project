@@ -28,9 +28,13 @@ namespace fapi_adaptor {
 class phy_fapi_adaptor;
 }
 
+class du_operation_controller;
+class upper_phy_metrics_notifiers;
+
 namespace srs_du {
 
 class du_low;
+class o_du_low_metrics_collector;
 
 /// O-RAN DU low interface. O-DU low groups the DU low with the PHY-FAPI adaptor.
 class o_du_low
@@ -39,11 +43,17 @@ public:
   /// Default destructor.
   virtual ~o_du_low() = default;
 
+  /// Returns the operation controller of this DU low.
+  virtual du_operation_controller& get_operation_controller() = 0;
+
   /// Returns the upper PHY of this O-DU low.
   virtual du_low& get_du_low() = 0;
 
   /// Returns the PHY&ndash;FAPI adaptor of this O-DU low.
   virtual fapi_adaptor::phy_fapi_adaptor& get_phy_fapi_adaptor() = 0;
+
+  /// Returns the metrics collector of this O-DU low.
+  virtual o_du_low_metrics_collector* get_metrics_collector() = 0;
 };
 
 } // namespace srs_du

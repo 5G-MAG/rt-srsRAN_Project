@@ -56,7 +56,7 @@ protected:
 
   ue_ran_resource_configurator* create_ue(du_ue_index_t ue_index)
   {
-    auto result = res_mng->create_ue_resource_configurator(ue_index, to_du_cell_index(0));
+    auto result = res_mng->create_ue_resource_configurator(ue_index, to_du_cell_index(0), true);
     if (not result.has_value()) {
       return nullptr;
     }
@@ -343,7 +343,7 @@ static du_cell_config make_custom_du_cell_config(const pucch_cfg_builder_params&
   pucch_params.nof_csi_resources                    = pucch_params_.nof_res_csi;
   pucch_params.nof_cell_harq_pucch_res_sets         = pucch_params_.nof_harq_cfg;
   auto& f1_params                                   = std::get<pucch_f1_params>(pucch_params.f0_or_f1_params);
-  f1_params.nof_cyc_shifts                          = nof_cyclic_shifts::six;
+  f1_params.nof_cyc_shifts                          = pucch_nof_cyclic_shifts::six;
   f1_params.occ_supported                           = true;
 
   return du_cfg;
@@ -354,7 +354,7 @@ static const auto* get_pucch_resource_with_id(const pucch_config& pucch_cfg, uns
   return std::find_if(pucch_cfg.pucch_res_list.begin(),
                       pucch_cfg.pucch_res_list.end(),
                       [res_id](const pucch_resource& res) { return res.res_id.cell_res_id == res_id; });
-};
+}
 
 class du_ran_res_mng_multiple_cfg_tester : public du_ran_resource_manager_tester_base,
                                            public ::testing::TestWithParam<pucch_cfg_builder_params>
@@ -605,7 +605,7 @@ make_custom_du_cell_config_for_pucch_cnt(const pucch_cnt_builder_params&        
   pucch_params.nof_sr_resources  = pucch_params_.nof_res_sr;
   pucch_params.nof_csi_resources = pucch_params_.nof_res_csi;
   auto& f1_params                = std::get<pucch_f1_params>(pucch_params.f0_or_f1_params);
-  f1_params.nof_cyc_shifts       = nof_cyclic_shifts::six;
+  f1_params.nof_cyc_shifts       = pucch_nof_cyclic_shifts::six;
   f1_params.occ_supported        = true;
 
   du_cfg.ue_ded_serv_cell_cfg.ul_config.value().init_ul_bwp.pucch_cfg->sr_res_list[0].period = pucch_params_.sr_period;
@@ -816,7 +816,7 @@ static du_cell_config make_custom_pucch_srs_du_cell_config(bool pucch_has_more_r
   pucch_params.nof_csi_resources                    = pucch_has_more_res_than_srs ? 10U : 1U;
   pucch_params.nof_cell_harq_pucch_res_sets         = 1U;
   auto& f1_params                                   = std::get<pucch_f1_params>(pucch_params.f0_or_f1_params);
-  f1_params.nof_cyc_shifts                          = nof_cyclic_shifts::no_cyclic_shift;
+  f1_params.nof_cyc_shifts                          = pucch_nof_cyclic_shifts::no_cyclic_shift;
   f1_params.occ_supported                           = false;
 
   auto& tdd_cfg                              = du_cfg.tdd_ul_dl_cfg_common.emplace();

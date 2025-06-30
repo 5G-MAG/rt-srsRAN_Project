@@ -55,19 +55,19 @@ struct formatter<pusch_results_wrapper> {
   {
     // Format SCH message.
     if (result.sch.has_value()) {
-      helper.format_always(ctx, result.sch.value());
+      helper.format_always(ctx, *result.sch);
     }
 
     // Format UCI message.
     if (result.uci.has_value()) {
-      helper.format_always(ctx, result.uci.value());
+      helper.format_always(ctx, *result.uci);
     }
 
     // Format channel state information.
     if (result.sch.has_value()) {
-      helper.format_always(ctx, result.sch.value().csi);
+      helper.format_always(ctx, result.sch->csi);
     } else if (result.uci.has_value()) {
-      helper.format_always(ctx, result.uci.value().csi);
+      helper.format_always(ctx, result.uci->csi);
     }
 
     return ctx.out();
@@ -121,14 +121,14 @@ private:
   {
     srsran_assert(notifier, "Invalid notifier");
 
+    // Save SCH results.
+    results.sch = sch;
+
     // Data size in bytes for printing hex dump only if SCH is present and CRC is passed.
     unsigned data_size = 0;
     if (results.sch.has_value() && results.sch->data.tb_crc_ok) {
       data_size = data.size();
     }
-
-    // Save SCH results.
-    results.sch = sch;
 
     std::chrono::time_point<std::chrono::steady_clock> time_end = std::chrono::steady_clock::now();
 

@@ -21,8 +21,12 @@
  */
 
 #include "mac_cell_processor.h"
+#include "mac_dl_metric_handler.h"
 #include "srsran/instrumentation/traces/du_traces.h"
 #include "srsran/mac/mac_cell_result.h"
+#include "srsran/mac/mac_cell_timing_context.h"
+#include "srsran/pcap/dlt_pcap.h"
+#include "srsran/ran/band_helper.h"
 #include "srsran/ran/pdsch/pdsch_constants.h"
 #include "srsran/scheduler/result/sched_result.h"
 #include "srsran/support/async/execute_on_blocking.h"
@@ -41,7 +45,8 @@ mac_cell_processor::mac_cell_processor(const mac_cell_creation_request& cell_cfg
                                        task_executor&                   slot_exec_,
                                        task_executor&                   ctrl_exec_,
                                        mac_pcap&                        pcap_,
-                                       timer_manager&                   timers_) :
+                                       timer_manager&                   timers_,
+                                       mac_cell_config_dependencies     dependencies) :
   logger(srslog::fetch_basic_logger("MAC")),
   cell_cfg(cell_cfg_req_),
   cell_exec(cell_exec_),
@@ -61,25 +66,16 @@ mac_cell_processor::mac_cell_processor(const mac_cell_creation_request& cell_cfg
            MAX_K0_DELAY,
            get_nof_slots_per_subframe(cell_cfg.scs_common) * NOF_SFNS * NOF_SUBFRAMES_PER_FRAME),
   ssb_helper(cell_cfg_req_),
-  sib_assembler(cell_cfg_req_.bcch_dl_sch_payloads),
+  sib_assembler(cell_cfg_req_.sys_info),
   rar_assembler(pdu_pool),
   dlsch_assembler(ue_mng, dl_harq_buffers),
   paging_assembler(pdu_pool),
   sched(sched_),
-  pcap(pcap_)
+  time_source(std::move(dependencies.timer_source)),
+  metrics(cell_cfg.pci, cell_cfg.scs_common, dependencies.notifier),
+  pcap(pcap_),
+  slot_time_mapper(to_numerology_value(cell_cfg_req_.scs_common))
 {
-}
-
-static void initialize_cell_tracer(du_cell_index_t cell_idx, subcarrier_spacing scs)
-{
-  constexpr static size_t MAX_EVENTS = 8;
-
-  std::chrono::microseconds slot_dur{1000 / get_nof_slots_per_subframe(scs)};
-
-  l2_late_tracer[cell_idx] = create_rusage_trace_recorder(fmt::format("cell_{}_slot_run", fmt::underlying(cell_idx)),
-                                                          file_event_tracer<L2_LATE_TRACE_ENABLED>{},
-                                                          slot_dur,
-                                                          MAX_EVENTS);
 }
 
 async_task<void> mac_cell_processor::start()
@@ -88,16 +84,21 @@ async_task<void> mac_cell_processor::start()
       cell_exec,
       ctrl_exec,
       timers,
-      [this]() {
-        // set up thread-local tracer parameters.
-        initialize_cell_tracer(cell_cfg.cell_index, cell_cfg.scs_common);
+      [this]() noexcept SRSRAN_RTSAN_NONBLOCKING {
+        if (state != cell_state::inactive) {
+          // No-op.
+          return;
+        }
 
-        // set cell as active.
+        // Notify scheduler about activation.
+        sched.start_cell(cell_cfg.cell_index);
+
         state = cell_state::active;
+        logger.info("cell={}: Cell was activated", fmt::underlying(cell_cfg.cell_index));
       },
-      [this, cell_index = cell_cfg.cell_index]() {
+      [this]() {
         logger.warning("cell={}: Postponed cell start operation. Cause: Task queue is full",
-                       fmt::underlying(cell_index));
+                       fmt::underlying(cell_cfg.cell_index));
       });
 }
 
@@ -107,10 +108,18 @@ async_task<void> mac_cell_processor::stop()
       cell_exec,
       ctrl_exec,
       timers,
-      [this]() {
+      [this]() noexcept SRSRAN_RTSAN_NONBLOCKING {
         if (state == cell_state::inactive) {
           return;
         }
+
+        // Notify scheduler about activation.
+        sched.stop_cell(cell_cfg.cell_index);
+
+        // Notify that cell metrics stopped being collected.
+        metrics.on_cell_deactivation();
+
+        // TODO: Call time_source->on_cell_deactivation() once FAPI supports stop procedure.
 
         // Set cell state as inactive to stop answering to slot indications.
         state = cell_state::inactive;
@@ -123,19 +132,63 @@ async_task<void> mac_cell_processor::stop()
       });
 }
 
-void mac_cell_processor::handle_slot_indication(slot_point sl_tx)
+async_task<mac_cell_reconfig_response> mac_cell_processor::reconfigure(const mac_cell_reconfig_request& request)
 {
-  trace_point slot_ind_enqueue_tp = l2_tracer.now();
+  return launch_async([this, request, resp = mac_cell_reconfig_response{}](
+                          coro_context<async_task<mac_cell_reconfig_response>>& ctx) mutable {
+    CORO_BEGIN(ctx);
+
+    if (request.new_sys_info.has_value()) {
+      // Change to respective DL cell executor context.
+      CORO_AWAIT(execute_on_blocking(cell_exec, timers));
+
+      {
+        SRSRAN_RTSAN_SCOPED_ENABLER;
+
+        if (request.new_sys_info.has_value()) {
+          // Forward new SIB1/SI message PDUs to SIB assembler and update version.
+          sib_assembler.handle_si_change_request(*request.new_sys_info);
+
+          // Notify scheduler of SIB1/SI message scheduling update.
+          sched.handle_si_change_indication(request.new_sys_info->si_sched_cfg);
+
+          resp.si_updated = true;
+        }
+      }
+
+      // Change back to CTRL executor context.
+      CORO_AWAIT(execute_on_blocking(ctrl_exec, timers));
+    }
+
+    if (request.positioning.has_value()) {
+      // Positioning measurement request has been received.
+      CORO_AWAIT(sched.handle_positioning_measurement_request(cell_cfg.cell_index, request.positioning.value()));
+    }
+
+    if (request.new_si_pdu_info.has_value()) {
+      sib_assembler.enqueue_si_message_pdu_updates(*request.new_si_pdu_info);
+      resp.si_pdus_enqueued = true;
+    }
+
+    CORO_RETURN(resp);
+  });
+}
+
+void mac_cell_processor::handle_slot_indication(const mac_cell_timing_context& context) noexcept
+    SRSRAN_RTSAN_NONBLOCKING
+{
+  slot_time_mapper.handle_slot_indication(context);
+  trace_point slot_ind_enqueue_tp = metric_clock::now();
   // Change execution context to slot indication executor.
-  if (not slot_exec.execute([this, sl_tx, slot_ind_enqueue_tp]() {
+  if (not slot_exec.execute(TRACE_TASK([this, context, slot_ind_enqueue_tp]() {
         l2_tracer << trace_event{"mac_slot_ind_enqueue", slot_ind_enqueue_tp};
-        handle_slot_indication_impl(sl_tx);
-      })) {
-    logger.warning("Skipped slot indication={}. Cause: DL task queue is full.", sl_tx);
+        handle_slot_indication_impl(context.sl_tx, slot_ind_enqueue_tp);
+      }))) {
+    logger.warning("Skipped slot indication={}. Cause: DL task queue is full.", context.sl_tx);
   }
 }
 
-void mac_cell_processor::handle_error_indication(slot_point sl_tx, error_event event)
+void mac_cell_processor::handle_error_indication(slot_point sl_tx, error_event event) noexcept SRSRAN_RTSAN_NONBLOCKING
 {
   // Forward error indication to the scheduler to be processed asynchronously.
   sched.handle_error_indication(sl_tx, cell_cfg.cell_index, event);
@@ -156,7 +209,7 @@ async_task<bool> mac_cell_processor::add_ue(const mac_ue_create_request& request
       cell_exec,
       ctrl_exec,
       timers,
-      [this, ue_inst = std::move(ue_inst)]() mutable {
+      [this, ue_inst = std::move(ue_inst)]() mutable noexcept SRSRAN_RTSAN_NONBLOCKING {
         // > Insert UE and DL bearers.
         // Note: Ensure we only do so if the cell is active.
         return state == cell_state::active and ue_mng.add_ue(std::move(ue_inst));
@@ -179,8 +232,12 @@ async_task<void> mac_cell_processor::remove_ue(const mac_ue_delete_request& requ
     // Note: Caller (ctrl exec) blocks if the cell executor is full.
     CORO_AWAIT(execute_on_blocking(cell_exec, timers, log_dispatch_failure));
 
-    // Remove UE associated DL channels
-    ue_mng.remove_ue(request.ue_index);
+    {
+      SRSRAN_RTSAN_SCOPED_ENABLER;
+
+      // Remove UE associated DL channels
+      ue_mng.remove_ue(request.ue_index);
+    }
 
     // Change back to CTRL executor before returning
     // Note: Blocks if the executor is full (which should never happen).
@@ -193,14 +250,16 @@ async_task<void> mac_cell_processor::remove_ue(const mac_ue_delete_request& requ
   });
 }
 
-async_task<bool> mac_cell_processor::addmod_bearers(du_ue_index_t                                  ue_index,
-                                                    const std::vector<mac_logical_channel_config>& logical_channels)
+async_task<bool> mac_cell_processor::addmod_bearers(du_ue_index_t                          ue_index,
+                                                    span<const mac_logical_channel_config> logical_channels)
 {
+  // Note: logical_channels must outlive the returned async_task completion.
+
   return execute_and_continue_on_blocking(
       cell_exec,
       ctrl_exec,
       timers,
-      [this, ue_index, logical_channels]() {
+      [this, ue_index, logical_channels]() noexcept SRSRAN_RTSAN_NONBLOCKING {
         // Configure logical channels.
         return state == cell_state::active and ue_mng.addmod_bearers(ue_index, logical_channels);
       },
@@ -212,37 +271,43 @@ async_task<bool> mac_cell_processor::addmod_bearers(du_ue_index_t               
 
 async_task<bool> mac_cell_processor::remove_bearers(du_ue_index_t ue_index, span<const lcid_t> lcids_to_rem)
 {
-  std::vector<lcid_t> lcids(lcids_to_rem.begin(), lcids_to_rem.end());
+  // Use bitset to minimize capture size.
+  auto lcids_to_rem_bset = bit_positions_to_bitset<MAX_NOF_RB_LCIDS>(lcids_to_rem);
 
   return execute_and_continue_on_blocking(
       cell_exec,
       ctrl_exec,
       timers,
-      [this, ue_index, lcids = std::move(lcids)]() {
+      [this, ue_index, lcids_to_rem_bset]() noexcept SRSRAN_RTSAN_NONBLOCKING -> bool {
         // Remove logical channels.
-        return ue_mng.remove_bearers(ue_index, lcids);
+        return ue_mng.remove_bearers(ue_index, lcids_to_rem_bset);
       },
       [this, ue_index]() {
         logger.warning("ue={}: Postponed UE bearer removal. Cause: Task queue is full", fmt::underlying(ue_index));
       });
 }
 
-void mac_cell_processor::handle_slot_indication_impl(slot_point sl_tx) SRSRAN_RTSAN_NONBLOCKING
+void mac_cell_processor::handle_slot_indication_impl(slot_point               sl_tx,
+                                                     metric_clock::time_point enqueue_slot_tp) noexcept
+    SRSRAN_RTSAN_NONBLOCKING
 {
   // * Start of Critical Path * //
 
-  l2_late_tracer[cell_cfg.cell_index].start();
-  trace_point sched_tp = l2_tracer.now();
+  // Tick DU timers on subframe boundaries. Retrieve the combination of HFN, SFN and slot.
+  time_source->on_slot_indication(sl_tx);
 
-  logger.set_context(sl_tx.sfn(), sl_tx.slot_index());
-
-  // Cleans old MAC DL PDU buffers.
-  pdu_pool.tick(sl_tx.to_uint());
-
-  if (state != cell_state::active) {
+  if (SRSRAN_UNLIKELY(state == cell_state::inactive)) {
+    // Ignore slot indication if cell is inactive.
     phy_cell.on_cell_results_completion(sl_tx);
     return;
   }
+
+  // Initiate metric capturing.
+  auto        metrics_meas = metrics.start_slot(sl_tx, enqueue_slot_tp);
+  trace_point sched_tp     = metrics_meas.start_time_point();
+
+  // Cleans old MAC DL PDU buffers.
+  pdu_pool.tick(sl_tx.to_uint());
 
   // Generate DL scheduling result for provided slot and cell.
   const sched_result& sl_res = sched.slot_indication(sl_tx, cell_cfg.cell_index);
@@ -266,7 +331,6 @@ void mac_cell_processor::handle_slot_indication_impl(slot_point sl_tx) SRSRAN_RT
   mac_dl_sched_result mac_dl_res{};
   mac_dl_data_result  data_res{};
 
-  l2_late_tracer[cell_cfg.cell_index].add_section("mac_sched");
   l2_tracer << trace_event{"mac_sched", sched_tp};
 
   // If it is a DL slot, process results.
@@ -279,7 +343,7 @@ void mac_cell_processor::handle_slot_indication_impl(slot_point sl_tx) SRSRAN_RT
     // Send DL sched result to PHY.
     phy_cell.on_new_downlink_scheduler_results(mac_dl_res);
 
-    l2_late_tracer[cell_cfg.cell_index].add_section("mac_dl_tti_req");
+    metrics_meas.on_dl_tti_req();
     l2_tracer << trace_event{"mac_dl_tti_req", dl_tti_req_tp};
 
     // Start assembling Slot Data Result.
@@ -292,7 +356,7 @@ void mac_cell_processor::handle_slot_indication_impl(slot_point sl_tx) SRSRAN_RT
       // Send DL Data to PHY.
       phy_cell.on_new_downlink_data(data_res);
 
-      l2_late_tracer[cell_cfg.cell_index].add_section("mac_tx_data_req");
+      metrics_meas.on_tx_data_req();
       l2_tracer << trace_event{"mac_tx_data_req", tx_data_req_tp};
     }
   }
@@ -306,7 +370,7 @@ void mac_cell_processor::handle_slot_indication_impl(slot_point sl_tx) SRSRAN_RT
     mac_ul_res.ul_res = &sl_res.ul;
     phy_cell.on_new_uplink_scheduler_results(mac_ul_res);
 
-    l2_late_tracer[cell_cfg.cell_index].add_section("mac_ul_tti_req");
+    metrics_meas.on_ul_tti_req();
     l2_tracer << trace_event{"mac_ul_tti_req", ul_tti_req_tp};
   }
 
@@ -324,7 +388,6 @@ void mac_cell_processor::handle_slot_indication_impl(slot_point sl_tx) SRSRAN_RT
   write_tx_pdu_pcap(sl_tx, sl_res, data_res);
 
   l2_tracer << trace_event{"mac_cleanup_tp", cleanup_tp};
-  l2_late_tracer[cell_cfg.cell_index].stop("mac_cleanup");
 }
 
 /// Encodes DL DCI.
@@ -397,14 +460,7 @@ void mac_cell_processor::assemble_dl_data_request(mac_dl_data_result&    data_re
   // Assemble scheduled BCCH-DL-SCH message containing SIBs' payload.
   for (const sib_information& sib_info : dl_res.bc.sibs) {
     srsran_assert(not data_res.si_pdus.full(), "No SIB1 added as SIB1 list in MAC DL data results is already full");
-    const units::bytes  tbs(sib_info.pdsch_cfg.codewords[0].tb_size_bytes);
-    span<const uint8_t> payload;
-    if (sib_info.si_indicator == sib_information::sib1) {
-      payload = sib_assembler.encode_sib1_pdu(tbs);
-    } else {
-      payload = sib_assembler.encode_si_message_pdu(sib_info.si_msg_index.value(), tbs);
-    }
-    data_res.si_pdus.emplace_back(0, shared_transport_block(payload));
+    data_res.si_pdus.emplace_back(0, shared_transport_block(sib_assembler.encode_si_pdu(sl_tx, sib_info)));
   }
 
   // Assemble scheduled RARs' subheaders and payloads.
@@ -456,8 +512,9 @@ void mac_cell_processor::update_logical_channel_dl_buffer_states(const dl_sched_
         srsran_sanity_check(bearer != nullptr, "Scheduler is allocating inexistent bearers");
 
         // Update DL buffer state for the allocated logical channel.
+        rlc_buffer_state                       rlc_bs = bearer->on_buffer_state_update();
         mac_dl_buffer_state_indication_message bs{
-            ue_mng.get_ue_index(grant.pdsch_cfg.rnti), lc_info.lcid.to_lcid(), bearer->on_buffer_state_update()};
+            ue_mng.get_ue_index(grant.pdsch_cfg.rnti), lc_info.lcid.to_lcid(), rlc_bs.pending_bytes};
         sched.handle_dl_buffer_state_update(bs);
       }
     }
@@ -478,7 +535,7 @@ void mac_cell_processor::write_tx_pdu_pcap(const slot_point&         sl_tx,
     // TODO: replace sib1_pcap_dumped flag with a vector or booleans that includes other SIBs.
     if (dl_alloc.si_indicator == sib_information::sib1 and not sib1_pcap_dumped) {
       const mac_dl_data_result::dl_pdu& sib1_pdu = dl_res.si_pdus[i];
-      srsran::mac_nr_context_info       context  = {};
+      mac_nr_context_info               context  = {};
       context.radioType = cell_cfg.sched_req.tdd_ul_dl_cfg_common.has_value() ? PCAP_TDD_RADIO : PCAP_FDD_RADIO;
       context.direction = PCAP_DIRECTION_DOWNLINK;
       context.rntiType  = PCAP_SI_RNTI;
@@ -494,7 +551,7 @@ void mac_cell_processor::write_tx_pdu_pcap(const slot_point&         sl_tx,
   for (unsigned i = 0, e = dl_res.rar_pdus.size(); i != e; ++i) {
     const mac_dl_data_result::dl_pdu& rar_pdu  = dl_res.rar_pdus[i];
     const rar_information&            dl_alloc = sl_res.dl.rar_grants[i];
-    srsran::mac_nr_context_info       context  = {};
+    mac_nr_context_info               context  = {};
     context.radioType           = cell_cfg.sched_req.tdd_ul_dl_cfg_common.has_value() ? PCAP_TDD_RADIO : PCAP_FDD_RADIO;
     context.direction           = PCAP_DIRECTION_DOWNLINK;
     context.rntiType            = PCAP_RA_RNTI;

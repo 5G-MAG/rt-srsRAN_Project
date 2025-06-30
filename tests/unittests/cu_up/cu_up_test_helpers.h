@@ -76,6 +76,8 @@ public:
 
   task_executor& e2_executor() override { return *test_executor; }
 
+  task_executor& n3_executor() override { return *test_executor; }
+
   std::unique_ptr<srs_cu_up::ue_executor_mapper> create_ue_executor_mapper() override
   {
     return std::make_unique<dummy_pdu_session_executor_mapper_impl>(*test_executor);
@@ -89,23 +91,32 @@ private:
 class dummy_gtpu_demux_ctrl final : public gtpu_demux_ctrl
 {
 public:
-  dummy_gtpu_demux_ctrl()  = default;
+  dummy_gtpu_demux_ctrl() : logger(srslog::fetch_basic_logger("GTPU")) {}
   ~dummy_gtpu_demux_ctrl() = default;
 
-  bool
+  expected<std::unique_ptr<gtpu_demux_dispatch_queue>>
   add_tunnel(gtpu_teid_t teid, task_executor& tunnel_exec, gtpu_tunnel_common_rx_upper_layer_interface* tunnel) override
   {
     created_teid_list.push_back(teid);
-    return true;
+    return std::make_unique<gtpu_demux_dispatch_queue>(
+        8192, tunnel_exec, logger, [](span<gtpu_demux_pdu_ctx_t>) {}, 256);
   }
+
   bool remove_tunnel(gtpu_teid_t teid) override
   {
     removed_teid_list.push_back(teid);
     return true;
   }
 
+  void apply_test_teid(gtpu_teid_t teid) override {}
+
+  void stop() override {}
+
   std::list<gtpu_teid_t> created_teid_list = {};
   std::list<gtpu_teid_t> removed_teid_list = {};
+
+private:
+  srslog::basic_logger& logger;
 };
 
 /// Dummy GTP-U TEID pool
@@ -123,7 +134,7 @@ public:
 
   [[nodiscard]] bool release_teid(gtpu_teid_t teid) override { return true; }
 
-  [[nodiscard]] bool full() const override { return true; };
+  [[nodiscard]] bool full() const override { return true; }
 
   uint32_t get_max_nof_teids() override { return UINT32_MAX; }
 
@@ -244,6 +255,7 @@ public:
 
   std::unique_ptr<f1u_cu_up_gateway_bearer> create_cu_bearer(uint32_t                              ue_index,
                                                              drb_id_t                              drb_id,
+                                                             five_qi_t                             five_qi,
                                                              const srs_cu_up::f1u_config&          config,
                                                              const gtpu_teid_t&                    ul_teid,
                                                              f1u_cu_up_gateway_bearer_rx_notifier& rx_notifier,
@@ -295,7 +307,7 @@ private:
 class dummy_ngu_session_manager final : public srs_cu_up::ngu_session_manager
 {
 public:
-  gtpu_tnl_pdu_session& get_next_ngu_gateway() override { return ngu_gw; };
+  gtpu_tnl_pdu_session& get_next_ngu_gateway() override { return ngu_gw; }
 
 private:
   dummy_gtpu_gateway ngu_gw;

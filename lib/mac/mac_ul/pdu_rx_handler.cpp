@@ -227,7 +227,9 @@ bool pdu_rx_handler::handle_mac_ce(const decoded_mac_rx_pdu& ctx, const mac_ul_s
           logger.warning("{}: Discarding PDU. Cause: Rx PDU is filled with zeros, meaning that it was likely corrupted",
                          create_prefix(ctx, subpdu));
         } else {
-          logger.warning("{}: Discarding PDU. Cause: UL-CCCH should be only for Msg3", create_prefix(ctx, subpdu));
+          // This should not happen, but there is a tiny chance that there is a false alarm of an SR during UE creation
+          // and double toggle of the NDI, which will make the UE interpret a new UL grant as a Msg3 reTx.
+          logger.info("{}: Discarding PDU. Cause: UL-CCCH should be only for Msg3", create_prefix(ctx, subpdu));
         }
         return false;
       }
@@ -371,7 +373,7 @@ bool pdu_rx_handler::handle_crnti_ce(const decoded_mac_rx_pdu& ctx, const mac_ul
 
   // > Dispatch continuation of subPDU handling to execution context of previous C-RNTI.
   task_executor& ue_exec = ue_exec_mapper.mac_ul_pdu_executor(new_ctx.ue_index);
-  if (not ue_exec.execute([this, new_ctx = std::move(new_ctx)]() {
+  if (not ue_exec.execute(TRACE_TASK([this, new_ctx = std::move(new_ctx)]() {
         if (ue_manager.find_ue(new_ctx.ue_index) == nullptr) {
           logger.warning(
               "{}: Discarding PDU. Cause: UE with C-RNTI in C-RNTI CE has been deleted while the CE was being handled",
@@ -393,7 +395,7 @@ bool pdu_rx_handler::handle_crnti_ce(const decoded_mac_rx_pdu& ctx, const mac_ul
           sched.handle_ul_sched_command(
               mac_ul_scheduling_command{new_ctx.cell_index_rx, new_ctx.slot_rx, new_ctx.ue_index, new_ctx.pdu_rx.rnti});
         }
-      })) {
+      }))) {
     logger.warning("{}: Discarding PDU. Cause: Task queue is full.", create_prefix(ctx, subpdu));
   }
 

@@ -26,22 +26,26 @@
 using namespace srsran;
 
 /// Derives MAC Cell Configuration from DU Cell Configuration.
-mac_cell_creation_request srsran::make_mac_cell_config(du_cell_index_t               cell_index,
-                                                       const srs_du::du_cell_config& du_cfg,
-                                                       std::vector<byte_buffer>      bcch_dl_sch_payloads,
+mac_cell_creation_request srsran::make_mac_cell_config(du_cell_index_t                                 cell_index,
+                                                       const srs_du::du_cell_config&                   du_cfg,
+                                                       const byte_buffer&                              sib1,
+                                                       span<const bcch_dl_sch_payload_type>            si_messages,
                                                        const sched_cell_configuration_request_message& sched_cell_cfg)
 {
   mac_cell_creation_request mac_cfg{};
-  mac_cfg.cell_index           = cell_index;
-  mac_cfg.pci                  = du_cfg.pci;
-  mac_cfg.scs_common           = du_cfg.scs_common;
-  mac_cfg.ssb_cfg              = du_cfg.ssb_cfg;
-  mac_cfg.dl_carrier           = du_cfg.dl_carrier;
-  mac_cfg.ul_carrier           = du_cfg.ul_carrier;
-  mac_cfg.cell_barred          = du_cfg.cell_barred;
-  mac_cfg.intra_freq_resel     = du_cfg.intra_freq_resel;
-  mac_cfg.bcch_dl_sch_payloads = std::move(bcch_dl_sch_payloads);
-  mac_cfg.sched_req            = sched_cell_cfg;
+  mac_cfg.cell_index       = cell_index;
+  mac_cfg.pci              = du_cfg.pci;
+  mac_cfg.scs_common       = du_cfg.scs_common;
+  mac_cfg.ssb_cfg          = du_cfg.ssb_cfg;
+  mac_cfg.dl_carrier       = du_cfg.dl_carrier;
+  mac_cfg.ul_carrier       = du_cfg.ul_carrier;
+  mac_cfg.cell_barred      = du_cfg.cell_barred;
+  mac_cfg.intra_freq_resel = du_cfg.intra_freq_resel;
+  mac_cfg.sys_info.sib1    = sib1.copy();
+  for (auto& msg : si_messages) {
+    mac_cfg.sys_info.si_messages.push_back(msg);
+  }
+  mac_cfg.sched_req = sched_cell_cfg;
 
   return mac_cfg;
 }
@@ -81,7 +85,7 @@ prioritized_bit_rate srsran::get_pbr_ceil(uint64_t bitrate_bps)
   // Convert given bitrate (bps) to kilo Bytes per second.
   const float given_bitrate_kBps = bitrate_bps / (1000 * 8);
   // Prioritized bitrate values as per TS 38.331, \c prioritisedBitRate.
-  constexpr static std::array<unsigned, 15> pbr_kBps{
+  static constexpr std::array<unsigned, 15> pbr_kBps{
       0, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536};
   // Find PBR value greater than or equal to give bitrate.
   for (unsigned pbr : pbr_kBps) {

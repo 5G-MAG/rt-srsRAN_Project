@@ -22,7 +22,6 @@
 
 #include "ue.h"
 #include "../support/dmrs_helpers.h"
-#include "../support/prbs_calculator.h"
 #include "srsran/srslog/srslog.h"
 
 using namespace srsran;
@@ -35,9 +34,13 @@ ue::ue(const ue_creation_command& cmd) :
   ue_ded_cfg(&cmd.cfg),
   pcell_harq_pool(cmd.pcell_harq_pool),
   logger(srslog::fetch_basic_logger("SCHED")),
+  dl_lc_ch_mgr(cell_cfg_common.dl_cfg_common.init_dl_bwp.generic_params.scs,
+               cmd.starts_in_fallback,
+               cmd.cfg.logical_channels()),
+  ul_lc_ch_mgr(cell_cfg_common.dl_cfg_common.init_dl_bwp.generic_params.scs, cmd.cfg.logical_channels()),
   ta_mgr(expert_cfg,
          cell_cfg_common.ul_cfg_common.init_ul_bwp.generic_params.scs,
-         ue_ded_cfg->pcell_cfg().cfg_dedicated().tag_id,
+         ue_ded_cfg->pcell_cfg().tag_id(),
          &dl_lc_ch_mgr),
   drx(cell_cfg_common.ul_cfg_common.init_ul_bwp.generic_params.scs,
       cell_cfg_common.ul_cfg_common.init_ul_bwp.rach_cfg_common->ra_con_res_timer,
@@ -54,12 +57,13 @@ ue::ue(const ue_creation_command& cmd) :
       cell->set_fallback_state(cmd.starts_in_fallback);
     }
   }
-  dl_lc_ch_mgr.set_fallback_state(cmd.starts_in_fallback);
 }
 
 void ue::slot_indication(slot_point sl_tx)
 {
   last_sl_tx = sl_tx;
+  dl_lc_ch_mgr.slot_indication();
+  ul_lc_ch_mgr.slot_indication();
   ta_mgr.slot_indication(sl_tx);
   drx.slot_indication(sl_tx);
 }
@@ -157,9 +161,9 @@ void ue::set_config(const ue_configuration& new_cfg)
   }
 }
 
-void ue::handle_dl_buffer_state_indication(const dl_buffer_state_indication_message& msg)
+void ue::handle_dl_buffer_state_indication(lcid_t lcid, unsigned bs, slot_point hol_toa)
 {
-  unsigned pending_bytes = msg.bs;
+  unsigned pending_bytes = bs;
 
   // Subtract bytes pending for this LCID in scheduled DL HARQ allocations (but not yet sent to the lower layers)
   // before forwarding to DL logical channel manager.
@@ -168,7 +172,7 @@ void ue::handle_dl_buffer_state_indication(const dl_buffer_state_indication_mess
   // reported RLC DL buffer occupancy report (reminder: we haven't built the RLC PDU yet!). If we account for this
   // overhead in the computation of pending bytes, the final value will be too low, which will lead to one extra
   // tiny grant. To avoid this, we make the pessimization that every HARQ contains one RLC header due to segmentation.
-  constexpr static unsigned RLC_AM_HEADER_SIZE_ESTIM = 4;
+  static constexpr unsigned RLC_AM_HEADER_SIZE_ESTIM = 4;
   for (unsigned c = 0, ce = nof_cells(); c != ce; ++c) {
     auto& ue_cc = *ue_cells[c];
 
@@ -180,7 +184,7 @@ void ue::handle_dl_buffer_state_indication(const dl_buffer_state_indication_mess
           rem_harqs--;
           if (h_dl->pdsch_slot() > last_sl_tx and h_dl->nof_retxs() == 0 and h_dl->is_waiting_ack()) {
             for (const auto& lc : h_dl->get_grant_params().lc_sched_info) {
-              if (lc.lcid.is_sdu() and lc.lcid.to_lcid() == msg.lcid) {
+              if (lc.lcid.is_sdu() and lc.lcid.to_lcid() == lcid) {
                 unsigned bytes_sched =
                     lc.sched_bytes.value() - std::min(lc.sched_bytes.value(), RLC_AM_HEADER_SIZE_ESTIM);
                 pending_bytes -= std::min(pending_bytes, bytes_sched);
@@ -192,7 +196,7 @@ void ue::handle_dl_buffer_state_indication(const dl_buffer_state_indication_mess
     }
   }
 
-  dl_lc_ch_mgr.handle_dl_buffer_status_indication(msg.lcid, pending_bytes);
+  dl_lc_ch_mgr.handle_dl_buffer_status_indication(lcid, pending_bytes, hol_toa);
 }
 
 unsigned ue::pending_ul_newtx_bytes() const
@@ -215,24 +219,17 @@ unsigned ue::pending_ul_newtx_bytes() const
   return pending_bytes > 0 ? pending_bytes : (ul_lc_ch_mgr.has_pending_sr() ? SR_GRANT_BYTES : 0);
 }
 
-unsigned ue::pending_ul_newtx_bytes(lcg_id_t lcg_id) const
-{
-  return ul_lc_ch_mgr.pending_bytes(lcg_id);
-}
-
 bool ue::has_pending_sr() const
 {
   return ul_lc_ch_mgr.has_pending_sr();
 }
 
-unsigned ue::build_dl_transport_block_info(dl_msg_tb_info&                         tb_info,
-                                           unsigned                                tb_size_bytes,
-                                           const bounded_bitset<MAX_NOF_RB_LCIDS>& lcids)
+unsigned ue::build_dl_transport_block_info(dl_msg_tb_info& tb_info, unsigned tb_size_bytes, ran_slice_id_t slice_id)
 {
   unsigned total_subpdu_bytes = 0;
   total_subpdu_bytes += allocate_mac_ces(tb_info, dl_lc_ch_mgr, tb_size_bytes);
   for (const auto lcid : dl_lc_ch_mgr.get_prioritized_logical_channels()) {
-    if (lcid < lcids.size() and lcids.test(lcid)) {
+    if (dl_lc_ch_mgr.get_slice_id(lcid) == slice_id) {
       total_subpdu_bytes +=
           allocate_mac_sdus(tb_info, dl_lc_ch_mgr, tb_size_bytes - total_subpdu_bytes, uint_to_lcid(lcid));
     }

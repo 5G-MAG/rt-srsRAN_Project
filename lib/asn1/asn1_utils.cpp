@@ -1117,6 +1117,20 @@ unbounded_octstring<Al>& unbounded_octstring<Al>::from_string(const std::string&
 }
 
 template <bool Al>
+unbounded_octstring<Al>& unbounded_octstring<Al>::from_bytes(span<const uint8_t> bytes)
+{
+  // clears previous buffer.
+  *this = byte_buffer{byte_buffer::fallback_allocation_tag{}};
+
+  // appends bytes to buffer.
+  if (not this->append(bytes)) {
+    log_error("Failed to append byte to buffer");
+  }
+
+  return *this;
+}
+
+template <bool Al>
 uint64_t unbounded_octstring<Al>::to_number() const
 {
   return octet_string_helper::to_uint(*this);
@@ -1754,7 +1768,7 @@ SRSASN_CODE pack_unconstrained_real(bit_ref& bref, float n, bool aligned)
     bref.pack(octet, 8);
   }
   return SRSASN_SUCCESS;
-};
+}
 
 SRSASN_CODE unpack_unconstrained_real(float& n, cbit_ref& bref, bool aligned)
 {
@@ -1826,6 +1840,6 @@ SRSASN_CODE unpack_unconstrained_real(float& n, cbit_ref& bref, bool aligned)
   float*   bits_ptr  = (float*)&ieee_bits;
   n                  = *bits_ptr;
   return SRSASN_SUCCESS;
-};
+}
 
 } // namespace asn1

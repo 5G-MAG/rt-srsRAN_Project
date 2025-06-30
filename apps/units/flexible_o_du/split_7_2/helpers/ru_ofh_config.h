@@ -22,7 +22,9 @@
 
 #pragma once
 
+#include "apps/helpers/metrics/metrics_config.h"
 #include "apps/services/worker_manager/os_sched_affinity_manager.h"
+#include "srsran/ofh/receiver/ofh_receiver_configuration.h"
 #include "srsran/ran/bs_channel_bandwidth.h"
 #include "srsran/support/units.h"
 #include <chrono>
@@ -55,16 +57,14 @@ struct ru_ofh_unit_base_cell_config {
   std::chrono::microseconds Ta4_min{85};
   /// Enables the Control-Plane PRACH message signalling.
   bool is_prach_control_plane_enabled = true;
-  /// \brief Downlink broadcast flag.
-  ///
-  /// If enabled, broadcasts the contents of a single antenna port to all downlink RU eAxCs.
-  bool is_downlink_broadcast_enabled = false;
+  /// Ignore the start symbol value received in the PRACH U-Plane packets.
+  bool ignore_prach_start_symbol = false;
   /// If set to true, the payload size encoded in a eCPRI header is ignored.
   bool ignore_ecpri_payload_size_field = false;
   /// If set to true, the sequence id encoded in a eCPRI packet is ignored.
   bool ignore_ecpri_seq_id_field = false;
-  /// If set to true, warn of unreceived Radio Unit frames.
-  bool warn_unreceived_ru_frames = true;
+  /// Warn of unreceived Radio Unit frames status.
+  ofh::warn_unreceived_ru_frames log_unreceived_ru_frames = ofh::warn_unreceived_ru_frames::after_traffic_detection;
   /// Uplink compression method.
   std::string compression_method_ul = "bfp";
   /// Uplink compression bitwidth.
@@ -154,6 +154,14 @@ struct ru_ofh_unit_hal_config {
   std::string eal_args;
 };
 
+/// Metrics configuration.
+struct ru_ofh_unit_metrics_config {
+  /// Metrics configuration.
+  app_helpers::metrics_config metrics_cfg;
+  /// Flag that control RU metrics.
+  bool enable_ru_metrics = false;
+};
+
 /// gNB app Open Fronthaul Radio Unit configuration.
 struct ru_ofh_unit_config {
   /// GPS Alpha - Valid value range: [0, 1.2288e7].
@@ -162,6 +170,8 @@ struct ru_ofh_unit_config {
   int gps_Beta = 0;
   /// Downlink processing time in microseconds.
   unsigned dl_processing_time = 400U;
+  /// Uplink request processing time in microseconds.
+  unsigned ul_processing_time = 30U;
   /// Loggers.
   ru_ofh_unit_logger_config loggers;
   /// \brief Individual Open Fronthaul cells configurations.
@@ -174,6 +184,8 @@ struct ru_ofh_unit_config {
   ru_ofh_unit_expert_execution_config expert_execution_cfg;
   /// HAL configuration.
   std::optional<ru_ofh_unit_hal_config> hal_config;
+  /// Metrics configuration.
+  ru_ofh_unit_metrics_config metrics_cfg;
 };
 
 /// gNB app Open Fronthaul Radio Unit configuration.

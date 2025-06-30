@@ -25,9 +25,13 @@
 
 #pragma once
 
+#include "srsran/instrumentation/traces/du_traces.h"
+#include "srsran/phy/upper/channel_processors/pdsch/pdsch_processor.h"
+#include "srsran/phy/upper/signal_processors/dmrs_pdsch_processor.h"
 #include "srsran/phy/upper/signal_processors/ptrs/ptrs_pdsch_generator.h"
 #include "srsran/ran/dmrs.h"
 #include "srsran/ran/ptrs/ptrs_pattern.h"
+#include "srsran/support/tracing/event_tracing.h"
 
 namespace srsran {
 
@@ -38,7 +42,9 @@ namespace srsran {
 inline void
 pdsch_process_dmrs(resource_grid_writer& grid, dmrs_pdsch_processor& dmrs, const pdsch_processor::pdu_t& pdu)
 {
-  bounded_bitset<MAX_RB> rb_mask_bitset = pdu.freq_alloc.get_prb_mask(pdu.bwp_start_rb, pdu.bwp_size_rb);
+  trace_point process_dmrs_tp = l1_dl_tracer.now();
+
+  crb_bitmap rb_mask_bitset = pdu.freq_alloc.get_crb_mask(pdu.bwp_start_rb, pdu.bwp_size_rb);
 
   // Select the DM-RS reference point.
   unsigned dmrs_reference_point_k_rb = 0;
@@ -60,6 +66,8 @@ pdsch_process_dmrs(resource_grid_writer& grid, dmrs_pdsch_processor& dmrs, const
 
   // Put DM-RS.
   dmrs.map(grid, dmrs_config);
+
+  l1_dl_tracer << trace_event("process_dmrs", process_dmrs_tp);
 }
 
 /// \brief Generates and maps PT-RS for the PDSCH transmission as per TS 38.211 section 7.4.1.2.
@@ -69,10 +77,12 @@ pdsch_process_dmrs(resource_grid_writer& grid, dmrs_pdsch_processor& dmrs, const
 inline void
 pdsch_process_ptrs(resource_grid_writer& grid, ptrs_pdsch_generator& ptrs_generator, const pdsch_processor::pdu_t& pdu)
 {
-  // Extract PT-RS configuration parameters.
-  const pdsch_processor::ptrs_configuration& ptrs = pdu.ptrs.value();
+  trace_point process_ptrs_tp = l1_dl_tracer.now();
 
-  bounded_bitset<MAX_RB> rb_mask_bitset = pdu.freq_alloc.get_prb_mask(pdu.bwp_start_rb, pdu.bwp_size_rb);
+  // Extract PT-RS configuration parameters.
+  const pdsch_processor::ptrs_configuration& ptrs = *pdu.ptrs;
+
+  crb_bitmap rb_mask_bitset = pdu.freq_alloc.get_crb_mask(pdu.bwp_start_rb, pdu.bwp_size_rb);
 
   // Select the DM-RS reference point.
   unsigned ptrs_reference_point_k_rb = 0;
@@ -103,6 +113,8 @@ pdsch_process_ptrs(resource_grid_writer& grid, ptrs_pdsch_generator& ptrs_genera
 
   // Put PT-RS.
   ptrs_generator.generate(grid, ptrs_config);
+
+  l1_dl_tracer << trace_event("process_ptrs", process_ptrs_tp);
 }
 
 /// \brief Computes the number of RE used for mapping PDSCH data.
@@ -114,10 +126,10 @@ pdsch_process_ptrs(resource_grid_writer& grid, ptrs_pdsch_generator& ptrs_genera
 inline unsigned pdsch_compute_nof_data_re(const pdsch_processor::pdu_t& pdu)
 {
   // Get PRB mask.
-  bounded_bitset<MAX_RB> prb_mask = pdu.freq_alloc.get_prb_mask(pdu.bwp_start_rb, pdu.bwp_size_rb);
+  crb_bitmap crb_mask = pdu.freq_alloc.get_crb_mask(pdu.bwp_start_rb, pdu.bwp_size_rb);
 
-  // Get number of PRB.
-  unsigned nof_prb = prb_mask.count();
+  // Get number of RB.
+  unsigned nof_prb = crb_mask.count();
 
   // Calculate the number of RE allocated in the grid.
   unsigned nof_grid_re = nof_prb * NRE * pdu.nof_symbols;
@@ -133,16 +145,16 @@ inline unsigned pdsch_compute_nof_data_re(const pdsch_processor::pdu_t& pdu)
   re_pattern_list reserved = pdu.reserved;
 
   // If the pattern contains PT-RS, append the reserved elements to the list.
-  if (pdu.ptrs) {
+  if (pdu.ptrs.has_value()) {
     // Extract specific PT-RS configuration.
-    const pdsch_processor::ptrs_configuration& ptrs_config = pdu.ptrs.value();
+    const pdsch_processor::ptrs_configuration& ptrs_config = *pdu.ptrs;
 
     // Create PT-RS pattern configuration.
     ptrs_pattern_configuration ptrs_pattern_config = {
         .rnti             = to_rnti(pdu.rnti),
         .dmrs_type        = (pdu.dmrs == dmrs_type::TYPE1) ? dmrs_config_type::type1 : dmrs_config_type::type2,
         .dmrs_symbol_mask = pdu.dmrs_symbol_mask,
-        .rb_mask          = prb_mask,
+        .rb_mask          = crb_mask,
         .time_allocation  = {pdu.start_symbol_index, pdu.start_symbol_index + pdu.nof_symbols},
         .freq_density     = ptrs_config.freq_density,
         .time_density     = ptrs_config.time_density,
@@ -155,7 +167,7 @@ inline unsigned pdsch_compute_nof_data_re(const pdsch_processor::pdu_t& pdu)
     re_pattern ptrs_reserved_re_pattern;
     for (unsigned i_prb = ptrs_reserved_pattern.rb_begin; i_prb < ptrs_reserved_pattern.rb_end;
          i_prb += ptrs_reserved_pattern.rb_stride) {
-      ptrs_reserved_re_pattern.prb_mask.set(i_prb);
+      ptrs_reserved_re_pattern.crb_mask.set(i_prb);
     }
     ptrs_reserved_re_pattern.symbols = ptrs_reserved_pattern.symbol_mask;
     ptrs_reserved_re_pattern.re_mask.set(ptrs_reserved_pattern.re_offset.front());
@@ -164,7 +176,7 @@ inline unsigned pdsch_compute_nof_data_re(const pdsch_processor::pdu_t& pdu)
   }
 
   // Calculate the number of reserved resource elements.
-  unsigned nof_reserved_re = reserved.get_inclusion_count(pdu.start_symbol_index, pdu.nof_symbols, prb_mask);
+  unsigned nof_reserved_re = reserved.get_inclusion_count(pdu.start_symbol_index, pdu.nof_symbols, crb_mask);
 
   // Subtract the number of reserved RE from the number of allocated RE.
   srsran_assert(nof_grid_re > nof_reserved_re,

@@ -27,7 +27,7 @@
 
 using namespace srsran;
 
-/// \brief Looks at the output of the validator and, if unsuccessful, fills msg with the error message.
+/// \brief Looks at the output of the validator and, if unsuccessful, fills \c msg with the error message.
 ///
 /// This is used to call the validator inside the process methods only if asserts are active.
 [[maybe_unused]] static bool handle_validation(std::string& msg, const error_type<std::string>& err)
@@ -48,7 +48,7 @@ pucch_processor_result pucch_processor_impl::process(const resource_grid_reader&
   // Calculate actual PRB.
   std::optional<unsigned> second_hop_prb;
   if (config.second_hop_prb.has_value()) {
-    second_hop_prb.emplace(config.second_hop_prb.value() + config.bwp_start_rb);
+    second_hop_prb.emplace(*config.second_hop_prb + config.bwp_start_rb);
   }
 
   pucch_detector::format0_configuration detector_config;
@@ -71,71 +71,75 @@ pucch_processor_result pucch_processor_impl::process(const resource_grid_reader&
   return result;
 }
 
-pucch_processor_result pucch_processor_impl::process(const resource_grid_reader&  grid,
-                                                     const format1_configuration& config)
+const pucch_format1_map<pucch_processor_result>&
+pucch_processor_impl::process(const resource_grid_reader& grid, const format1_batch_configuration& batch_config)
 {
-  [[maybe_unused]] std::string msg;
-  srsran_assert(handle_validation(msg, pdu_validator->is_valid(config)), "{}", msg);
+  const format1_common_configuration& common_config = batch_config.common_config;
+  format1_configuration               proc_config   = {.context              = {},
+                                                       .slot                 = common_config.slot,
+                                                       .bwp_size_rb          = common_config.bwp_size_rb,
+                                                       .bwp_start_rb         = common_config.bwp_start_rb,
+                                                       .cp                   = common_config.cp,
+                                                       .starting_prb         = common_config.starting_prb,
+                                                       .second_hop_prb       = common_config.second_hop_prb,
+                                                       .n_id                 = common_config.n_id,
+                                                       .nof_harq_ack         = 0,
+                                                       .ports                = common_config.ports,
+                                                       .initial_cyclic_shift = 0,
+                                                       .nof_symbols          = common_config.nof_symbols,
+                                                       .start_symbol_index   = common_config.start_symbol_index,
+                                                       .time_domain_occ      = 0};
 
-  // Prepare channel estimation.
-  dmrs_pucch_estimator::format1_configuration estimator_config;
-  estimator_config.slot                 = config.slot;
-  estimator_config.cp                   = config.cp;
-  estimator_config.start_symbol_index   = config.start_symbol_index;
-  estimator_config.nof_symbols          = config.nof_symbols;
-  estimator_config.starting_prb         = config.starting_prb + config.bwp_start_rb;
-  estimator_config.second_hop_prb       = transform_optional(config.second_hop_prb, std::plus(), config.bwp_start_rb);
-  estimator_config.initial_cyclic_shift = config.initial_cyclic_shift;
-  estimator_config.time_domain_occ      = config.time_domain_occ;
-  estimator_config.n_id                 = config.n_id;
-  estimator_config.ports.assign(config.ports.begin(), config.ports.end());
+  pucch_format1_map<unsigned> mux_harq_size;
 
-  // Unused channel estimator parameters for this format.
-  estimator_config.group_hopping = pucch_group_hopping::NEITHER;
+  for (const auto& this_pucch : batch_config.entries) {
+    unsigned initial_cyclic_shift = this_pucch.initial_cyclic_shift;
+    unsigned time_domain_occ      = this_pucch.time_domain_occ;
+    unsigned nof_harq_ack         = this_pucch.value.nof_harq_ack;
 
-  // Prepare channel estimate.
-  channel_estimate::channel_estimate_dimensions dims;
-  dims.nof_prb       = config.bwp_start_rb + config.bwp_size_rb;
-  dims.nof_symbols   = get_nsymb_per_slot(config.cp);
-  dims.nof_rx_ports  = config.ports.size();
-  dims.nof_tx_layers = pucch_constants::MAX_LAYERS;
+    proc_config.context              = this_pucch.value.context;
+    proc_config.initial_cyclic_shift = initial_cyclic_shift;
+    proc_config.time_domain_occ      = time_domain_occ;
+    proc_config.nof_harq_ack         = nof_harq_ack;
 
-  estimates.resize(dims);
+    [[maybe_unused]] std::string msg;
+    srsran_assert(handle_validation(msg, pdu_validator->is_valid(proc_config)), "{}", msg);
 
-  // Perform channel estimation.
-  channel_estimator->estimate(estimates, grid, estimator_config);
-
-  // Prepare detector configuration.
-  pucch_detector::format1_configuration detector_config;
-  detector_config.slot         = config.slot;
-  detector_config.cp           = config.cp;
-  detector_config.starting_prb = config.starting_prb + config.bwp_start_rb;
-  if (config.second_hop_prb.has_value()) {
-    detector_config.second_hop_prb.emplace(config.second_hop_prb.value() + config.bwp_start_rb);
+    mux_harq_size.insert(initial_cyclic_shift, time_domain_occ, nof_harq_ack);
   }
-  detector_config.start_symbol_index   = config.start_symbol_index;
-  detector_config.nof_symbols          = config.nof_symbols;
-  detector_config.group_hopping        = pucch_group_hopping::NEITHER;
-  detector_config.ports                = config.ports;
-  detector_config.beta_pucch           = 1.0F;
-  detector_config.time_domain_occ      = config.time_domain_occ;
-  detector_config.initial_cyclic_shift = config.initial_cyclic_shift;
-  detector_config.n_id                 = config.n_id;
-  detector_config.nof_harq_ack         = config.nof_harq_ack;
 
-  // Actual message detection.
-  pucch_detector::pucch_detection_result detection_result = detector->detect(grid, estimates, detector_config);
+  // Fill the detector configuration - recall that time_domain_occ, initial_cyclic_shift and nof_harq_ack are unused
+  // since given by mux_harq_size.
+  pucch_detector::format1_configuration detector_config = {
+      .slot                 = common_config.slot,
+      .cp                   = common_config.cp,
+      .starting_prb         = common_config.starting_prb + common_config.bwp_start_rb,
+      .second_hop_prb       = transform_optional(common_config.second_hop_prb, std::plus(), common_config.bwp_start_rb),
+      .start_symbol_index   = common_config.start_symbol_index,
+      .nof_symbols          = common_config.nof_symbols,
+      .group_hopping        = pucch_group_hopping::NEITHER,
+      .ports                = common_config.ports,
+      .beta_pucch           = 1.0F,
+      .time_domain_occ      = 0,
+      .initial_cyclic_shift = 0,
+      .n_id                 = common_config.n_id,
+      .nof_harq_ack         = 0};
 
-  // Prepare result.
-  pucch_processor_result result;
-  estimates.get_channel_state_information(result.csi);
-  result.message          = detection_result.uci_message;
-  result.detection_metric = detection_result.detection_metric;
+  const pucch_format1_map<pucch_detector::pucch_detection_result_csi>& detection_results =
+      detector->detect(grid, detector_config, mux_harq_size);
 
-  // Time alignment measurements are unreliable for PUCCH Format 1.
-  result.csi.reset_time_alignment();
+  // Clear all results from previous processing.
+  batch_results.clear();
 
-  return result;
+  for (const auto& this_result : detection_results) {
+    batch_results.insert(this_result.initial_cyclic_shift,
+                         this_result.time_domain_occ,
+                         {.csi              = this_result.value.csi,
+                          .message          = this_result.value.detection_result.uci_message,
+                          .detection_metric = this_result.value.detection_result.detection_metric});
+  }
+
+  return batch_results;
 }
 
 pucch_processor_result pucch_processor_impl::process(const resource_grid_reader&  grid,
@@ -416,10 +420,10 @@ error_type<std::string> pucch_pdu_validator_impl::is_valid(const pucch_processor
 
   // Second hop PRB allocation goes beyond the BWP.
   if (config.second_hop_prb.has_value()) {
-    if (config.second_hop_prb.value() >= config.bwp_size_rb) {
+    if (config.second_hop_prb >= config.bwp_size_rb) {
       return make_unexpected(
           fmt::format("Second hop PRB allocation within the BWP goes up to PRB {}, exceeding BWP size, i.e., {}.",
-                      config.second_hop_prb.value() + 1,
+                      *config.second_hop_prb + 1,
                       config.bwp_size_rb));
     }
   }
@@ -494,10 +498,10 @@ error_type<std::string> pucch_pdu_validator_impl::is_valid(const pucch_processor
 
   // Second hop PRB allocation goes beyond the BWP.
   if (config.second_hop_prb.has_value()) {
-    if (config.second_hop_prb.value() >= config.bwp_size_rb) {
+    if (config.second_hop_prb >= config.bwp_size_rb) {
       return make_unexpected(
           fmt::format("Second hop PRB allocation within the BWP goes up to PRB {}, exceeding BWP size, i.e., {}.",
-                      config.second_hop_prb.value() + 1,
+                      *config.second_hop_prb + 1,
                       config.bwp_size_rb));
     }
   }

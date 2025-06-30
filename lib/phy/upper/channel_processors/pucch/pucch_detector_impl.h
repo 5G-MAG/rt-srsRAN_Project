@@ -54,11 +54,11 @@ public:
   }
 
   // See interface for documentation.
-  pucch_detection_result detect(const resource_grid_reader&  grid,
-                                const channel_estimate&      estimates,
-                                const format1_configuration& config) override
+  const pucch_format1_map<pucch_detection_result_csi>& detect(const resource_grid_reader&        grid,
+                                                              const format1_configuration&       config,
+                                                              const pucch_format1_map<unsigned>& mux_map) override
   {
-    return detector_format1->detect(grid, estimates, config);
+    return detector_format1->detect(grid, config, mux_map);
   }
 
 private:

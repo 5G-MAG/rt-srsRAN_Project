@@ -24,18 +24,25 @@
 #include "../cu_cp_impl_interface.h"
 #include "../routines/amf_connection_removal_routine.h"
 #include "../routines/amf_connection_setup_routine.h"
+#include "../routines/amf_reconnection_routine.h"
 #include "srsran/cu_cp/cu_cp_configuration.h"
 #include "srsran/ngap/ngap.h"
 #include "srsran/ran/plmn_identity.h"
+#include "srsran/support/synchronization/baton.h"
+#include <chrono>
 #include <thread>
 
 using namespace srsran;
 using namespace srs_cu_cp;
 
-amf_connection_manager::amf_connection_manager(ngap_repository&       ngaps_,
-                                               task_executor&         cu_cp_exec_,
-                                               common_task_scheduler& common_task_sched_) :
+amf_connection_manager::amf_connection_manager(ngap_repository&                ngaps_,
+                                               cu_cp_amf_reconnection_handler& cu_cp_notifier_,
+                                               timer_manager&                  timers_,
+                                               task_executor&                  cu_cp_exec_,
+                                               common_task_scheduler&          common_task_sched_) :
   ngaps(ngaps_),
+  cu_cp_notifier(cu_cp_notifier_),
+  timers(timers_),
   cu_cp_exec(cu_cp_exec_),
   common_task_sched(common_task_sched_),
   logger(srslog::fetch_basic_logger("CU-CP"))
@@ -74,38 +81,81 @@ async_task<void> amf_connection_manager::disconnect_amf()
   return start_amf_connection_removal(ngaps, amfs_connected);
 }
 
+void amf_connection_manager::handle_amf_connection_loss(amf_index_t amf_index)
+{
+  amfs_connected.erase(amf_index);
+}
+
+void amf_connection_manager::reconnect_to_amf(amf_index_t               amf_index,
+                                              ue_manager*               ue_mng,
+                                              std::chrono::milliseconds amf_reconnection_retry_time)
+{
+  if (ngaps.find_ngap(amf_index) == nullptr) {
+    logger.debug("AMF index {} for reconnection not found", amf_index);
+    return;
+  }
+
+  ngaps.get_ngap_task_scheduler().handle_amf_async_task(
+      amf_index,
+      launch_async([this, amf_index, success = bool{false}, ue_mng, amf_reconnection_retry_time](
+                       coro_context<async_task<void>>& ctx) mutable {
+        CORO_BEGIN(ctx);
+
+        CORO_AWAIT_VALUE(success,
+                         start_amf_reconnection(*ngaps.find_ngap(amf_index),
+                                                timer_factory{timers, cu_cp_exec},
+                                                amf_reconnection_retry_time));
+
+        if (success) {
+          // Update PLMN lookups in NGAP repository after successful reconnection.
+          ngaps.update_plmn_lookup(amf_index);
+          ue_mng->remove_blocked_plmns(ngaps.find_ngap(amf_index)->get_ngap_context().get_supported_plmns());
+          amfs_connected.emplace(amf_index, true);
+          // Notrify CU-CP about the successful reconnection.
+          cu_cp_notifier.handle_amf_reconnection(amf_index);
+        } else {
+          logger.info("Failed to reconnect to AMF index {}", amf_index);
+        }
+
+        CORO_RETURN();
+      }));
+}
+
 void amf_connection_manager::stop()
 {
+  if (stopped) {
+    return;
+  }
+
+  baton               stop_baton;
+  scoped_baton_sender signal_stop{stop_baton};
+
   // Stop and delete AMF connections.
-  while (not cu_cp_exec.defer([this]() mutable {
-    common_task_sched.schedule_async_task(launch_async([this](coro_context<async_task<void>>& ctx) {
-      CORO_BEGIN(ctx);
-      // Disconnect AMF connection.
-      CORO_AWAIT(disconnect_amf());
+  while (not cu_cp_exec.defer([this, signal_stop = std::move(signal_stop)]() mutable {
+    common_task_sched.schedule_async_task(
+        launch_async([this, signal_stop = std::move(signal_stop)](coro_context<async_task<void>>& ctx) mutable {
+          CORO_BEGIN(ctx);
+          // Disconnect AMF connection.
+          CORO_AWAIT(disconnect_amf());
 
-      // AMF disconnection successfully finished.
-      // Dispatch main async task loop destruction via defer so that the current coroutine ends successfully.
-      while (not cu_cp_exec.defer([this]() {
-        std::lock_guard<std::mutex> lock(stop_mutex);
-        stop_completed = true;
-        stop_cvar.notify_one();
-      })) {
-        logger.warning("Unable to stop AMF Manager. Retrying...");
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      }
+          // AMF disconnection successfully finished.
+          // Dispatch main async task loop destruction via defer so that the current coroutine ends successfully.
+          while (not cu_cp_exec.defer([signal_stop = std::move(signal_stop)]() mutable { signal_stop.post(); })) {
+            logger.warning("Unable to stop AMF Manager. Retrying...");
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+          }
 
-      CORO_RETURN();
-    }));
+          CORO_RETURN();
+        }));
   })) {
     logger.warning("Failed to dispatch AMF stop task. Retrying...");
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 
   // Wait for AMF stop to complete.
-  {
-    std::unique_lock<std::mutex> lock(stop_mutex);
-    stop_cvar.wait(lock, [this] { return stop_completed; });
-  }
+  stop_baton.wait();
+
+  stopped = true;
 }
 
 bool amf_connection_manager::is_amf_connected(plmn_identity plmn) const

@@ -270,6 +270,30 @@ dl_pdsch_pdu unittest::build_valid_dl_pdsch_pdu()
 
   return pdu;
 }
+srsran::fapi::dl_prs_pdu unittest::build_valid_dl_prs_pdu()
+{
+  dl_prs_pdu pdu;
+
+  pdu.scs              = subcarrier_spacing::kHz30;
+  pdu.cp               = cyclic_prefix::NORMAL;
+  pdu.nid_prs          = 1;
+  pdu.pdu_index        = 0;
+  pdu.comb_size        = prs_comb_size::two;
+  pdu.comb_offset      = 0;
+  pdu.num_symbols      = prs_num_symbols::four;
+  pdu.first_symbol     = 8;
+  pdu.num_rbs          = 28;
+  pdu.start_rb         = 24;
+  pdu.prs_power_offset = -13.3;
+
+  // Precoding.
+  pdu.precoding_and_beamforming.prg_size = 276;
+  auto& prg                              = pdu.precoding_and_beamforming.prgs.emplace_back();
+  // Use identity matrix
+  prg.pm_index = 0;
+
+  return pdu;
+}
 
 dl_csi_rs_pdu unittest::build_valid_dl_csi_pdu()
 {
@@ -291,6 +315,8 @@ dl_csi_rs_pdu unittest::build_valid_dl_csi_pdu()
   pdu.power_control_offset_ss_profile_nr     = power_control_offset_ss::dB0;
   pdu.csi_rs_maintenance_v3.csi_rs_pdu_index = 0;
   pdu.precoding_and_beamforming              = build_valid_tx_precoding_and_beamforming_pdu();
+  pdu.bwp_size                               = 56U;
+  pdu.bwp_start                              = 60U;
 
   return pdu;
 }
@@ -324,7 +350,7 @@ dl_tti_request_message unittest::build_valid_dl_tti_request()
   msg.pdus.back().pdu_type   = dl_pdu_type::CSI_RS;
   msg.pdus.back().csi_rs_pdu = build_valid_dl_csi_pdu();
 
-  msg.is_last_message_in_slot = false;
+  msg.is_last_dl_message_in_slot = false;
 
   return msg;
 }
@@ -1117,6 +1143,7 @@ ul_srs_pdu unittest::build_valid_ul_srs_pdu()
   pdu.resource_type             = srs_resource_type::periodic;
   pdu.t_srs                     = srs_periodicity::sl4;
   pdu.t_offset                  = 2;
+  pdu.srs_params_v4.report_type = 0;
 
   return pdu;
 }
@@ -1277,12 +1304,14 @@ srs_indication_message unittest::build_valid_srs_indication()
   msg.control_length = 0;
 
   msg.pdus.emplace_back();
-  auto& pdu                    = msg.pdus.back();
-  pdu.handle                   = generate_handle();
-  pdu.rnti                     = generate_rnti();
-  pdu.timing_advance_offset    = generate_timing_advance_offset();
-  pdu.timing_advance_offset_ns = generate_timing_advance_offset_in_ns();
-  pdu.usage                    = srs_usage::codebook;
+  auto& pdu                             = msg.pdus.back();
+  pdu.handle                            = generate_handle();
+  pdu.rnti                              = generate_rnti();
+  pdu.timing_advance_offset             = generate_timing_advance_offset();
+  pdu.timing_advance_offset_ns          = generate_timing_advance_offset_in_ns();
+  pdu.usage                             = srs_usage::codebook;
+  pdu.report_type                       = srs_report_type::normalized_channel_iq_matrix;
+  pdu.positioning.coordinate_system_aoa = srs_coordinate_system_ul_aoa::local;
 
   return msg;
 }

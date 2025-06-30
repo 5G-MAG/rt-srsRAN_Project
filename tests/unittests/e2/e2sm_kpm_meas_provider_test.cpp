@@ -20,7 +20,7 @@
  *
  */
 
-#include "lib/e2/common/e2ap_asn1_packer.h"
+#include "common/e2ap_asn1_packer.h"
 #include "lib/e2/e2sm/e2sm_kpm/e2sm_kpm_cu_meas_provider_impl.h"
 #include "lib/e2/e2sm/e2sm_kpm/e2sm_kpm_du_meas_provider_impl.h"
 #include "tests/unittests/e2/common/e2_test_helpers.h"
@@ -92,20 +92,25 @@ protected:
     cfg                  = config_helpers::make_default_e2ap_config();
     cfg.e2sm_kpm_enabled = true;
 
-    gw   = std::make_unique<dummy_network_gateway_data_handler>();
-    pcap = std::make_unique<dummy_e2ap_pcap>();
+    gw                       = std::make_unique<dummy_sctp_association_sdu_notifier>();
+    pcap                     = std::make_unique<dummy_e2ap_pcap>();
+    e2_client                = std::make_unique<dummy_e2_connection_client>();
+    du_metrics               = std::make_unique<dummy_e2_du_metrics>();
+    f1ap_ue_id_mapper        = std::make_unique<dummy_f1ap_ue_id_translator>();
+    factory                  = timer_factory{timers, task_worker};
+    du_rc_param_configurator = std::make_unique<dummy_du_configurator>();
+    e2agent                  = create_e2_du_agent(cfg,
+                                 *e2_client,
+                                 du_metrics.get(),
+                                 f1ap_ue_id_mapper.get(),
+                                 du_rc_param_configurator.get(),
+                                 factory,
+                                 task_worker);
     if (external_pcap_writer) {
-      packer = std::make_unique<srsran::e2ap_asn1_packer>(*gw, *e2, *external_pcap_writer);
+      packer = std::make_unique<e2ap_asn1_packer>(*gw, e2agent->get_e2_interface(), *external_pcap_writer);
     } else {
-      packer = std::make_unique<srsran::e2ap_asn1_packer>(*gw, *e2, *pcap);
+      packer = std::make_unique<e2ap_asn1_packer>(*gw, e2agent->get_e2_interface(), *pcap);
     }
-    e2_client             = std::make_unique<dummy_e2_connection_client>();
-    du_metrics            = std::make_unique<dummy_e2_du_metrics>();
-    f1ap_ue_id_mapper     = std::make_unique<dummy_f1ap_ue_id_translator>();
-    factory               = timer_factory{timers, task_worker};
-    rc_param_configurator = std::make_unique<dummy_du_configurator>();
-    e2agent               = create_e2_du_agent(
-        cfg, *e2_client, du_metrics.get(), f1ap_ue_id_mapper.get(), rc_param_configurator.get(), factory, task_worker);
   }
 
   void TearDown() override
@@ -130,12 +135,13 @@ protected:
 
     cfg                  = config_helpers::make_default_e2ap_config();
     cfg.e2sm_kpm_enabled = true;
-    gw                   = std::make_unique<dummy_network_gateway_data_handler>();
+    gw                   = std::make_unique<dummy_sctp_association_sdu_notifier>();
     pcap                 = std::make_unique<dummy_e2ap_pcap>();
+    e2                   = std::make_unique<dummy_e2_interface>();
     if (external_pcap_writer) {
-      packer = std::make_unique<srsran::e2ap_asn1_packer>(*gw, *e2, *external_pcap_writer);
+      packer = std::make_unique<e2ap_asn1_packer>(*gw, *e2, *external_pcap_writer);
     } else {
-      packer = std::make_unique<srsran::e2ap_asn1_packer>(*gw, *e2, *pcap);
+      packer = std::make_unique<e2ap_asn1_packer>(*gw, *e2, *pcap);
     }
   }
 
@@ -151,20 +157,20 @@ protected:
     timers.tick();
     task_worker.run_pending_tasks();
   }
-  e2ap_configuration                                  cfg = {};
-  timer_factory                                       factory;
-  timer_manager                                       timers;
-  std::unique_ptr<dummy_network_gateway_data_handler> gw;
-  std::unique_ptr<e2_interface>                       e2;
-  std::unique_ptr<dummy_e2ap_pcap>                    pcap;
-  std::unique_ptr<srsran::e2ap_asn1_packer>           packer;
-  std::unique_ptr<e2sm_interface>                     e2sm_iface;
-  std::unique_ptr<e2sm_handler>                       e2sm_packer;
-  std::unique_ptr<e2_subscription_manager>            e2_subscription_mngr;
-  manual_task_worker                                  task_worker{64};
-  std::unique_ptr<dummy_e2_pdu_notifier>              msg_notifier;
-  std::unique_ptr<dummy_e2_connection_client>         e2_client;
-  srslog::basic_logger&                               test_logger = srslog::fetch_basic_logger("TEST");
+  e2ap_configuration                                   cfg = {};
+  timer_factory                                        factory;
+  timer_manager                                        timers;
+  std::unique_ptr<dummy_sctp_association_sdu_notifier> gw;
+  std::unique_ptr<e2_interface>                        e2;
+  std::unique_ptr<dummy_e2ap_pcap>                     pcap;
+  std::unique_ptr<e2ap_asn1_packer>                    packer;
+  std::unique_ptr<e2sm_interface>                      e2sm_iface;
+  std::unique_ptr<e2sm_handler>                        e2sm_packer;
+  std::unique_ptr<e2_subscription_manager>             e2_subscription_mngr;
+  manual_task_worker                                   task_worker{64};
+  std::unique_ptr<dummy_e2_pdu_notifier>               msg_notifier;
+  std::unique_ptr<dummy_e2_connection_client>          e2_client;
+  srslog::basic_logger&                                test_logger = srslog::fetch_basic_logger("TEST");
 };
 
 class e2sm_kpm_du_meas_provider_test : public e2sm_kpm_meas_provider_test
@@ -221,7 +227,6 @@ rlc_metrics generate_rlc_metrics(uint32_t ue_idx, uint32_t bearer_id)
   rlc_metric.rx.num_lost_pdus      = 1;
   rlc_metric.rx.num_malformed_pdus = 0;
 
-  rlc_metric.tx.tx_low.mode                          = rlc_mode::am;
   rlc_metric.tx.tx_high.num_sdus                     = 10;
   rlc_metric.tx.tx_high.num_sdu_bytes                = rlc_metric.tx.tx_high.num_sdus * 1000;
   rlc_metric.tx.tx_high.num_dropped_sdus             = 1;
@@ -229,9 +234,11 @@ rlc_metrics generate_rlc_metrics(uint32_t ue_idx, uint32_t bearer_id)
   rlc_metric.tx.tx_high.num_discard_failures         = 0;
   rlc_metric.tx.tx_low.num_pdus_no_segmentation      = 8;
   rlc_metric.tx.tx_low.num_pdu_bytes_no_segmentation = rlc_metric.tx.tx_low.num_pdus_no_segmentation * 1000;
-  rlc_metric.tx.tx_low.mode_specific.am.num_pdus_with_segmentation = 2;
-  rlc_metric.tx.tx_low.mode_specific.am.num_pdu_bytes_with_segmentation =
-      rlc_metric.tx.tx_low.mode_specific.am.num_pdus_with_segmentation * 1000;
+
+  rlc_metric.tx.tx_low.mode_specific = rlc_am_tx_metrics_lower{};
+  auto& am                           = std::get<rlc_am_tx_metrics_lower>(rlc_metric.tx.tx_low.mode_specific);
+  am.num_pdus_with_segmentation      = 2;
+  am.num_pdu_bytes_with_segmentation = am.num_pdus_with_segmentation * 1000;
 
   return rlc_metric;
 }
@@ -253,9 +260,9 @@ scheduler_cell_metrics generate_sched_metrics(uint32_t                          
     scheduler_ue_metrics ue_metrics = {0};
     ue_metrics.pci                  = 1;
     ue_metrics.rnti                 = static_cast<rnti_t>(0x1000 + ue_idx);
-    ue_metrics.tot_dl_prbs_used =
+    ue_metrics.tot_pdsch_prbs_used =
         (ue_idx < dl_grants.size()) ? std::accumulate(dl_grants[ue_idx].begin(), dl_grants[ue_idx].end(), 0) : 0;
-    ue_metrics.tot_ul_prbs_used =
+    ue_metrics.tot_pusch_prbs_used =
         (ue_idx < ul_grants.size()) ? std::accumulate(ul_grants[ue_idx].begin(), ul_grants[ue_idx].end(), 0) : 0;
     sched_metric.ue_metrics.push_back(ue_metrics);
   }
@@ -294,10 +301,9 @@ TEST_P(e2sm_kpm_du_meas_provider_test, e2sm_kpm_ind_three_drb_rlc_metrics)
   uint32_t              nof_meas_data = 5;
   uint32_t              nof_records   = 1;
 
-  uint32_t              expected_drop_rate       = 10;
-  uint32_t              expected_ul_success_rate = 80;
-  float                 expected_dl_throughput   = 10000 / 1e3 * 8;
-  float                 expected_ul_throughput   = 5000 / 1e3 * 8;
+  uint32_t              expected_drop_rate     = 10;
+  float                 expected_dl_throughput = 10000 / 1e3 * 8;
+  float                 expected_ul_throughput = 5000 / 1e3 * 8;
   std::vector<uint32_t> expected_dl_vol;
   std::vector<uint32_t> expected_ul_vol;
 
@@ -332,8 +338,6 @@ TEST_P(e2sm_kpm_du_meas_provider_test, e2sm_kpm_ind_three_drb_rlc_metrics)
   meas_info_item.meas_type.set_meas_name().from_string("DRB.RlcSduTransmittedVolumeDL");
   subscript_info.meas_info_list.push_back(meas_info_item);
   meas_info_item.meas_type.set_meas_name().from_string("DRB.RlcSduTransmittedVolumeUL");
-  subscript_info.meas_info_list.push_back(meas_info_item);
-  meas_info_item.meas_type.set_meas_name().from_string("DRB.PacketSuccessRateUlgNBUu");
   subscript_info.meas_info_list.push_back(meas_info_item);
   meas_info_item.meas_type.set_meas_name().from_string("DRB.UEThpDl");
   subscript_info.meas_info_list.push_back(meas_info_item);
@@ -399,13 +403,10 @@ TEST_P(e2sm_kpm_du_meas_provider_test, e2sm_kpm_ind_three_drb_rlc_metrics)
         TESTASSERT_EQ((i + 1) * expected_ul_vol[ue_idx], meas_record[2].integer());
       }
       if (nof_records >= 4) {
-        TESTASSERT_EQ(expected_ul_success_rate, meas_record[3].integer());
+        TESTASSERT_EQ(expected_dl_throughput, meas_record[3].real().value);
       }
       if (nof_records >= 5) {
-        TESTASSERT_EQ(expected_dl_throughput, meas_record[4].real().value);
-      }
-      if (nof_records >= 6) {
-        TESTASSERT_EQ(expected_ul_throughput, meas_record[5].real().value);
+        TESTASSERT_EQ(expected_ul_throughput, meas_record[4].real().value);
       }
     }
   }

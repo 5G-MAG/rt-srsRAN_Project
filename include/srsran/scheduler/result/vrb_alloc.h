@@ -23,15 +23,11 @@
 #pragma once
 
 #include "srsran/adt/bounded_bitset.h"
+#include "srsran/ran/resource_allocation/rb_bitmap.h"
 #include "srsran/ran/resource_allocation/rb_interval.h"
-#include "srsran/ran/resource_allocation/sliv.h"
-#include "srsran/ran/resource_block.h"
 #include "srsran/scheduler/result/resource_block_group.h"
 
 namespace srsran {
-
-/// Bitset of PRBs with size up to 275.
-using prb_bitmap = bounded_bitset<MAX_NOF_PRBS, true>;
 
 /// VRB Resource Allocation that can be of allocation type 0 (RBGs) or 1 (VRB range).
 struct vrb_alloc {
@@ -146,12 +142,6 @@ private:
     }
   } alloc;
 };
-
-inline prb_bitmap& operator|=(prb_bitmap& prb_bits, const prb_interval& grant)
-{
-  prb_bits.fill(grant.start(), grant.stop());
-  return prb_bits;
-}
 
 /// Converts RBG bitmap to PRB bitmap given a BWP PRB dimensions and the nominal RBG-size.
 /// \remark See TS 38.214, Sections 5.1.2.2.1 and 6.1.2.2.1.

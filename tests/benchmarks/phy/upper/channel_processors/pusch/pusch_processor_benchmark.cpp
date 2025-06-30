@@ -29,10 +29,11 @@
 #include "srsran/phy/upper/channel_processors/pusch/pusch_processor_result_notifier.h"
 #include "srsran/ran/sch/tbs_calculator.h"
 #include "srsran/support/benchmark_utils.h"
-#include "srsran/support/complex_normal_random.h"
 #include "srsran/support/executors/task_worker_pool.h"
 #include "srsran/support/executors/unique_thread.h"
+#include "srsran/support/math/complex_normal_random.h"
 #include "srsran/support/math/math_utils.h"
+#include "srsran/support/rtsan.h"
 #include "srsran/support/srsran_test.h"
 #ifdef HWACC_PUSCH_ENABLED
 #include "srsran/hal/dpdk/bbdev/bbdev_acc.h"
@@ -66,7 +67,7 @@ public:
   void wait_for_completion()
   {
     while (!completed.load()) {
-      std::this_thread::sleep_for(std::chrono::microseconds(1));
+      std::this_thread::sleep_for(std::chrono::nanoseconds(100));
     }
   }
 
@@ -111,6 +112,9 @@ benchmark_modes to_benchmark_mode(const char* string)
 // Maximum number of threads given the CPU hardware.
 static const unsigned max_nof_threads = std::thread::hardware_concurrency();
 
+// Executor queue type.
+static constexpr concurrent_queue_policy queue_policy = concurrent_queue_policy::lockfree_mpmc;
+
 // General test configuration parameters.
 static uint64_t                           nof_repetitions             = 10;
 static uint64_t                           nof_threads                 = max_nof_threads;
@@ -126,10 +130,16 @@ static unsigned                           nof_csi_part2               = 0;
 static dmrs_type                          dmrs                        = dmrs_type::TYPE1;
 static unsigned                           nof_cdm_groups_without_data = 2;
 static bounded_bitset<MAX_NSYMB_PER_SLOT> dmrs_symbol_mask =
-    {false, false, true, false, false, false, false, false, false, false, false, false, false, false};
-static unsigned                                                                          nof_pusch_decoder_threads = 0;
-static std::unique_ptr<task_worker_pool<concurrent_queue_policy::locking_mpmc>>          worker_pool = nullptr;
-static std::unique_ptr<task_worker_pool_executor<concurrent_queue_policy::locking_mpmc>> executor    = nullptr;
+    {false, false, true, false, false, false, false, false, false, false, false, true, false, false};
+static constexpr channel_equalizer_algorithm_type equalizer_algorithm_type = channel_equalizer_algorithm_type::zf;
+static constexpr port_channel_estimator_fd_smoothing_strategy fd_smoothing_strategy =
+    port_channel_estimator_fd_smoothing_strategy::filter;
+static constexpr port_channel_estimator_td_interpolation_strategy td_interpolation_strategy =
+    port_channel_estimator_td_interpolation_strategy::interpolate;
+static constexpr bool                                           compensate_cfo            = true;
+static unsigned                                                 nof_pusch_decoder_threads = 0;
+static std::unique_ptr<task_worker_pool<queue_policy>>          worker_pool               = nullptr;
+static std::unique_ptr<task_worker_pool_executor<queue_policy>> executor                  = nullptr;
 
 // Thread shared variables.
 static std::atomic<bool>     thread_quit   = {};
@@ -137,11 +147,11 @@ static std::atomic<int>      pending_count = {0};
 static std::atomic<unsigned> finish_count  = {0};
 
 #ifdef HWACC_PUSCH_ENABLED
-static bool                 dedicated_queue = true;
-static bool                 ext_softbuffer  = true;
-static bool                 std_out_sink    = true;
-static srslog::basic_levels hal_log_level   = srslog::basic_levels::error;
-static std::string          eal_arguments   = "";
+static bool                 dedicated_queue  = true;
+static bool                 force_local_harq = false;
+static bool                 std_out_sink     = true;
+static srslog::basic_levels hal_log_level    = srslog::basic_levels::error;
+static std::string          eal_arguments    = "";
 #endif // HWACC_PUSCH_ENABLED
 
 // Test profile structure, initialized with default profile values.
@@ -236,7 +246,7 @@ static void usage(const char* prog)
 #ifdef HWACC_PUSCH_ENABLED
   fmt::print("\t-w       Force shared hardware-queue use [Default {}]\n",
              dedicated_queue ? "dedicated_queue" : "shared_queue");
-  fmt::print("\t-x       Use the host's memory for the soft-buffer [Default {}]\n", !ext_softbuffer);
+  fmt::print("\t-x       Force using the host memory to implement the soft-buffer [Default {}]\n", force_local_harq);
   fmt::print("\t-y       Force logging output written to a file [Default {}]\n", std_out_sink ? "std_out" : "file");
   fmt::print("\t-z       Set logging level for the HAL [Default {}]\n", fmt::underlying(hal_log_level));
   fmt::print("\teal_args EAL arguments\n");
@@ -320,7 +330,7 @@ static int parse_args(int argc, char** argv)
         dedicated_queue = false;
         break;
       case 'x':
-        ext_softbuffer = false;
+        force_local_harq = true;
         break;
       case 'y':
         std_out_sink = false;
@@ -477,7 +487,7 @@ static std::shared_ptr<hal::hw_accelerator_pusch_dec_factory> create_hw_accelera
   hal::bbdev_hwacc_pusch_dec_factory_configuration hw_decoder_config;
   hw_decoder_config.acc_type            = "acc100";
   hw_decoder_config.bbdev_accelerator   = bbdev_accelerator;
-  hw_decoder_config.ext_softbuffer      = ext_softbuffer;
+  hw_decoder_config.force_local_harq    = force_local_harq;
   hw_decoder_config.harq_buffer_context = harq_buffer_context;
   hw_decoder_config.dedicated_queue     = dedicated_queue;
 
@@ -528,8 +538,15 @@ static std::shared_ptr<pusch_processor_factory> create_pusch_processor_factory()
   TESTASSERT(low_papr_sequence_gen_factory);
 
   // Create demodulator mapper factory.
-  std::shared_ptr<channel_modulation_factory> chan_modulation_factory = create_channel_modulation_sw_factory();
-  TESTASSERT(chan_modulation_factory);
+  std::shared_ptr<demodulation_mapper_factory> chan_demodulation_factory = create_demodulation_mapper_factory();
+  TESTASSERT(chan_demodulation_factory);
+
+  // Create EVM calculator mapper factory.
+  std::shared_ptr<evm_calculator_factory> evm_calc_factory = nullptr;
+  if (enable_evm) {
+    evm_calc_factory = create_evm_calculator_factory();
+    TESTASSERT(evm_calc_factory);
+  }
 
   // Create CRC calculator factory.
   std::shared_ptr<crc_calculator_factory> crc_calc_factory = create_crc_calculator_factory_sw("auto");
@@ -555,11 +572,17 @@ static std::shared_ptr<pusch_processor_factory> create_pusch_processor_factory()
 
   // Create DM-RS for PUSCH channel estimator.
   std::shared_ptr<dmrs_pusch_estimator_factory> dmrs_pusch_chan_estimator_factory =
-      create_dmrs_pusch_estimator_factory_sw(prg_factory, low_papr_sequence_gen_factory, port_chan_estimator_factory);
+      create_dmrs_pusch_estimator_factory_sw(prg_factory,
+                                             low_papr_sequence_gen_factory,
+                                             port_chan_estimator_factory,
+                                             fd_smoothing_strategy,
+                                             td_interpolation_strategy,
+                                             compensate_cfo);
   TESTASSERT(dmrs_pusch_chan_estimator_factory);
 
   // Create channel equalizer factory.
-  std::shared_ptr<channel_equalizer_factory> eq_factory = create_channel_equalizer_generic_factory();
+  std::shared_ptr<channel_equalizer_factory> eq_factory =
+      create_channel_equalizer_generic_factory(equalizer_algorithm_type);
   TESTASSERT(eq_factory);
 
   std::shared_ptr<transform_precoder_factory> precoding_factory =
@@ -568,7 +591,7 @@ static std::shared_ptr<pusch_processor_factory> create_pusch_processor_factory()
 
   // Create PUSCH demodulator factory.
   std::shared_ptr<pusch_demodulator_factory> pusch_demod_factory = create_pusch_demodulator_factory_sw(
-      eq_factory, precoding_factory, chan_modulation_factory, prg_factory, MAX_RB, enable_evm, false);
+      eq_factory, precoding_factory, chan_demodulation_factory, evm_calc_factory, prg_factory, MAX_RB, false);
   TESTASSERT(pusch_demod_factory);
 
   // Create PUSCH demultiplexer factory.
@@ -578,9 +601,8 @@ static std::shared_ptr<pusch_processor_factory> create_pusch_processor_factory()
   // Create worker pool and exectuors for concurrent PUSCH processor implementations.
   // Note that currently hardware-acceleration is limited to "generic" processor types.
   if (nof_pusch_decoder_threads != 0) {
-    worker_pool = std::make_unique<task_worker_pool<concurrent_queue_policy::locking_mpmc>>(
-        "decoder", nof_pusch_decoder_threads, 1024);
-    executor = std::make_unique<task_worker_pool_executor<concurrent_queue_policy::locking_mpmc>>(*worker_pool);
+    worker_pool = std::make_unique<task_worker_pool<queue_policy>>("decoder", nof_pusch_decoder_threads, 1024);
+    executor    = std::make_unique<task_worker_pool_executor<queue_policy>>(*worker_pool);
   }
 
   // Create PUSCH decoder factory.
@@ -682,7 +704,7 @@ static void thread_process(pusch_processor&              proc,
       // Wait for pending to non-negative.
       while (pending_count.load() <= 0) {
         // Sleep.
-        std::this_thread::sleep_for(std::chrono::microseconds(1));
+        std::this_thread::sleep_for(std::chrono::nanoseconds(100));
 
         // Quit if signaled.
         if (thread_quit) {
@@ -698,7 +720,7 @@ static void thread_process(pusch_processor&              proc,
     unique_rx_buffer rm_buffer = buffer_pool->get_pool().reserve(config.slot, buffer_id, nof_codeblocks, true);
 
     // Process PDU.
-    proc.process(data, std::move(rm_buffer), result_notifier, grid, config);
+    [&]() SRSRAN_RTSAN_NONBLOCKING { proc.process(data, std::move(rm_buffer), result_notifier, grid, config); }();
 
     // Wait for finish the task.
     result_notifier.wait_for_completion();
@@ -789,7 +811,7 @@ int main(int argc, char** argv)
   std::generate(random_re.begin(), random_re.end(), [&rgen, &c_normal_dist]() { return c_normal_dist(rgen); });
 
   // Generate a RE mask and set all elements to true.
-  bounded_bitset<NRE* MAX_RB> re_mask = ~bounded_bitset<NRE * MAX_RB>(grid_nof_subcs);
+  bounded_bitset<NRE * MAX_RB> re_mask = ~bounded_bitset<NRE * MAX_RB>(grid_nof_subcs);
 
   // Fill the grid with the random RE.
   span<const cf_t> re_view(random_re);
@@ -835,7 +857,7 @@ int main(int argc, char** argv)
 
     // Wait for finish thread init.
     while (pending_count.load() != -static_cast<int>(nof_threads)) {
-      std::this_thread::sleep_for(std::chrono::microseconds(1));
+      std::this_thread::sleep_for(std::chrono::nanoseconds(100));
     }
 
     // Calculate the peak throughput, considering that the number of bits is for a slot.
@@ -861,7 +883,7 @@ int main(int argc, char** argv)
 
       // Wait for finish.
       while (finish_count.load() != (nof_threads * batch_size_per_thread)) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::nanoseconds(100));
       }
     });
 

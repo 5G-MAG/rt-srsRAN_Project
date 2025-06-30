@@ -21,11 +21,20 @@
  */
 
 #include "cu_up_unit_config_yaml_writer.h"
-#include "apps/services/network/udp_config_yaml_writer.h"
+#include "apps/helpers/metrics/metrics_config_yaml_writer.h"
+#include "apps/helpers/network/udp_config_yaml_writer.h"
 #include "cu_up_unit_config.h"
 #include "srsran/adt/span.h"
 
 using namespace srsran;
+
+static void fill_cu_up_ngu_gtpu_section(YAML::Node& node, const cu_up_unit_ngu_gtpu_config& config)
+{
+  auto gtpu_node                     = node["gtpu"];
+  gtpu_node["gtpu_queue_size"]       = config.gtpu_queue_size;
+  gtpu_node["gtpu_reordering_timer"] = config.gtpu_reordering_timer_ms;
+  gtpu_node["rate_limiter_period"]   = config.rate_limiter_period.count();
+}
 
 static void fill_cu_up_ngu_socket_entry(YAML::Node& node, const cu_up_unit_ngu_socket_config& config)
 {
@@ -48,14 +57,21 @@ static void fill_cu_up_ngu_socket_section(YAML::Node node, const std::vector<cu_
 static void fill_cu_up_ngu_section(YAML::Node node, const cu_up_unit_ngu_config& config)
 {
   node["no_core"] = config.no_core;
-
+  fill_cu_up_ngu_gtpu_section(node, config.gtpu_cfg);
   fill_cu_up_ngu_socket_section(node, config.ngu_socket_cfg);
+}
+
+static void fill_cu_up_metrics_layers_section(YAML::Node node, const cu_up_unit_metrics_layer_config& config)
+{
+  node["enable_pdcp"] = config.enable_pdcp;
 }
 
 static void fill_cu_up_metrics_section(YAML::Node node, const cu_up_unit_metrics_config& config)
 {
-  node["cu_up_statistics_report_period"] = config.cu_up_statistics_report_period;
-  node["pdcp_report_period"]             = config.pdcp.report_period;
+  auto perdiodicity_node                   = node["periodicity"];
+  perdiodicity_node["cu_up_report_period"] = config.cu_up_report_period;
+
+  fill_cu_up_metrics_layers_section(node["layers"], config.layers_cfg);
 }
 
 static void fill_cu_up_pcap_section(YAML::Node node, const cu_up_unit_pcap_config& config)
@@ -78,14 +94,9 @@ static void fill_cu_up_log_section(YAML::Node node, const cu_up_unit_logger_conf
   node["hex_max_size"] = config.hex_max_size;
 }
 
-static YAML::Node build_cu_up_section(const cu_up_unit_config& config)
+static void fill_cu_up_section(YAML::Node node, const cu_up_unit_config& config)
 {
-  YAML::Node node;
-
-  node["gtpu_queue_size"] = config.gtpu_queue_size;
-  node["warn_on_drop"]    = config.warn_on_drop;
-
-  return node;
+  node["warn_on_drop"] = config.warn_on_drop;
 }
 
 static void fill_cu_up_f1_qos_section(YAML::Node node, const cu_cp_unit_f1u_config& config)
@@ -127,11 +138,18 @@ static void fill_cu_up_qos_section(YAML::Node node, span<const cu_up_unit_qos_co
 
 void srsran::fill_cu_up_config_in_yaml_schema(YAML::Node& node, const cu_up_unit_config& config)
 {
-  node["cu_up"] = build_cu_up_section(config);
-  fill_cu_up_log_section(node["log"], config.loggers);
-  fill_cu_up_pcap_section(node["pcap"], config.pcap_cfg);
-  fill_cu_up_metrics_section(node["metrics"], config.metrics);
-  fill_cu_up_ngu_section(node["ngu"], config.ngu_cfg);
+  node["gnb_id"]            = config.gnb_id.id;
+  node["gnb_id_bit_length"] = static_cast<unsigned>(config.gnb_id.bit_length);
+  node["gnb_cu_up_id"]      = static_cast<uint64_t>(config.gnb_cu_up_id);
 
-  fill_cu_up_qos_section(node, config.qos_cfg);
+  app_helpers::fill_metrics_appconfig_in_yaml_schema(node, config.metrics.common_metrics_cfg);
+
+  YAML::Node cu_up_node = node["cu_up"];
+  fill_cu_up_section(cu_up_node, config);
+  fill_cu_up_log_section(cu_up_node["log"], config.loggers);
+  fill_cu_up_pcap_section(cu_up_node["pcap"], config.pcap_cfg);
+  fill_cu_up_metrics_section(cu_up_node["metrics"], config.metrics);
+  fill_cu_up_ngu_section(cu_up_node["ngu"], config.ngu_cfg);
+
+  fill_cu_up_qos_section(cu_up_node, config.qos_cfg);
 }

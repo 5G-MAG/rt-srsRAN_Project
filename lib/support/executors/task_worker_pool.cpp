@@ -60,7 +60,7 @@ detail::base_worker_pool::base_worker_pool(unsigned                             
 
   if (cpu_masks.size() > 1) {
     // An array with a single mask is allowed, otherwise the number of masks must be equal to the number of workers.
-    report_error_if_not(cpu_masks.size() == nof_workers_, "Wrong array of CPU masks provided");
+    report_error_if_not(cpu_masks.size() == nof_workers_, "Wrong array of CPU masks provided for {}", worker_pool_name);
   }
 
   // Task dispatched to workers of the pool.
@@ -262,3 +262,4 @@ void task_worker_pool<QueuePolicy>::wait_pending_tasks()
 // Explicit specializations of the task_worker_pool.
 template class srsran::task_worker_pool<concurrent_queue_policy::lockfree_mpmc>;
 template class srsran::task_worker_pool<concurrent_queue_policy::locking_mpmc>;
+template class srsran::task_worker_pool<concurrent_queue_policy::moodycamel_lockfree_mpmc>;

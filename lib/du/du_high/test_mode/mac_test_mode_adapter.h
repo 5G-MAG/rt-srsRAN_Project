@@ -89,7 +89,7 @@ public:
 
   void on_cell_results_completion(slot_point slot) override { result_notifier.on_cell_results_completion(slot); }
 
-  void handle_slot_indication(slot_point sl_tx) override;
+  void handle_slot_indication(const mac_cell_timing_context& context) override;
   void handle_error_indication(slot_point sl_tx, error_event event) override;
 
   void handle_crc(const mac_crc_indication_message& msg) override;
@@ -103,10 +103,10 @@ private:
     // Locks a given slot.
     // Note: In normal scenarios, this mutex will have no contention, as the times of write and read are separate.
     // However, if the ring buffer is too small, this may stop being true.
-    mutable std::mutex         mutex;
-    slot_point                 slot;
-    std::vector<pucch_info>    pucchs;
-    std::vector<ul_sched_info> puschs;
+    mutable std::mutex                                    mutex;
+    slot_point                                            slot;
+    static_vector<pucch_info, MAX_PUCCH_PDUS_PER_SLOT>    pucchs;
+    static_vector<ul_sched_info, MAX_PUSCH_PDUS_PER_SLOT> puschs;
   };
 
   void forward_uci_ind_to_mac(const mac_uci_indication_message& uci_msg);
@@ -144,9 +144,11 @@ public:
   void connect(std::unique_ptr<mac_interface> mac_ptr);
 
   // mac_cell_manager
-  void                 add_cell(const mac_cell_creation_request& cell_cfg) override;
+  mac_cell_controller& add_cell(const mac_cell_creation_request& cell_cfg) override;
   void                 remove_cell(du_cell_index_t cell_index) override;
   mac_cell_controller& get_cell_controller(du_cell_index_t cell_index) override;
+
+  mac_cell_time_mapper& get_time_mapper(du_cell_index_t cell_index) override;
 
   mac_cell_rach_handler& get_rach_handler(du_cell_index_t cell_index) override
   {

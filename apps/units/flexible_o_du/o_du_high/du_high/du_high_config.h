@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include "apps/services/logger/metrics_logger_appconfig.h"
+#include "apps/helpers/metrics/metrics_config.h"
 #include "apps/services/worker_manager/os_sched_affinity_manager.h"
 #include "srsran/ran/band_helper.h"
 #include "srsran/ran/bs_channel_bandwidth.h"
@@ -61,8 +61,6 @@ struct du_high_unit_logger_config {
   srslog::basic_levels f1u_level  = srslog::basic_levels::warning;
   srslog::basic_levels gtpu_level = srslog::basic_levels::warning;
 
-  metrics_logger_appconfig metrics_level;
-
   /// Maximum number of bytes to write when dumping hex arrays.
   int hex_max_size = 0;
   /// Set to true to log broadcasting messages and all PRACH opportunities.
@@ -77,6 +75,8 @@ struct du_high_unit_logger_config {
 struct du_high_unit_ta_sched_expert_config {
   /// Measurements periodicity in nof. slots over which the new Timing Advance Command is computed.
   unsigned ta_measurement_slot_period = 80;
+  ///  Delay in nof. slots between issuing the TA_CMD and starting TA measurements.
+  unsigned ta_measurement_slot_prohibit_period = 0;
   /// Timing Advance Command (T_A) offset threshold above which Timing Advance Command is triggered. Possible valid
   /// values {0,...,32}. If set to less than zero, issuing of TA Command is disabled.
   /// \remark T_A is defined in TS 38.213, clause 4.2.
@@ -90,7 +90,7 @@ struct du_high_unit_ta_sched_expert_config {
 /// Scheduler expert configuration.
 struct du_high_unit_scheduler_expert_config {
   /// Policy scheduler expert parameters.
-  policy_scheduler_expert_config policy_sched_expert_cfg = time_rr_scheduler_expert_config{};
+  std::optional<policy_scheduler_expert_config> policy_sched_expert_cfg;
   /// Timing Advance MAC CE scheduling expert configuration.
   du_high_unit_ta_sched_expert_config ta_sched_cfg;
 };
@@ -101,6 +101,10 @@ struct du_high_unit_drx_config {
   unsigned on_duration_timer = 10;
   /// drx-InactivityTimer in milliseconds, as per TS 38.331.
   unsigned inactivity_timer = 0;
+  /// drx-RetransmissionTimerDL in slots, as per TS 38.331.
+  unsigned retx_timer_dl = 0;
+  /// drx-RetransmissionTimerUL in slots, as per TS 38.331.
+  unsigned retx_timer_ul = 0;
   /// drx-LongCycle in milliseconds, as per TS 38.331. The value 0 is used for disabling DRX.
   unsigned long_cycle = 0;
 };
@@ -140,8 +144,11 @@ struct du_high_unit_pdsch_config {
   unsigned fixed_sib1_mcs = 5;
   /// Number of UE DL HARQ processes.
   unsigned nof_harqs = 16;
-  /// Maximum number of times an HARQ process can be retransmitted, before it gets discarded.
+  /// Maximum number of times a DL HARQ process can be retransmitted, before it gets discarded.
   unsigned max_nof_harq_retxs = 4;
+  /// \brief Maximum time, in milliseconds, between a HARQ NACK and the scheduler allocating the respective HARQ for
+  /// retransmission. If this timeout is exceeded, the HARQ process is discarded.
+  unsigned harq_retx_timeout = 100;
   /// Maximum number of consecutive DL KOs before an RLF is reported.
   unsigned max_consecutive_kos = 100;
   /// Redundancy version sequence to use. Each element can have one of the following values: {0, 1, 2, 3}.
@@ -160,6 +167,14 @@ struct du_high_unit_pdsch_config {
   unsigned max_pdschs_per_slot = MAX_PDSCH_PDUS_PER_SLOT;
   /// Maximum number of DL or UL PDCCH allocation attempts per slot.
   unsigned max_pdcch_alloc_attempts_per_slot = std::max(MAX_DL_PDCCH_PDUS_PER_SLOT, MAX_UL_PDCCH_PDUS_PER_SLOT);
+  /// Number of UEs pre-selected for PDSCH newTx scheduling in each slot.
+  unsigned nof_preselected_newtx_ues = 32;
+  /// \brief Period in slots at which the pre-selected newTx UE candidates are recomputed.
+  ///
+  /// Increasing this value will mean that the same list of UE candidates is used for more slots. Reducing this value
+  /// may improve latency but it will reduce the efficiency of UCI multiplexing, as there will be less HARQ-ACK bits
+  /// per slot.
+  unsigned newtx_ues_selection_period = 3;
   /// CQI offset increment used in outer loop link adaptation (OLLA) algorithm. If set to zero, OLLA is disabled.
   float olla_cqi_inc{0.001};
   /// DL Target BLER to be achieved with OLLA.
@@ -180,6 +195,11 @@ struct du_high_unit_pdsch_config {
   uint8_t harq_la_ri_drop_threshold{1};
   /// Position for additional DM-RS in DL, see Tables 7.4.1.1.2-3 and 7.4.1.1.2-4 in TS 38.211.
   unsigned dmrs_add_pos{2};
+  /// \brief Bundle size used for interleaving.
+  ///
+  /// Controls the bundle size used for interleaving for PDSCH transmissions scheduled on dedicated search spaces. If
+  /// set to zero, interleaving will be disabled. All other PDSCH transmissions will be always non-interleaved.
+  vrb_to_prb::mapping_type interleaving_bundle_size{vrb_to_prb::mapping_type::non_interleaved};
 };
 
 /// PUSCH application configuration.
@@ -190,6 +210,11 @@ struct du_high_unit_pusch_config {
   /// Maximum modulation and coding scheme index for C-RNTI PUSCH allocations. To set a fixed MCS, set \c min_ue_mcs
   /// equal to the \c max_ue_mcs.
   unsigned max_ue_mcs = 28;
+  /// Maximum number of times a UL HARQ process can be retransmitted, before it gets discarded.
+  unsigned max_nof_harq_retxs = 4;
+  /// \brief Maximum time, in milliseconds, between a CRC=KO and the scheduler allocating the respective HARQ for
+  /// retransmission. If this timeout is exceeded, the HARQ process is discarded.
+  unsigned harq_retx_timeout = 100;
   /// Maximum number of consecutive UL KOs before an RLF is reported.
   unsigned max_consecutive_kos = 100;
   /// Redundancy version sequence to use. Each element can have one of the following values: {0, 1, 2, 3}.
@@ -203,22 +228,62 @@ struct du_high_unit_pusch_config {
   /// \c p0-NominalWithGrant, TS 38.331. Value in dBm. Only even values allowed within {-202,...,24}.
   int p0_nominal_with_grant = -76;
 
-  /// \c betaOffsetACK-Index1, \c BetaOffsets, TS 38.331. Values: {0,...,31}.
-  unsigned beta_offset_ack_idx_1 = 9;
-  /// \c betaOffsetACK-Index2, \c BetaOffsets, TS 38.331. Values: {0,...,31}.
-  unsigned beta_offset_ack_idx_2 = 9;
-  /// \c betaOffsetACK-Index3, \c BetaOffsets, TS 38.331. Values: {0,...,31}.
-  unsigned beta_offset_ack_idx_3 = 9;
-  /// \c betaOffsetCSI-Part1-Index1, \c BetaOffsets, TS 38.331. Values: {0,...,31}.
-  unsigned beta_offset_csi_p1_idx_1 = 9;
-  /// \c betaOffsetCSI-Part1-Index2, \c BetaOffsets, TS 38.331. Values: {0,...,31}.
-  unsigned beta_offset_csi_p1_idx_2 = 9;
-  /// \c betaOffsetCSI-Part2-Index1, \c BetaOffsets, TS 38.331. Values: {0,...,31}.
-  unsigned beta_offset_csi_p2_idx_1 = 9;
-  /// \c betaOffsetCSI-Part2-Index2, \c BetaOffsets, TS 38.331. Values: {0,...,31}.
-  unsigned beta_offset_csi_p2_idx_2 = 9;
+  /// \defgroup betaoffsets
+  /// \brief Beta offsets for uplink control information multiplexed in PUSCH.
+  ///
+  /// Default beta offset values have been derived from the formula
+  /// \f$\beta^{PUSCH}_{\text{offset}}\gt \frac{E^{O_{UCI}}_{min}+K_{OH}Q_m\nu}{O_{UCI}+L_{UCI}}R\f$ where:
+  /// - \f$E^{O_{UCI}}_{min}\f$ is the minimum number of rate matched bits that guarantee the detection of the UCI bits;
+  /// - \f$K_{OH}\f$ is the number of overhead resource elements (i.e., DC position);
+  /// - \f$Q_m\f$ is the maximum modulation order, fixed to \f$8\f$;
+  /// - \f$\nu\f$ is the maximum number of layers, fixed to \f$2\f$;
+  /// - \f$R\f$ is the maximum code rate, fixed to \f$948/1024\f$;
+  /// - \f$O_{UCI}\f$ is the number of information bits; and
+  /// - \f$L_{UCI}\f$ is the number of CRC bits.
+  ///
+  /// @{
+  /// \brief Parameter \e betaOffsetACK-Index1, in Information Element \c BetaOffsets, TS38.331. Values: {0,...,15}.
+  ///
+  /// Used for deriving \f$\beta_{\text{HARQ−ACK}}^{offset}\f$ when the PUSCH multiplexes up two HARQ-ACK information
+  /// bits. The default value assumes \f$E^{O_{UCI}}_{min}=24\f$ and \f$K_{OH}=1\f$.
+  unsigned beta_offset_ack_idx_1 = 11;
+  /// \brief Parameter \e betaOffsetACK-Index2, in Information Element \c BetaOffsets, TS38.331. Values: {0,...,15}.
+  ///
+  /// Used for deriving \f$\beta_{\text{HARQ−ACK}}^{offset}\f$ when the PUSCH multiplexes up 11 HARQ-ACK information
+  /// bits. The default value assumes \f$E^{O_{UCI}}_{min}=32\f$ and \f$K_{OH}=2\f$.
+  unsigned beta_offset_ack_idx_2 = 6;
+  /// \brief Parameter \e betaOffsetACK-Index3, in Information Element \c BetaOffsets, TS38.331. Values: {0,...,15}.
+  ///
+  /// Used for deriving \f$\beta_{\text{HARQ−ACK}}^{offset}\f$ when the PUSCH multiplexes more than 11 HARQ-ACK
+  /// information bits. The default value assumes \f$E^{O_{UCI}}_{min}=40\f$ and \f$K_{OH}=2\f$.
+  unsigned beta_offset_ack_idx_3 = 4;
+  /// \brief Parameter \e betaOffsetCSI-Part1-Index1, in Information Element \c BetaOffsets, TS38.331. Values:
+  /// {0,...,18}.
+  ///
+  /// Used for deriving \f$\beta_{\text{CSI−1}}^{offset}\f$ when the PUSCH multiplexes up to 11 CSI Part 1 information
+  /// bits. The default value assumes \f$E^{O_{UCI}}_{min}=32\f$ and \f$K_{OH}=2\f$.
+  unsigned beta_offset_csi_p1_idx_1 = 13;
+  /// \brief Parameter \e betaOffsetCSI-Part1-Index2, in Information Element \c BetaOffsets, TS38.331. Values:
+  /// {0,...,18}.
+  ///
+  /// Used for deriving \f$\beta_{\text{CSI−1}}^{offset}\f$ when the PUSCH multiplexes more than 11 CSI Part 1
+  /// information bits. The default value assumes \f$E^{O_{UCI}}_{min}=40\f$ and \f$K_{OH}=2\f$.
+  unsigned beta_offset_csi_p1_idx_2 = 10;
+  /// \brief Parameter \e betaOffsetCSI-Part2-Index1, in Information Element \c BetaOffsets, TS38.331. Values:
+  /// {0,...,18}.
+  ///
+  /// Used for deriving \f$\beta_{\text{CSI−2}}^{offset}\f$ when the PUSCH multiplexes up to 11 CSI Part 2 information
+  /// bits. The default value assumes \f$E^{O_{UCI}}_{min}=32\f$ and \f$K_{OH}=2\f$.
+  unsigned beta_offset_csi_p2_idx_1 = 13;
+  /// \brief Parameter \e betaOffsetCSI-Part2-Index2, in Information Element \c BetaOffsets, TS38.331. Values:
+  /// {0,...,18}.
+  ///
+  /// Used for deriving \f$\beta_{\text{CSI−2}}^{offset}\f$ when the PUSCH multiplexes more than 11 CSI Part 2
+  /// information bits. The default value assumes \f$E^{O_{UCI}}_{min}=40\f$ and \f$K_{OH}=2\f$.
+  unsigned beta_offset_csi_p2_idx_2 = 10;
+  /// @}
 
-  /// \brief Power level corresponding to MSG-3 TPC command in dB, as per Table 8.2-2, TS 38.213.
+  /// \brief Power level corresponding to MSG-3 TPC command in dB, as per Table 8.2-2, TS38.213.
   /// Values {-6,...,8} and must be a multiple of 2.
   int msg3_delta_power = 8;
 
@@ -226,6 +291,10 @@ struct du_high_unit_pusch_config {
   unsigned min_k2 = 4;
   /// Maximum number of PUSCH grants per slot.
   unsigned max_puschs_per_slot = MAX_PUSCH_PDUS_PER_SLOT;
+  /// Number of UEs pre-selected for PUSCH newTx scheduling in each slot.
+  unsigned nof_preselected_newtx_ues = 32;
+  /// \brief Period in slots at which the pre-selected newTx UE candidates are recomputed.
+  unsigned newtx_ues_selection_period = 1;
   /// \brief Direct Current (DC) offset, in number of subcarriers, used in PUSCH.
   ///
   /// The numerology of the active UL BWP is used as a reference to determine the number of subcarriers.
@@ -251,6 +320,8 @@ struct du_high_unit_pusch_config {
 
   /// Enable closed-loop PUSCH power control.
   bool enable_closed_loop_pw_control = false;
+  /// Enable bandwidth adaptation to prevent negative PHR.
+  bool enable_phr_bw_adaptation = false;
   /// Target PUSCH SINR to be achieved with close-loop power control, in dB. Only relevant if \c
   /// enable_closed_loop_pw_control is set to true.
   float target_pusch_sinr{10.0f};
@@ -272,13 +343,13 @@ struct du_high_unit_pucch_config {
   /// \c p0-nominal, TS 38.331. Value in dBm. Only even values allowed within {-202,...,24}.
   int p0_nominal = -90;
   /// \c pucch-ResourceCommon, TS 38.331. Values: {0,...,15}. Defines the PUCCH resource set used common configuration.
-  unsigned pucch_resource_common = 11;
+  std::optional<unsigned> pucch_resource_common;
 
   /// \c PUCCH-Config parameters.
   /// Force Format 0 for the PUCCH resources belonging to PUCCH resource set 0.
   bool use_format_0 = false;
   /// Select the format for the PUCCH resources belonging to PUCCH resource set 1. Values: {2, 3, 4}.
-  unsigned set1_format = 2;
+  pucch_format set1_format = pucch_format::FORMAT_2;
   /// Number of PUCCH resources per UE (per PUCCH resource set) for HARQ-ACK reporting.
   /// Values {3,...,8} if \c use_format_0 is set. Else, Values {1,...,8}.
   /// \remark We assume the number of PUCCH F0/F1 resources for HARQ-ACK is equal to the equivalent number of Format 2
@@ -322,7 +393,7 @@ struct du_high_unit_pucch_config {
   /// @{
   /// Max number of PRBs for PUCCH Format 2. Values {1,...,16}.
   unsigned f2_max_nof_rbs = 1;
-  /// \brief Maximum payload in bits that can be carried by PUCCH Format 2. Values {1,...,11}.
+  /// \brief Min required payload capacity in bits that can be carried by PUCCH Format 2. Values {4,...,40}.
   /// If this is set, \ref f2_max_nof_rbs is ignored.
   std::optional<unsigned> f2_max_payload_bits;
   /// Max code rate for PUCCH Format 2.
@@ -337,7 +408,7 @@ struct du_high_unit_pucch_config {
   /// @{
   /// Max number of PRBs for PUCCH Format 3. Values {1,...,16}.
   unsigned f3_max_nof_rbs = 1;
-  /// \brief Maximum payload in bits that can be carried by PUCCH Format 3. Values {1,...,11}.
+  /// \brief Min required payload capacity in bits that can be carried by PUCCH Format 3. Values {4,...,40}.
   /// If this is set, \ref f2_max_nof_rbs is ignored.
   std::optional<unsigned> f3_max_payload_bits;
   /// Max code rate for PUCCH Format 3.
@@ -372,6 +443,18 @@ struct du_high_unit_pucch_config {
 
   /// Maximum number of consecutive undecoded PUCCH Format 2 for CSI before an RLF is reported.
   unsigned max_consecutive_kos = 100;
+
+  /// Enable closed-loop PUCCH power control.
+  bool enable_closed_loop_pw_control = false;
+  /// Target PUSCH SINR to be achieved with close-loop power control, in dB. Only relevant if \c
+  /// enable_closed_loop_pw_control is set to true and if the corresponding PUCCH format is used.
+  /// SINR target are based on the requirements in terms of 1% ACK missed detection probability, as per TS 38.104,
+  /// Tables 8.3.2.2-1 and 8.3.2.2-1 for Format 0, Table 8.3.4.1.2-1 and Table 8.3.4.1.2-2 for Format 2; while, for
+  /// Format 3, they are based on the UCI block error probability not exceeding 1%, as per Table 8.3.5.2-1
+  /// and 8.3.5.2-2.
+  float pucch_f0_sinr_target_dB{10.0f};
+  float pucch_f2_sinr_target_dB{6.0f};
+  float pucch_f3_sinr_target_dB{1.0f};
 };
 
 struct du_high_unit_srs_config {
@@ -477,6 +560,11 @@ struct pdcch_dedicated_unit_config {
   bool dci_format_0_1_and_1_1 = true;
   /// SearchSpace type of SearchSpace#2.
   search_space_configuration::type_t ss2_type = search_space_configuration::type_t::ue_dedicated;
+  /// Offset applied to the CQI for PDCCH aggregation level calculation.
+  /// This allows fine-tuning of the aggregation level selection:
+  ///  - A positive offset leads to a lower AL, resulting in a higher code rate and increased BLER.
+  ///  - A positive offset leads to a higher AL, resulting in a lower code rate and reduced BLER.
+  float al_cqi_offset = 0;
 };
 
 /// PDCCH application configuration.
@@ -498,6 +586,69 @@ struct du_high_unit_sib_config {
     /// SI window position of the associated SI-message. See TS 38.331, \c SchedulingInfo2-r17. Values: {1,...,256}.
     /// \remark This field is only applicable for release 17 \c SI-SchedulingInfo.
     std::optional<unsigned> si_window_position;
+  };
+
+  /// \brief Earthquake and Tsunami Warning System (ETWS) message parameters.
+  ///
+  /// ETWS messages are broadcasted over SIB 6 and SIB 7. SIB 6 carries the ETWS primary notification, while SIB-7
+  /// carries the secondary notification.
+  struct etws_config {
+    /// \brief ETWS message ID (see \ref sib6_info::message_id). Values: {0, ..., 0xffff}
+    /// \remark See TS23.041 Section 9.4.1.2.2 for a list of meaningful values.
+    unsigned message_id = 0x1104;
+    /// \brief ETWS message serial number (see \ref sib6_info::serial_number). Values: {0, ..., 0xffff}
+    /// \remark See TS23.041 Section 9.4.1.2.1 for a list of meaningful values.
+    unsigned serial_num = 0x3000;
+    /// \brief ETWS warning type (see \ref sib6_info::warning_type). Values: {0, ..., 0xffff}
+    /// \remark See TS23.041 Section 9.3.24 for a list of meaningful values.
+    unsigned warning_type = 0x0980;
+    /// \brief CBS Coding scheme used for the warning message Values: {0, ..., 0xff}.
+    ///
+    /// Supported coding schemes:
+    ///   - 0x00..0x0f: Languages using GSM-7 default alphabet.
+    ///   - 0x40..0x4f: General data coding indication (uncompressed text, no message class meaning).
+    ///     Set bits 3..2 to 0b00 for GSM-7 or 0b10 for UCS-2. Other character sets are not supported.
+    ///   - 0x50..0x5f: General data coding indication (uncompressed text, message class meaning).
+    ///     Set bits 3..2 to 0b00 for GSM-7 or 0b10 for UCS-2. Other character sets are not supported.
+    ///   - 0xf0..0xff: Data coding / message handling.
+    ///     Bit 2 must be set to 0 (GSM-7 encoding).
+    ///
+    /// \remark See TS23.038 Section 5 for a list of meaningful values.
+    unsigned data_coding_scheme = 0x00;
+    /// \brief ETWS warning message.
+    ///
+    /// Character support depends on the chosen coding scheme (see \ref data_coding_scheme).
+    ///
+    /// \remark Required if SIB-7 is scheduled in \ref si_sched_info, otherwise leave unset.
+    std::optional<std::string> warning_message;
+  };
+
+  /// \brief Commercial Mobile Alert Service (CMAS) message parameters.
+  ///
+  /// CMAS messages are broadcasted over SIB 8.
+  struct cmas_config {
+    /// \brief CMAS message ID (see \ref sib8_info::message_id). Values: {0, ..., 0xffff}
+    /// \remark See TS23.041 Section 9.4.1.2.2 for a list of meaningful values.
+    unsigned message_id = 0x1112;
+    /// \brief CMAS message serial number (see \ref sib8_info::serial_number). Values: {0, ..., 0xffff}
+    /// \remark See TS23.041 Section 9.4.1.2.1 for a list of meaningful values.
+    unsigned serial_num = 0x3003;
+    /// \brief CBS Coding scheme used for the warning message Values: {0, ..., 0xff}.
+    ///
+    /// Supported coding schemes:
+    ///   - 0x00..0x0f: Languages using GSM-7 default alphabet.
+    ///   - 0x40..0x4f: General data coding indication (uncompressed text, no message class meaning).
+    ///     Set bits 3..2 to 0b00 for GSM-7 or 0b10 for UCS-2. Other character sets are not supported.
+    ///   - 0x50..0x5f: General data coding indication (uncompressed text, message class meaning).
+    ///     Set bits 3..2 to 0b00 for GSM-7 or 0b10 for UCS-2. Other character sets are not supported.
+    ///   - 0xf0..0xff: Data coding / message handling.
+    ///     Bit 2 must be set to 0 (GSM-7 encoding).
+    ///
+    /// \remark See TS23.038 Section 5 for a list of meaningful values.
+    unsigned data_coding_scheme = 0x00;
+    /// \brief CMAS warning message.
+    /// \remark Character support depends on the chosen coding scheme (see \ref data_coding_scheme).
+    std::string warning_message;
   };
 
   struct sib_ue_timers_and_constants {
@@ -533,6 +684,10 @@ struct du_high_unit_sib_config {
   sib_ue_timers_and_constants ue_timers_and_constants;
   /// Parameters of the SIB19.
   sib19_info sib19;
+  /// ETWS configuration parameters.
+  std::optional<etws_config> etws_cfg;
+  /// CMAS configuration parameters.
+  std::optional<cmas_config> cmas_cfg;
 };
 
 struct du_high_unit_csi_config {
@@ -607,8 +762,12 @@ struct du_high_unit_prach_config {
   /// \c preambleReceivedTargetPower, target power at the network rx side, in dBm. Only values multiple of 2 are
   /// valid.
   int preamble_rx_target_pw = -100;
-  /// Total number of PRACH preambles used for contention based and contention free 4-step or 2-step random access.
-  std::optional<unsigned> total_nof_ra_preambles;
+  /// Total number of PRACH preambles used for contention based and contention free random access in the RACH resources
+  /// in the RACH-ConfigCommon.
+  unsigned total_nof_ra_preambles = 64;
+  /// \brief Whether to enable contention-free random access (CFRA) or not. If enabled, the number of RA preambles
+  /// used for CBRA (see \c nof_cb_preambles_per_ssb) must be less than \c total_nof_ra_preambles.
+  bool cfra_enabled = false;
   /// Offset of lowest PRACH transmission occasion in frequency domain respective to PRB 0. To minimize interference
   /// with the PUCCH, the user should leave some guardband between the PUCCH CRBs and the PRACH PRBs.
   /// Possible values: {0,...,MAX_NOF_PRB - 1}.
@@ -639,8 +798,10 @@ struct du_high_unit_cell_slice_sched_config {
   unsigned min_prb_policy_ratio = 0;
   /// Sets the maximum percentage of PRBs to be allocated to this group.
   unsigned max_prb_policy_ratio = 100;
-  /// Policy scheduler parameters for the slice.
-  policy_scheduler_expert_config slice_policy_sched_cfg = time_rr_scheduler_expert_config{};
+  /// Sets the slice priority. Values: {0,...,254}. 255 is reserved for the SRBs.
+  unsigned priority = 0;
+  /// Policy scheduler parameters for the slice. Default: Time-domain round robin.
+  std::optional<policy_scheduler_expert_config> slice_policy_sched_cfg;
 };
 
 /// Slice configuration for a cell.
@@ -648,7 +809,7 @@ struct du_high_unit_cell_slice_config {
   /// Slice/Service Type.
   uint8_t sst;
   /// Slice Differentiator.
-  uint32_t sd;
+  uint32_t sd = 0xffffffU;
   /// Slice scheduling configuration.
   du_high_unit_cell_slice_sched_config sched_cfg;
 };
@@ -675,6 +836,9 @@ struct du_high_unit_base_cell_config {
   std::string plmn = "00101";
   /// TAC.
   tac_t tac = 7;
+  /// Whether the DU adds this cell to the list of served cells while communicating with the CU-CP or it waits for a
+  /// command from the SMO to activate it.
+  bool enabled = true;
   /// \c q-RxLevMin, part of \c cellSelectionInfo, \c SIB1, TS 38.311, in dBm.
   int q_rx_lev_min = -70;
   /// \c q-QualMin, part of \c cellSelectionInfo, \c SIB1, TS 38.311, in dB.
@@ -752,16 +916,25 @@ struct du_high_unit_cell_config {
   du_high_unit_base_cell_config cell;
 };
 
+/// Configuration to enable/disable metrics per layer.
+struct du_high_unit_metrics_layer_config {
+  bool enable_scheduler = true;
+  bool enable_rlc       = false;
+  bool enable_mac       = false;
+  /// Whether to log performace metrics of the DU-high executors.
+  bool enable_executor_log_metrics = false;
+
+  /// Returns true if one or more layers are enabled, otherwise false.
+  bool are_metrics_enabled() const { return enable_scheduler || enable_rlc || enable_mac; }
+};
+
 /// Metrics report configuration.
 struct du_high_unit_metrics_config {
-  struct rlc_metrics {
-    /// RLC report period in ms.
-    unsigned report_period = 0;
-  } rlc;
-  bool enable_json_metrics = false;
   /// Scheduler report period in milliseconds.
-  unsigned sched_report_period      = 1000;
-  bool     autostart_stdout_metrics = false;
+  unsigned                          du_report_period         = 1000;
+  bool                              autostart_stdout_metrics = false;
+  app_helpers::metrics_config       common_metrics_cfg;
+  du_high_unit_metrics_layer_config layers_cfg;
 };
 
 struct du_high_unit_pcap_config {
@@ -794,6 +967,11 @@ struct du_high_unit_pcap_config {
   }
 };
 
+/// Configuration of the task executors queues.
+struct du_high_unit_execution_queues_config {
+  uint32_t ue_data_executor_queue_size = 8192;
+};
+
 /// CPU affinities configuration for the cell.
 struct du_high_unit_cpu_affinities_cell_config {
   os_sched_affinity_config l2_cell_cpu_cfg = {sched_affinity_mask_types::l2_cell, {}, sched_affinity_mask_policy::mask};
@@ -801,6 +979,12 @@ struct du_high_unit_cpu_affinities_cell_config {
 
 /// Expert configuration of the DU high.
 struct du_high_unit_expert_execution_config {
+  /// \brief Task executor configuration for the DU.
+  du_high_unit_execution_queues_config du_queue_cfg;
+
+  /// \brief Whether to enable tracing of the DU-high executors.
+  bool executor_tracing_enable = false;
+
   /// \brief CPU affinities per cell of the gNB app.
   ///
   /// \note Add one cell by default.

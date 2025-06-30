@@ -21,7 +21,7 @@
  */
 
 #include "gnb_appconfig_validators.h"
-#include "apps/services/logger/logger_appconfig_validator.h"
+#include "apps/helpers/logger/logger_appconfig_validator.h"
 #include "apps/services/worker_manager/worker_manager_appconfig_validator.h"
 #include "apps/units/flexible_o_du/o_du_high/du_high/du_high_config.h"
 #include "apps/units/o_cu_cp/cu_cp/cu_cp_unit_config.h"
@@ -33,11 +33,6 @@ static bool validate_hal_config(const std::optional<hal_appconfig>& config)
 #ifdef DPDK_FOUND
   if (config && config->eal_args.empty()) {
     fmt::print("It is mandatory to fill the EAL configuration arguments to initialize DPDK correctly\n");
-    return false;
-  }
-#else
-  if (config) {
-    fmt::print("Unable to use DPDK as the application was not compiled with DPDK support\n");
     return false;
   }
 #endif

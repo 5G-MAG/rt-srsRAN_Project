@@ -24,6 +24,7 @@
 #include "../logging/scheduler_event_logger.h"
 #include "../logging/scheduler_metrics_handler.h"
 #include "../srs/srs_scheduler.h"
+#include "../support/sr_helper.h"
 #include "../uci_scheduling/uci_scheduler_impl.h"
 #include "srsran/support/memory_pool/unbounded_object_pool.h"
 
@@ -43,14 +44,16 @@ class ue_event_manager::ue_dl_buffer_occupancy_manager final : public scheduler_
 public:
   ue_dl_buffer_occupancy_manager(ue_event_manager& parent_) : parent(parent_), pending_evs(NOF_BEARER_KEYS)
   {
-    std::fill(ue_dl_bo_table.begin(), ue_dl_bo_table.end(), -1);
+    std::fill(ue_dl_bo_table.begin(), ue_dl_bo_table.end(), std::make_pair(-1, 0));
   }
 
   void handle_dl_buffer_state_indication(const dl_buffer_state_indication_message& rlc_dl_bo) override
   {
     // Update DL Buffer Occupancy for the given UE and bearer.
     unsigned key          = get_bearer_key(rlc_dl_bo.ue_index, rlc_dl_bo.lcid);
-    bool     first_rlc_bo = ue_dl_bo_table[key].exchange(rlc_dl_bo.bs, std::memory_order_acquire) < 0;
+    bool     first_rlc_bo = ue_dl_bo_table[key].first.exchange(rlc_dl_bo.bs, std::memory_order_acquire) < 0;
+    ue_dl_bo_table[key].second.store(rlc_dl_bo.hol_toa.valid() ? rlc_dl_bo.hol_toa.count_val : -1,
+                                     std::memory_order_relaxed);
 
     if (not first_rlc_bo) {
       // If another DL BO update has been received before for this same bearer, we do not need to enqueue a new event.
@@ -75,8 +78,12 @@ public:
       // > Extract UE index and LCID.
       dl_bo.ue_index = get_ue_index(key);
       dl_bo.lcid     = get_lcid(key);
+      int hol_toa    = ue_dl_bo_table[key].second.load(std::memory_order_relaxed);
+      if (hol_toa >= 0) {
+        dl_bo.hol_toa = std::min(sl, slot_point{sl.numerology(), (unsigned)hol_toa});
+      }
       // > Extract last DL BO value for the respective bearer and reset BO table position.
-      dl_bo.bs = ue_dl_bo_table[key].exchange(-1, std::memory_order_release);
+      dl_bo.bs = ue_dl_bo_table[key].first.exchange(-1, std::memory_order_release);
       if (dl_bo.bs < 0) {
         parent.logger.warning("ue={} lcid={}: Invalid DL buffer occupancy value: {}",
                               fmt::underlying(dl_bo.ue_index),
@@ -93,7 +100,7 @@ public:
       ue& u = parent.ue_db[dl_bo.ue_index];
 
       // Forward DL BO update to UE.
-      u.handle_dl_buffer_state_indication(dl_bo);
+      u.handle_dl_buffer_state_indication(dl_bo.lcid, dl_bo.bs, dl_bo.hol_toa);
       auto& du_pcell = parent.du_cells[u.get_pcell().cell_index];
       if (u.get_pcell().is_in_fallback_mode()) {
         // Signal SRB fallback scheduler with the new SRB0/SRB1 buffer state.
@@ -114,8 +121,9 @@ private:
 
   ue_event_manager& parent;
 
-  // Table of pending DL Buffer Occupancy values. -1 means that no DL Buffer Occupancy is set.
-  std::array<std::atomic<int>, NOF_BEARER_KEYS> ue_dl_bo_table;
+  // Table of pending DL Buffer Occupancy values and HOL TOAs. DL Buffer Occupancy=-1 means that it is not set. HOL
+  // ToA of 0 means it is not set.
+  std::array<std::pair<std::atomic<int>, std::atomic<int>>, NOF_BEARER_KEYS> ue_dl_bo_table;
 
   // Queue of {UE Id, LCID} pairs with pending DL Buffer Occupancy updates.
   ue_event_queue pending_evs;
@@ -123,25 +131,31 @@ private:
 
 class srsran::pdu_indication_pool
 {
-  constexpr static size_t UCI_INITIAL_POOL_SIZE = MAX_PUCCH_PDUS_PER_SLOT;
-  constexpr static size_t PHR_INITIAL_POOL_SIZE = 8;
-  constexpr static size_t CRC_INITIAL_POOL_SIZE = MAX_PUSCH_PDUS_PER_SLOT;
-  constexpr static size_t SRS_INITIAL_POOL_SIZE = MAX_SRS_PDUS_PER_SLOT;
-  constexpr static size_t BSR_INITIAL_POOL_SIZE = MAX_PUSCH_PDUS_PER_SLOT;
+  // The indications from the PHY can arrive with some delay; we assume that, in a slot, we can receive the indication
+  // from max 4 slots.
+  static constexpr size_t MAX_EXPECTED_SLOTS        = 4;
+  static constexpr size_t UCI_INITIAL_POOL_SIZE     = MAX_PUCCH_PDUS_PER_SLOT * MAX_EXPECTED_SLOTS;
+  static constexpr size_t PHR_INITIAL_POOL_SIZE     = MAX_PUSCH_PDUS_PER_SLOT * MAX_EXPECTED_SLOTS;
+  static constexpr size_t CRC_INITIAL_POOL_SIZE     = MAX_PUSCH_PDUS_PER_SLOT * MAX_EXPECTED_SLOTS;
+  static constexpr size_t SRS_INITIAL_POOL_SIZE     = MAX_SRS_PDUS_PER_SLOT * MAX_EXPECTED_SLOTS;
+  static constexpr size_t BSR_INITIAL_POOL_SIZE     = MAX_PUSCH_PDUS_PER_SLOT * MAX_EXPECTED_SLOTS;
+  static constexpr size_t EXPECTED_NOF_DEALLOCATORS = 8;
 
 public:
-  using uci_ptr = unbounded_object_pool<uci_indication::uci_pdu>::ptr;
-  using phr_ptr = unbounded_object_pool<ul_phr_indication_message>::ptr;
-  using crc_ptr = unbounded_object_pool<ul_crc_pdu_indication>::ptr;
-  using srs_ptr = unbounded_object_pool<srs_indication::srs_indication_pdu>::ptr;
-  using bsr_ptr = unbounded_object_pool<ul_bsr_indication_message>::ptr;
+  using uci_ptr     = unbounded_object_pool<uci_indication::uci_pdu>::ptr;
+  using phr_ptr     = unbounded_object_pool<ul_phr_indication_message>::ptr;
+  using crc_ptr     = unbounded_object_pool<ul_crc_pdu_indication>::ptr;
+  using srs_ptr     = unbounded_object_pool<srs_indication::srs_indication_pdu>::ptr;
+  using bsr_ptr     = unbounded_object_pool<ul_bsr_indication_message>::ptr;
+  using pos_req_ptr = unbounded_object_pool<positioning_measurement_request>::ptr;
 
   pdu_indication_pool() :
-    pending_ucis(UCI_INITIAL_POOL_SIZE),
-    pending_phrs(PHR_INITIAL_POOL_SIZE),
-    pending_crcs(CRC_INITIAL_POOL_SIZE),
-    pending_srss(SRS_INITIAL_POOL_SIZE),
-    pending_bsrs(BSR_INITIAL_POOL_SIZE)
+    pending_ucis(UCI_INITIAL_POOL_SIZE, EXPECTED_NOF_DEALLOCATORS),
+    pending_phrs(PHR_INITIAL_POOL_SIZE, EXPECTED_NOF_DEALLOCATORS),
+    pending_crcs(CRC_INITIAL_POOL_SIZE, EXPECTED_NOF_DEALLOCATORS),
+    pending_srss(SRS_INITIAL_POOL_SIZE, EXPECTED_NOF_DEALLOCATORS),
+    pending_bsrs(BSR_INITIAL_POOL_SIZE, EXPECTED_NOF_DEALLOCATORS),
+    pending_pos_reqs(0)
   {
   }
 
@@ -176,12 +190,20 @@ public:
     return ret;
   }
 
+  pos_req_ptr create_positioning_measurement_request(const positioning_measurement_request& req)
+  {
+    auto ret = pending_pos_reqs.get();
+    *ret     = req;
+    return ret;
+  }
+
 private:
   unbounded_object_pool<uci_indication::uci_pdu>            pending_ucis;
   unbounded_object_pool<ul_phr_indication_message>          pending_phrs;
   unbounded_object_pool<ul_crc_pdu_indication>              pending_crcs;
   unbounded_object_pool<srs_indication::srs_indication_pdu> pending_srss;
   unbounded_object_pool<ul_bsr_indication_message>          pending_bsrs;
+  unbounded_object_pool<positioning_measurement_request>    pending_pos_reqs;
 };
 
 // Initial capacity for the common and cell event lists, in order to avoid std::vector reallocations. We use the max
@@ -433,7 +455,7 @@ void ue_event_manager::handle_ul_phr_indication(const ul_phr_indication_message&
                           fmt::underlying(cell_phr.serv_cell_id));
       auto& ue_cc = u.get_cell(cell_phr.serv_cell_id);
 
-      ue_cc.get_ul_power_controller().handle_phr(cell_phr, phr_ind->slot_rx);
+      ue_cc.get_pusch_power_controller().handle_phr(cell_phr, phr_ind->slot_rx);
 
       // Log event.
       scheduler_event_logger::phr_event event{};
@@ -498,6 +520,7 @@ void ue_event_manager::handle_harq_ind(ue_cell&                               ue
                                        span<const mac_harq_ack_report_status> harq_bits,
                                        std::optional<float>                   pucch_snr)
 {
+  du_cells[ue_cc.cell_index].metrics->handle_uci_with_harq_ack(ue_cc.ue_index, uci_sl, pucch_snr.has_value());
   for (unsigned harq_idx = 0, harq_end_idx = harq_bits.size(); harq_idx != harq_end_idx; ++harq_idx) {
     // Update UE HARQ state with received HARQ-ACK.
     std::optional<ue_cell::dl_ack_info_result> result =
@@ -540,8 +563,29 @@ void ue_event_manager::handle_uci_indication(const uci_indication& ind)
     if (not cell_specific_events[ind.cell_index].try_push(cell_event_t{
             ind.ucis[i].ue_index,
             [this, uci_sl = ind.slot_rx, uci_pdu = std::move(uci_ptr)](ue_cell& ue_cc) {
+              bool is_sr_opportunity_and_f1 = false;
               if (const auto* pucch_f0f1 =
                       std::get_if<uci_indication::uci_pdu::uci_pucch_f0_or_f1_pdu>(&uci_pdu->pdu)) {
+                // Check if this UCI is from slot with a SR opportunity.
+                if (ue_cc.cfg().init_bwp().ul_ded.has_value() and
+                    ue_cc.cfg().init_bwp().ul_ded->pucch_cfg.has_value()) {
+                  const auto& pucch_cfg = ue_cc.cfg().init_bwp().ul_ded->pucch_cfg.value();
+
+                  bool is_format_1 = false;
+                  for (const auto& pucch_res : pucch_cfg.pucch_res_list) {
+                    if (pucch_res.format == pucch_format::FORMAT_1) {
+                      is_format_1 = true;
+                      break;
+                    }
+                    if (pucch_res.format == pucch_format::FORMAT_0) {
+                      break;
+                    }
+                  }
+
+                  // This check is only needed for PUCCH Format 1.
+                  is_sr_opportunity_and_f1 = is_format_1 and sr_helper::is_sr_opportunity_slot(pucch_cfg, uci_sl);
+                }
+
                 // Process DL HARQ ACKs.
                 if (not pucch_f0f1->harqs.empty()) {
                   handle_harq_ind(ue_cc, uci_sl, pucch_f0f1->harqs, pucch_f0f1->ul_sinr_dB);
@@ -565,11 +609,14 @@ void ue_event_manager::handle_uci_indication(const uci_indication& ind)
                 }
 
                 const bool is_uci_valid = not pucch_f0f1->harqs.empty() or pucch_f0f1->sr_detected;
-                // Process Timing Advance Offset.
-                if (is_uci_valid and pucch_f0f1->time_advance_offset.has_value() and
-                    pucch_f0f1->ul_sinr_dB.has_value()) {
-                  ue_db[ue_cc.ue_index].handle_ul_n_ta_update_indication(
-                      ue_cc.cell_index, pucch_f0f1->ul_sinr_dB.value(), pucch_f0f1->time_advance_offset.value());
+                // Process SINR and Timing Advance Offset.
+                if (is_uci_valid and pucch_f0f1->ul_sinr_dB.has_value()) {
+                  ue_cc.get_pucch_power_controller().update_pucch_sinr_f0_f1(uci_sl, pucch_f0f1->ul_sinr_dB.value());
+
+                  if (pucch_f0f1->time_advance_offset.has_value()) {
+                    ue_db[ue_cc.ue_index].handle_ul_n_ta_update_indication(
+                        ue_cc.cell_index, pucch_f0f1->ul_sinr_dB.value(), pucch_f0f1->time_advance_offset.value());
+                  }
                 }
               } else if (const auto* pusch_pdu = std::get_if<uci_indication::uci_pdu::uci_pusch_pdu>(&uci_pdu->pdu)) {
                 // Process DL HARQ ACKs.
@@ -611,16 +658,22 @@ void ue_event_manager::handle_uci_indication(const uci_indication& ind)
                     not pucch_f2f3f4->harqs.empty() or
                     (not pucch_f2f3f4->sr_info.empty() and pucch_f2f3f4->sr_info.test(sr_bit_position_with_1_sr_bit)) or
                     pucch_f2f3f4->csi.has_value();
-                // Process Timing Advance Offset.
-                if (is_uci_valid and pucch_f2f3f4->time_advance_offset.has_value() and
-                    pucch_f2f3f4->ul_sinr_dB.has_value()) {
-                  ue_db[ue_cc.ue_index].handle_ul_n_ta_update_indication(
-                      ue_cc.cell_index, pucch_f2f3f4->ul_sinr_dB.value(), pucch_f2f3f4->time_advance_offset.value());
+                // Process SINR and Timing Advance Offset.
+                if (is_uci_valid and pucch_f2f3f4->ul_sinr_dB.has_value()) {
+                  ue_cc.get_pucch_power_controller().update_pucch_sinr_f2_f3_f4(uci_sl,
+                                                                                pucch_f2f3f4->ul_sinr_dB.value(),
+                                                                                not pucch_f2f3f4->harqs.empty(),
+                                                                                pucch_f2f3f4->csi.has_value());
+
+                  if (pucch_f2f3f4->time_advance_offset.has_value()) {
+                    ue_db[ue_cc.ue_index].handle_ul_n_ta_update_indication(
+                        ue_cc.cell_index, pucch_f2f3f4->ul_sinr_dB.value(), pucch_f2f3f4->time_advance_offset.value());
+                  }
                 }
               }
 
               // Report the UCI PDU to the metrics handler.
-              du_cells[ue_cc.cell_index].metrics->handle_uci_pdu_indication(*uci_pdu);
+              du_cells[ue_cc.cell_index].metrics->handle_uci_pdu_indication(*uci_pdu, is_sr_opportunity_and_f1);
             },
             "UCI",
             // Note: We do not warn if the UE is not found, because there is this transient period when the UE
@@ -640,30 +693,35 @@ void ue_event_manager::handle_srs_indication(const srs_indication& ind)
   for (unsigned i = 0, e = ind.srss.size(); i != e; ++i) {
     const srs_indication::srs_indication_pdu& srs_pdu = ind.srss[i];
 
-    if (not cell_specific_events[ind.cell_index].try_push(
-            cell_event_t{srs_pdu.ue_index,
-                         [this, srs_ptr = ind_pdu_pool->create_srs(ind.srss[i])](ue_cell& ue_cc) {
-                           // Indicate the channel matrix.
-                           ue_cc.handle_srs_channel_matrix(srs_ptr->channel_matrix);
+    if (not cell_specific_events[ind.cell_index].try_push(cell_event_t{
+            srs_pdu.ue_index,
+            [this, srs_ptr = ind_pdu_pool->create_srs(ind.srss[i])](ue_cell& ue_cc) {
+              // Indicate the channel matrix.
+              ue_cc.handle_srs_channel_matrix(srs_ptr->channel_matrix);
 
-                           // Handle time aligment measurement if present.
-                           if (srs_ptr->time_advance_offset.has_value()) {
-                             // Assume some SINR for the TA feedback using the channel matrix topology and near zero
-                             // noise variance.
-                             float frobenius_norm = srs_ptr->channel_matrix.frobenius_norm();
-                             float noise_var      = near_zero;
-                             float sinr_dB        = convert_power_to_dB(frobenius_norm * frobenius_norm / noise_var);
+              // Log event.
+              du_cells[ue_cc.cell_index].ev_logger->enqueue(scheduler_event_logger::srs_indication_event{
+                  srs_ptr->ue_index, srs_ptr->rnti, ue_cc.channel_state_manager().get_latest_tpmi_select_info()});
 
-                             // Notify UL TA update.
-                             ue_db[ue_cc.ue_index].handle_ul_n_ta_update_indication(
-                                 ue_cc.cell_index, sinr_dB, srs_ptr->time_advance_offset.value());
+              // Handle time aligment measurement if present.
+              if (srs_ptr->time_advance_offset.has_value()) {
+                // Assume some SINR for the TA feedback using the channel matrix topology and near zero
+                // noise variance.
+                float frobenius_norm = srs_ptr->channel_matrix.frobenius_norm();
+                float noise_var      = near_zero;
+                float sinr_dB        = convert_power_to_dB(frobenius_norm * frobenius_norm / noise_var);
 
-                             // Report the SRS PDU to the metrics handler.
-                             du_cells[ue_cc.cell_index].metrics->handle_srs_indication(*srs_ptr);
-                           }
-                         },
-                         "SRS",
-                         false})) {
+                // Notify UL TA update.
+                ue_db[ue_cc.ue_index].handle_ul_n_ta_update_indication(
+                    ue_cc.cell_index, sinr_dB, srs_ptr->time_advance_offset.value());
+
+                // Report the SRS PDU to the metrics handler.
+                du_cells[ue_cc.cell_index].metrics->handle_srs_indication(
+                    *srs_ptr, ue_cc.channel_state_manager().get_nof_ul_layers());
+              }
+            },
+            "SRS",
+            false})) {
       logger.warning("SRS indication discarded. Cause: Event queue is full");
     }
   }
@@ -697,6 +755,30 @@ void ue_event_manager::handle_dl_mac_ce_indication(const dl_mac_ce_indication& c
 void ue_event_manager::handle_dl_buffer_state_indication(const dl_buffer_state_indication_message& bs)
 {
   dl_bo_mng->handle_dl_buffer_state_indication(bs);
+}
+
+void ue_event_manager::handle_positioning_measurement_request(const positioning_measurement_request& req)
+{
+  auto req_ptr = ind_pdu_pool->create_positioning_measurement_request(req);
+  if (not common_events.try_push(
+          common_event_t{INVALID_DU_UE_INDEX, [this, req_ptr = std::move(req_ptr)]() {
+                           srsran_sanity_check(cell_exists(req_ptr->cell_index), "Invalid cell index");
+                           du_cells[req_ptr->cell_index].srs_sched->handle_positioning_measurement_request(*req_ptr);
+                         }})) {
+    logger.warning("cell={}: Positioning request was discarded. Cause: Event queue is full",
+                   fmt::underlying(req.cell_index));
+  }
+}
+
+void ue_event_manager::handle_positioning_measurement_stop(du_cell_index_t cell_index, rnti_t pos_rnti)
+{
+  if (not common_events.try_push(common_event_t{INVALID_DU_UE_INDEX, [this, cell_index, pos_rnti]() {
+                                                  du_cells[cell_index].srs_sched->handle_positioning_measurement_stop(
+                                                      cell_index, pos_rnti);
+                                                }})) {
+    logger.warning("cell={}: Positioning request stop request was discarded. Cause: Event queue is full",
+                   fmt::underlying(cell_index));
+  }
 }
 
 static void handle_discarded_pusch(const cell_slot_resource_allocator& prev_slot_result, ue_repository& ue_db)
@@ -744,20 +826,9 @@ static void handle_discarded_pucch(const cell_slot_resource_allocator& prev_slot
       // UE has been removed.
       continue;
     }
-    bool has_harq_ack = false;
-    switch (pucch.format) {
-      case pucch_format::FORMAT_1:
-        has_harq_ack = pucch.format_1.harq_ack_nof_bits > 0;
-        break;
-      case pucch_format::FORMAT_2:
-        has_harq_ack = pucch.format_2.harq_ack_nof_bits > 0;
-        break;
-      default:
-        break;
-    }
 
     // - The lower layers will not attempt to decode the PUCCH and will not send any UCI indication.
-    if (has_harq_ack) {
+    if (pucch.uci_bits.harq_ack_nof_bits > 0) {
       // Note: To avoid a long DL HARQ timeout window (due to lack of UCI indication), it is important to force a NACK
       // in the DL HARQ processes with UCI falling in this slot.
       // Note: We don't use this cancellation to update the DL OLLA, as we shouldn't take lates into account in link
@@ -777,9 +848,10 @@ void ue_event_manager::handle_error_indication(slot_point                       
     const cell_slot_resource_allocator* prev_slot_result = du_cells[cell_index].res_grid->get_history(sl_tx);
     if (prev_slot_result == nullptr) {
       logger.warning("cell={}, slot={}: Discarding error indication. Cause: Scheduler results associated with the slot "
-                     "of the error indication have already been erased",
+                     "of the error indication have already been erased (current slot={})",
                      fmt::underlying(cell_index),
-                     sl_tx);
+                     sl_tx,
+                     last_sl);
       return;
     }
 
@@ -899,6 +971,17 @@ void ue_event_manager::add_cell(const cell_creation_event& cell_ev)
   while (cell_specific_events.size() <= cell_index) {
     cell_specific_events.emplace_back(CELL_EVENT_LIST_SIZE);
   }
+}
+
+void ue_event_manager::rem_cell(du_cell_index_t cell_index)
+{
+  // Flush pending cell-specific events.
+  cell_event_t ev{INVALID_DU_UE_INDEX, [](ue_cell&) {}, "invalid", true};
+  while (cell_specific_events[cell_index].try_pop(ev)) {
+  }
+
+  // Remove cell entry.
+  du_cells[cell_index] = {};
 }
 
 bool ue_event_manager::cell_exists(du_cell_index_t cell_index) const

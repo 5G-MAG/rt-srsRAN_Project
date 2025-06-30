@@ -39,10 +39,11 @@
 #include "srsran/gateways/baseband/baseband_gateway_transmitter.h"
 #include "srsran/gateways/baseband/buffer/baseband_gateway_buffer_dynamic.h"
 #include "srsran/radio/radio_factory.h"
+#include "srsran/srsvec/copy.h"
 #include "srsran/srsvec/dot_prod.h"
-#include "srsran/support/complex_normal_random.h"
 #include "srsran/support/executors/task_worker.h"
 #include "srsran/support/file_vector.h"
+#include "srsran/support/math/complex_normal_random.h"
 #include "srsran/support/signal_handling.h"
 #include <getopt.h>
 #include <random>

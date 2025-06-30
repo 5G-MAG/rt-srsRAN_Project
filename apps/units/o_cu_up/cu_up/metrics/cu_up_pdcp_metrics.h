@@ -26,24 +26,26 @@
 #include "apps/services/metrics/metrics_properties.h"
 #include "apps/services/metrics/metrics_set.h"
 #include "srsran/adt/span.h"
+#include "srsran/adt/unique_function.h"
 #include "srsran/pdcp/pdcp_entity.h"
 
 namespace srsran {
 
-/// PDCP metrics properties implementation.
-class pdcp_metrics_properties_impl : public app_services::metrics_properties
+/// CU-UP PDCP metrics properties implementation.
+class cu_up_pdcp_metrics_properties_impl : public app_services::metrics_properties
 {
 public:
-  std::string_view name() const override { return "PDCP metrics"; }
+  std::string_view name() const override { return "CU-UP PDCP metrics"; }
 };
 
-class pdcp_metrics_impl : public app_services::metrics_set
+/// CU-UP PDCP metrics implementation.
+class cu_up_pdcp_metrics_impl : public app_services::metrics_set
 {
-  pdcp_metrics_properties_impl properties;
-  pdcp_metrics_container       metrics;
+  cu_up_pdcp_metrics_properties_impl properties;
+  pdcp_metrics_container             metrics;
 
 public:
-  explicit pdcp_metrics_impl(const pdcp_metrics_container& metrics_) : metrics(metrics_) {}
+  explicit cu_up_pdcp_metrics_impl(const pdcp_metrics_container& metrics_) : metrics(metrics_) {}
 
   // See interface for documentation.
   const app_services::metrics_properties& get_properties() const override { return properties; }
@@ -51,18 +53,18 @@ public:
   const pdcp_metrics_container& get_metrics() const { return metrics; }
 };
 
-/// Callback for the RLC metrics.
-inline auto pdcp_metrics_callback = [](const app_services::metrics_set&      report,
-                                       span<app_services::metrics_consumer*> consumers,
-                                       task_executor&                        executor,
-                                       srslog::basic_logger&                 logger) {
-  const auto& metric = static_cast<const pdcp_metrics_impl&>(report);
+/// Callback for the CU-UP PDCP metrics.
+inline auto cu_up_pdcp_metrics_callback = [](const app_services::metrics_set&      report,
+                                             span<app_services::metrics_consumer*> consumers,
+                                             task_executor&                        executor,
+                                             srslog::basic_logger&                 logger) {
+  const auto& metric = static_cast<const cu_up_pdcp_metrics_impl&>(report);
 
-  if (!executor.defer([metric, consumers]() {
+  if (!executor.defer(TRACE_TASK([metric, consumers]() {
         for (auto& consumer : consumers) {
           consumer->handle_metric(metric);
         }
-      })) {
+      }))) {
     logger.error("Failed to dispatch the metric '{}'", metric.get_properties().name());
   }
 };

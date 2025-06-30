@@ -21,6 +21,7 @@
  */
 
 #include "f1ap_test_messages.h"
+#include "../lib/f1ap/asn1_helpers.h"
 #include "../pdcp/pdcp_pdu_generator.h"
 #include "../rrc/rrc_packed_test_messages.h"
 #include "srsran/asn1/f1ap/common.h"
@@ -28,6 +29,7 @@
 #include "srsran/asn1/f1ap/f1ap_pdu_contents.h"
 #include "srsran/asn1/f1ap/f1ap_pdu_contents_ue.h"
 #include "srsran/f1ap/f1ap_message.h"
+#include "srsran/ran/positioning/positioning_ids.h"
 #include "srsran/ran/up_transport_layer_info.h"
 #include "srsran/support/test_utils.h"
 
@@ -99,7 +101,7 @@ f1ap_message srsran::test_helpers::generate_f1_setup_request(gnb_du_id_t        
   return msg;
 }
 
-f1ap_message srsran::test_helpers::generate_f1_setup_response(const f1ap_message& f1_setup_request)
+f1ap_message srsran::test_helpers::generate_f1_setup_response(const f1ap_message& f1_setup_request, bool activate_cells)
 {
   srsran_assert(f1_setup_request.pdu.type().value == f1ap_pdu_c::types_opts::init_msg, "Expected F1 setup request");
   srsran_assert(f1_setup_request.pdu.init_msg().value.type().value ==
@@ -111,16 +113,42 @@ f1ap_message srsran::test_helpers::generate_f1_setup_response(const f1ap_message
   resp.pdu.set_successful_outcome().load_info_obj(ASN1_F1AP_ID_F1_SETUP);
   f1_setup_resp_s& f1_setup_resp = resp.pdu.successful_outcome().value.f1_setup_resp();
 
-  f1_setup_resp->cells_to_be_activ_list_present = true;
-  f1_setup_resp->cells_to_be_activ_list.resize(req->gnb_du_served_cells_list.size());
-  for (unsigned i = 0; i != req->gnb_du_served_cells_list.size(); ++i) {
-    auto& req_cell = req->gnb_du_served_cells_list[i]->gnb_du_served_cells_item();
-    f1_setup_resp->cells_to_be_activ_list[i].load_info_obj(ASN1_F1AP_ID_CELLS_TO_BE_ACTIV_LIST_ITEM);
-    auto& cell          = f1_setup_resp->cells_to_be_activ_list[i].value().cells_to_be_activ_list_item();
-    cell.nr_cgi         = req_cell.served_cell_info.nr_cgi;
-    cell.nr_pci_present = true;
-    cell.nr_pci         = req_cell.served_cell_info.nr_pci;
+  f1_setup_resp->transaction_id      = req->transaction_id;
+  f1_setup_resp->gnb_cu_name_present = true;
+  f1_setup_resp->gnb_cu_name.from_string("srscu");
+  f1_setup_resp->gnb_cu_rrc_version.latest_rrc_version.from_number(2);
+
+  f1_setup_resp->cells_to_be_activ_list_present = activate_cells;
+  if (activate_cells) {
+    f1_setup_resp->cells_to_be_activ_list.resize(req->gnb_du_served_cells_list.size());
+    for (unsigned i = 0; i != req->gnb_du_served_cells_list.size(); ++i) {
+      auto& req_cell = req->gnb_du_served_cells_list[i]->gnb_du_served_cells_item();
+      f1_setup_resp->cells_to_be_activ_list[i].load_info_obj(ASN1_F1AP_ID_CELLS_TO_BE_ACTIV_LIST_ITEM);
+      auto& cell          = f1_setup_resp->cells_to_be_activ_list[i].value().cells_to_be_activ_list_item();
+      cell.nr_cgi         = req_cell.served_cell_info.nr_cgi;
+      cell.nr_pci_present = true;
+      cell.nr_pci         = req_cell.served_cell_info.nr_pci;
+    }
   }
+
+  return resp;
+}
+
+f1ap_message srsran::test_helpers::generate_f1_setup_failure(const f1ap_message& f1_setup_request)
+{
+  srsran_assert(f1_setup_request.pdu.type().value == f1ap_pdu_c::types_opts::init_msg, "Expected F1 setup request");
+  srsran_assert(f1_setup_request.pdu.init_msg().value.type().value ==
+                    f1ap_elem_procs_o::init_msg_c::types_opts::f1_setup_request,
+                "Expected F1 setup request");
+  auto& req = f1_setup_request.pdu.init_msg().value.f1_setup_request();
+
+  f1ap_message resp;
+  resp.pdu.set_unsuccessful_outcome().load_info_obj(ASN1_F1AP_ID_F1_SETUP);
+  f1_setup_fail_s& f1_setup_fail = resp.pdu.unsuccessful_outcome().value.f1_setup_fail();
+
+  f1_setup_fail->transaction_id = req->transaction_id;
+  f1_setup_fail->cause.set(cause_c::types_opts::misc);
+  f1_setup_fail->cause.misc().value = cause_misc_opts::unspecified;
 
   return resp;
 }
@@ -151,6 +179,61 @@ f1ap_message srsran::test_helpers::generate_f1_removal_response(const f1ap_messa
   ie->transaction_id    = (*f1_removal_request.pdu.init_msg().value.f1_removal_request())[0]->transaction_id();
 
   return resp;
+}
+
+f1ap_message
+srsran::test_helpers::create_gnb_du_configuration_update_acknowledge(const f1ap_message& gnb_du_config_update)
+{
+  const gnb_du_cfg_upd_s& req = gnb_du_config_update.pdu.init_msg().value.gnb_du_cfg_upd();
+
+  f1ap_message msg;
+  msg.pdu.set_successful_outcome().load_info_obj(ASN1_F1AP_ID_GNB_DU_CFG_UPD);
+
+  asn1::f1ap::gnb_du_cfg_upd_ack_s& ack = msg.pdu.successful_outcome().value.gnb_du_cfg_upd_ack();
+  ack->transaction_id                   = req->transaction_id;
+
+  return msg;
+}
+
+f1ap_message srsran::test_helpers::create_gnb_du_configuration_update_failure(const f1ap_message& gnb_du_config_update)
+{
+  const gnb_du_cfg_upd_s& req = gnb_du_config_update.pdu.init_msg().value.gnb_du_cfg_upd();
+
+  f1ap_message msg;
+  msg.pdu.set_unsuccessful_outcome().load_info_obj(ASN1_F1AP_ID_GNB_DU_CFG_UPD);
+  asn1::f1ap::gnb_du_cfg_upd_fail_s& fail = msg.pdu.unsuccessful_outcome().value.gnb_du_cfg_upd_fail();
+  fail->transaction_id                    = req->transaction_id;
+  fail->cause.set_misc().value            = cause_misc_opts::unspecified;
+
+  return msg;
+}
+
+f1ap_message
+srsran::test_helpers::create_gnb_cu_configuration_update_request(unsigned                        transaction_id,
+                                                                 span<const nr_cell_global_id_t> cgis_to_activate,
+                                                                 span<const nr_cell_global_id_t> cgis_to_deactivate)
+{
+  f1ap_message msg;
+
+  msg.pdu.set_init_msg().load_info_obj(ASN1_F1AP_ID_GNB_CU_CFG_UPD);
+  gnb_cu_cfg_upd_s& req = msg.pdu.init_msg().value.gnb_cu_cfg_upd();
+  req->transaction_id   = transaction_id;
+
+  req->cells_to_be_activ_list_present = not cgis_to_activate.empty();
+  req->cells_to_be_activ_list.resize(cgis_to_activate.size());
+  for (unsigned i = 0, e = cgis_to_activate.size(); i != e; ++i) {
+    req->cells_to_be_activ_list[i].load_info_obj(ASN1_F1AP_ID_CELLS_TO_BE_ACTIV_LIST_ITEM);
+    req->cells_to_be_activ_list[i].value().cells_to_be_activ_list_item().nr_cgi = cgi_to_asn1(cgis_to_activate[i]);
+  }
+  req->cells_to_be_deactiv_list_present = not cgis_to_deactivate.empty();
+  req->cells_to_be_deactiv_list.resize(cgis_to_deactivate.size());
+  for (unsigned i = 0, e = cgis_to_deactivate.size(); i != e; ++i) {
+    req->cells_to_be_deactiv_list[i].load_info_obj(ASN1_F1AP_ID_CELLS_TO_BE_DEACTIV_LIST_ITEM);
+    req->cells_to_be_deactiv_list[i].value().cells_to_be_deactiv_list_item().nr_cgi =
+        cgi_to_asn1(cgis_to_deactivate[i]);
+  }
+
+  return msg;
 }
 
 f1ap_message srsran::test_helpers::create_f1ap_reset_message(
@@ -593,3 +676,54 @@ byte_buffer srsran::test_helpers::extract_dl_dcch_msg(const byte_buffer& rrc_con
 
   return pdu;
 }
+
+#ifndef SRSRAN_HAS_ENTERPRISE
+
+f1ap_message srsran::test_helpers::generate_trp_information_response(const trp_id_t& trp_id)
+{
+  return {};
+}
+
+f1ap_message srsran::test_helpers::generate_trp_information_failure()
+{
+  return {};
+}
+
+f1ap_message srsran::test_helpers::generate_positioning_information_response(gnb_du_ue_f1ap_id_t du_ue_id,
+                                                                             gnb_cu_ue_f1ap_id_t cu_ue_id)
+{
+  return {};
+}
+
+f1ap_message srsran::test_helpers::generate_positioning_information_failure(gnb_du_ue_f1ap_id_t du_ue_id,
+                                                                            gnb_cu_ue_f1ap_id_t cu_ue_id)
+{
+  return {};
+}
+
+f1ap_message srsran::test_helpers::generate_positioning_activation_response(gnb_du_ue_f1ap_id_t du_ue_id,
+                                                                            gnb_cu_ue_f1ap_id_t cu_ue_id)
+{
+  return {};
+}
+
+f1ap_message srsran::test_helpers::generate_positioning_activation_failure(gnb_du_ue_f1ap_id_t du_ue_id,
+                                                                           gnb_cu_ue_f1ap_id_t cu_ue_id)
+{
+  return {};
+}
+
+f1ap_message srsran::test_helpers::generate_positioning_measurement_response(trp_id_t      trp_id,
+                                                                             lmf_meas_id_t lmf_meas_id,
+                                                                             ran_meas_id_t ran_meas_id)
+{
+  return {};
+}
+
+f1ap_message srsran::test_helpers::generate_positioning_measurement_failure(lmf_meas_id_t lmf_meas_id,
+                                                                            ran_meas_id_t ran_meas_id)
+{
+  return {};
+}
+
+#endif // SRSRAN_HAS_ENTERPRISE

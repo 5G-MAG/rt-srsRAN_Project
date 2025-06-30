@@ -39,8 +39,9 @@
 
 #include "srsran/phy/upper/channel_processors/pdcch/pdcch_processor.h"
 #include "srsran/phy/upper/channel_processors/pdsch/pdsch_processor.h"
-#include "srsran/phy/upper/channel_processors/ssb_processor.h"
+#include "srsran/phy/upper/channel_processors/ssb/ssb_processor.h"
 #include "srsran/phy/upper/signal_processors/nzp_csi_rs_generator.h"
+#include "srsran/phy/upper/signal_processors/prs/prs_generator_configuration.h"
 
 namespace srsran {
 
@@ -74,6 +75,11 @@ public:
   ///
   /// \param[in] config NZP-CSI-RS configuration to process.
   virtual void process_nzp_csi_rs(const nzp_csi_rs_generator::config_t& config) = 0;
+
+  /// \brief Process the given PRS configuration.
+  ///
+  /// \param[in] config PRS configuration to process.
+  virtual void process_prs(const prs_generator_configuration& config) = 0;
 };
 
 /// \brief Unique downlink processor.
@@ -189,30 +195,52 @@ public:
   virtual ~downlink_pdu_validator() = default;
 
   /// \brief Validates the SS/PBCH block processor configuration parameters.
-  /// \return True if the parameters contained in \c pdu are supported, false otherwise.
-  virtual bool is_valid(const ssb_processor::pdu_t& pdu) const = 0;
+  /// \return A success if the parameters contained in \c pdu are supported, an error message otherwise.
+  virtual error_type<std::string> is_valid(const ssb_processor::pdu_t& pdu) const = 0;
 
   /// \brief Validates PDCCH processor configuration parameters.
-  /// \return True if the parameters contained in \c pdu are supported, false otherwise.
-  virtual bool is_valid(const pdcch_processor::pdu_t& pdu) const = 0;
+  /// \return A success if the parameters contained in \c pdu are supported, an error message otherwise.
+  virtual error_type<std::string> is_valid(const pdcch_processor::pdu_t& pdu) const = 0;
 
   /// \brief Validates PDSCH processor configuration parameters.
   /// \return A success if the parameters contained in \c pdu are supported, an error message otherwise.
   virtual error_type<std::string> is_valid(const pdsch_processor::pdu_t& pdu) const = 0;
 
   /// \brief Validates NZP-CSI-RS generator configuration parameters.
-  /// \return True if the parameters contained in \c config are supported, false otherwise.
-  virtual bool is_valid(const nzp_csi_rs_generator::config_t& config) const = 0;
+  /// \return A success if the parameters contained in \c config are supported, an error message otherwise.
+  virtual error_type<std::string> is_valid(const nzp_csi_rs_generator::config_t& config) const = 0;
+
+  /// \brief Validates PRS generator configuration parameters.
+  /// \return A success if the parameters contained in \c config are supported, an error message otherwise.
+  virtual error_type<std::string> is_valid(const prs_generator_configuration& config) const = 0;
+};
+
+/// Downlink processor base.
+class downlink_processor_base
+{
+public:
+  /// Default destructor.
+  virtual ~downlink_processor_base() = default;
+
+  /// Gets the downlink processor controller interface.
+  virtual downlink_processor_controller& get_controller() = 0;
+
+  /// Indicates the downlink processor to stop receiving
+  virtual void stop() = 0;
 };
 
 /// Pool to access a downlink processor.
 class downlink_processor_pool
 {
 public:
+  /// Default destructor.
   virtual ~downlink_processor_pool() = default;
 
   /// Gets the downlink processor controller associated with the given slot.
   virtual downlink_processor_controller& get_processor_controller(slot_point slot) = 0;
+
+  /// Stops the operation of all the downlink processors contained in the pool.
+  virtual void stop() = 0;
 };
 
 } // namespace srsran

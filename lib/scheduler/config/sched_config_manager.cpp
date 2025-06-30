@@ -22,7 +22,6 @@
 
 #include "sched_config_manager.h"
 #include "../logging/scheduler_metrics_handler.h"
-#include "../logging/scheduler_metrics_ue_configurator.h"
 #include "srsran/scheduler/config/scheduler_cell_config_validator.h"
 #include "srsran/scheduler/config/scheduler_ue_config_validator.h"
 #include "srsran/srslog/srslog.h"
@@ -92,12 +91,31 @@ const cell_configuration* sched_config_manager::add_cell(const sched_cell_config
   auto ret = config_validators::validate_sched_cell_configuration_request_message(msg, expert_params);
   srsran_assert(ret.has_value(), "Invalid cell configuration request message. Cause: {}", ret.error().c_str());
 
+  if (not group_cfg_pool.contains(msg.cell_group_index)) {
+    group_cfg_pool.emplace(msg.cell_group_index, std::make_unique<du_cell_group_config_pool>());
+  }
+  group_cfg_pool[msg.cell_group_index]->add_cell(msg);
+
   added_cells.emplace(msg.cell_index, std::make_unique<cell_configuration>(expert_params, msg));
 
-  cell_metrics_handler* cell_metrics = metrics_handler.add_cell(*added_cells[msg.cell_index]);
+  cell_metrics_handler* cell_metrics = metrics_handler.add_cell(*added_cells[msg.cell_index], msg.metrics);
   srsran_assert(cell_metrics != nullptr, "Unable to create metrics handler");
 
   return added_cells[msg.cell_index].get();
+}
+
+void sched_config_manager::rem_cell(du_cell_index_t cell_index)
+{
+  const du_cell_group_index_t group_index = added_cells[cell_index]->cell_group_index;
+
+  // Eliminate metrics.
+  metrics_handler.rem_cell(cell_index);
+
+  // Eliminate respective cell configuration.
+  added_cells.erase(cell_index);
+
+  // Remove cell configs from the group.
+  group_cfg_pool[group_index]->rem_cell(cell_index);
 }
 
 ue_config_update_event sched_config_manager::add_ue(const sched_ue_creation_request_message& cfg_req)
@@ -151,7 +169,8 @@ ue_config_update_event sched_config_manager::add_ue(const sched_ue_creation_requ
   srsran_assert(ue_cfg_list[cfg_req.ue_index] == nullptr, "Invalid ue_index={}", fmt::underlying(cfg_req.ue_index));
 
   // Create UE configuration.
-  auto next_ded_cfg = std::make_unique<ue_configuration>(cfg_req.ue_index, cfg_req.crnti, added_cells, cfg_req.cfg);
+  auto next_ded_cfg = std::make_unique<ue_configuration>(
+      cfg_req.ue_index, cfg_req.crnti, added_cells, group_cfg_pool[target_grp_idx]->add_ue(cfg_req));
 
   return ue_config_update_event{cfg_req.ue_index, *this, std::move(next_ded_cfg), cfg_req.starts_in_fallback};
 }
@@ -182,7 +201,7 @@ ue_config_update_event sched_config_manager::update_ue(const sched_ue_reconfigur
   auto next_ded_cfg = std::make_unique<ue_configuration>(current_ue_cfg);
 
   // Apply the delta config.
-  next_ded_cfg->update(added_cells, cfg_req.cfg);
+  next_ded_cfg->update(added_cells, group_cfg_pool[group_idx]->reconf_ue(cfg_req));
 
   // Return RAII event.
   return ue_config_update_event{cfg_req.ue_index, *this, std::move(next_ded_cfg)};
@@ -203,7 +222,7 @@ ue_config_delete_event sched_config_manager::remove_ue(du_ue_index_t ue_index)
 
     // Notifies MAC that event is complete.
     // Note: There is no failure path for the deletion of a UE.
-    config_notifier.on_ue_delete_response(ue_index);
+    config_notifier.on_ue_deletion_completed(ue_index);
 
     return ue_config_delete_event{};
   }
@@ -265,7 +284,7 @@ void sched_config_manager::handle_ue_delete_complete(du_ue_index_t ue_index)
   ue_to_cell_group_index[ue_index].store(INVALID_DU_CELL_GROUP_INDEX, std::memory_order_release);
 
   // Notifies MAC that event is complete.
-  config_notifier.on_ue_delete_response(ue_index);
+  config_notifier.on_ue_deletion_completed(ue_index);
 }
 
 void sched_config_manager::flush_ues_to_rem()

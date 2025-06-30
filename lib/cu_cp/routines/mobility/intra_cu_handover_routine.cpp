@@ -66,6 +66,7 @@ intra_cu_handover_routine::intra_cu_handover_routine(const cu_cp_intra_cu_handov
                                                      cu_cp_ue_removal_handler&              ue_removal_handler_,
                                                      cu_cp_ue_context_manipulation_handler& cu_cp_handler_,
                                                      ue_manager&                            ue_mng_,
+                                                     mobility_manager&                      mobility_mng_,
                                                      srslog::basic_logger&                  logger_) :
   request(request_),
   target_cell_sib1(target_cell_sib1_),
@@ -76,6 +77,7 @@ intra_cu_handover_routine::intra_cu_handover_routine(const cu_cp_intra_cu_handov
   ue_removal_handler(ue_removal_handler_),
   cu_cp_handler(cu_cp_handler_),
   ue_mng(ue_mng_),
+  mobility_mng(mobility_mng_),
   logger(logger_)
 {
 }
@@ -210,18 +212,29 @@ void intra_cu_handover_routine::operator()(coro_context<async_task<cu_cp_intra_c
     }
 
     // Trigger RRC Reconfiguration
-    CORO_AWAIT_VALUE(reconf_result,
+    CORO_AWAIT_VALUE(rrc_reconfig_sent,
                      launch_async<handover_reconfiguration_routine>(rrc_reconfig_args,
                                                                     target_ue_context_setup_response.ue_index,
                                                                     *source_ue,
                                                                     source_du_f1ap_ue_ctxt_mng,
                                                                     cu_cp_handler,
                                                                     logger));
+    if (!rrc_reconfig_sent) {
+      logger.warning(
+          "ue={}: \"{}\" failed to send RRC reconfiguration. Releasing target UE", request.source_ue_index, name());
 
-    if (!reconf_result) {
-      logger.warning("ue={}: \"{}\" RRC reconfiguration failed", request.source_ue_index, name());
+      ue_context_release_command.ue_index             = target_ue->get_ue_index();
+      ue_context_release_command.cause                = ngap_cause_radio_network_t::unspecified;
+      ue_context_release_command.requires_rrc_release = false;
+      CORO_AWAIT(ue_context_release_handler.handle_ue_context_release_command(ue_context_release_command));
+      logger.debug("ue={}: \"{}\" removed target UE context", ue_context_release_command.ue_index, name());
+
+      logger.debug("ue={}: \"{}\" failed", request.source_ue_index, name());
       CORO_EARLY_RETURN(response_msg);
     }
+
+    // Notify mobility manager about requested handover execution.
+    mobility_mng.get_metrics_handler().aggregate_requested_handover_execution();
   }
 
   {
@@ -231,20 +244,6 @@ void intra_cu_handover_routine::operator()(coro_context<async_task<cu_cp_intra_c
       result.pdu_sessions_added_list.push_back(pdu_session_to_add.second);
     }
     target_ue->get_up_resource_manager().apply_config_update(result);
-  }
-
-  {
-    // Transfer old UE context (NGAP and E1AP) to new UE context and remove old UE context.
-    cu_cp_handler.handle_handover_ue_context_push(request.source_ue_index, target_ue->get_ue_index());
-  }
-
-  // Remove source UE context.
-  {
-    ue_context_release_command.ue_index             = source_ue->get_ue_index();
-    ue_context_release_command.cause                = ngap_cause_radio_network_t::unspecified;
-    ue_context_release_command.requires_rrc_release = false;
-    CORO_AWAIT(ue_context_release_handler.handle_ue_context_release_command(ue_context_release_command));
-    logger.debug("ue={}: \"{}\" removed source UE context", ue_context_release_command.ue_index, name());
   }
 
   logger.debug("ue={}: \"{}\" finalized", request.source_ue_index, name());

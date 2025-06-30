@@ -132,7 +132,9 @@ void io_broker_epoll::thread_loop()
     // handle event
     if (nof_events == -1) {
       // Note: "Interrupted system call" can happen while debugging.
-      logger.error("epoll_wait(): {}", strerror(errno));
+      if (errno != EINTR) {
+        logger.error("epoll_wait(): {}", strerror(errno));
+      }
       continue;
     }
     if (nof_events == 0) {
@@ -191,10 +193,10 @@ void io_broker_epoll::thread_loop()
       }
 
       it->second.is_executing_recv_callback.store(true, std::memory_order_release);
-      if (not it->second.executor->defer([this,
-                                          fd,
-                                          callback       = &it->second.read_callback,
-                                          is_in_callback = &it->second.is_executing_recv_callback]() {
+      if (not it->second.executor->defer(TRACE_TASK([this,
+                                                     fd,
+                                                     callback       = &it->second.read_callback,
+                                                     is_in_callback = &it->second.is_executing_recv_callback]() {
             // Track the current FD that is being read by this executor.
             fd_read_in_callback = fd;
             (*callback)();
@@ -204,7 +206,7 @@ void io_broker_epoll::thread_loop()
               rearm_fd(fd);
             }
             fd_read_in_callback = -1;
-          })) {
+          }))) {
         rearm_fd(fd);
         it->second.is_executing_recv_callback.store(false, std::memory_order_release);
         logger.error("Could not enqueue task for processing file descriptor: {}", fd);

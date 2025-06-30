@@ -86,11 +86,20 @@ void ta_manager::slot_indication(slot_point current_sl)
     return;
   }
 
-  // Early return if measurement interval is short.
-  if ((current_sl - meas_start_time) < (int)expert_cfg.ta_measurement_slot_period) {
+  if (state == state_t::prohibit) {
+    if ((current_sl - prohibit_start_time) > static_cast<int>(expert_cfg.ta_measurement_slot_prohibit_period)) {
+      meas_start_time = current_sl;
+      state           = state_t::measure;
+    }
     return;
   }
 
+  // Early return if measurement interval is short.
+  if ((current_sl - meas_start_time) < static_cast<int>(expert_cfg.ta_measurement_slot_period)) {
+    return;
+  }
+
+  bool ta_cmd_sent = false;
   for (unsigned tag_idx = 0; tag_idx != n_ta_reports.size(); ++tag_idx) {
     if (n_ta_reports[tag_idx].samples.empty()) {
       continue;
@@ -101,18 +110,31 @@ void ta_manager::slot_indication(slot_point current_sl)
     // The new Timing Advance Command is a value ranging from [0,...,63] as per TS 38.213, clause 4.2. Hence, we
     // need to subtract a value of 31 (as per equation in the same clause) to get the change in Timing Advance Command.
     const unsigned new_t_a = compute_new_t_a(compute_avg_n_ta_difference(tag_idx));
-    if (abs((int)new_t_a - ta_cmd_offset_zero) >= expert_cfg.ta_cmd_offset_threshold) {
+    if (abs(static_cast<int>(new_t_a) - ta_cmd_offset_zero) >= expert_cfg.ta_cmd_offset_threshold) {
       // Send Timing Advance Command to UE.
-      dl_lc_ch_mgr->handle_mac_ce_indication(
-          {.ce_lcid = lcid_dl_sch_t::TA_CMD, .ce_payload = ta_cmd_ce_payload{.tag_id = tag_id, .ta_cmd = new_t_a}});
+      if (dl_lc_ch_mgr->handle_mac_ce_indication(
+              {.ce_lcid    = lcid_dl_sch_t::TA_CMD,
+               .ce_payload = ta_cmd_ce_payload{.tag_id = tag_id, .ta_cmd = new_t_a}})) {
+        ta_cmd_sent = true;
+      } else {
+        // Early return if queueing the TA CMD indication failed. Will try again at the next slot indication.
+        logger.warning("Dropped TA command, queue is full.");
+        return;
+      }
     }
 
     // Reset stored measurements.
     reset_measurements(tag_idx);
   }
 
-  // Set TA manager state to idle.
-  state = state_t::idle;
+  if (ta_cmd_sent and expert_cfg.ta_measurement_slot_prohibit_period > 0) {
+    // Set TA manager state to prohibit state.
+    state               = state_t::prohibit;
+    prohibit_start_time = current_sl;
+  } else {
+    // Set TA manager state to idle.
+    state = state_t::idle;
+  }
 }
 
 int64_t ta_manager::compute_avg_n_ta_difference(unsigned tag_idx)

@@ -21,7 +21,6 @@
  */
 
 #include "ofh_data_flow_cplane_scheduling_commands_impl.h"
-#include "scoped_frame_buffer.h"
 #include "srsran/ran/resource_block.h"
 
 using namespace srsran;
@@ -73,7 +72,7 @@ generate_section1_control_parameters(const data_flow_cplane_type_1_context& cont
   return msg_params;
 }
 
-/// \brief Converts PRACH subcarrier spacing numerology to ORAN specific value.
+/// Converts PRACH subcarrier spacing numerology to O-RAN specific value.
 static cplane_scs cplane_convert_scs(prach_subcarrier_spacing scs)
 {
   switch (scs) {
@@ -150,6 +149,7 @@ data_flow_cplane_scheduling_commands_impl::data_flow_cplane_scheduling_commands_
   ul_compr_params(config.ul_compr_params),
   prach_compr_params(config.prach_compr_params),
   ul_cplane_context_repo(std::move(dependencies.ul_cplane_context_repo)),
+  prach_cplane_context_repo(std::move(dependencies.prach_cplane_context_repo)),
   frame_pool(std::move(dependencies.frame_pool)),
   eth_builder(std::move(dependencies.eth_builder)),
   ecpri_builder(std::move(dependencies.ecpri_builder)),
@@ -159,7 +159,8 @@ data_flow_cplane_scheduling_commands_impl::data_flow_cplane_scheduling_commands_
   srsran_assert(ecpri_builder, "Invalid eCPRI packet builder");
   srsran_assert(cp_builder, "Invalid Control-Plane message builder");
   srsran_assert(frame_pool, "Invalid frame pool");
-  srsran_assert(ul_cplane_context_repo, "Invalid UL repository");
+  srsran_assert(ul_cplane_context_repo, "Invalid UL Control-Plane context repository");
+  srsran_assert(prach_cplane_context_repo, "Invalid PRACH Control-Plane context repository");
 }
 
 void data_flow_cplane_scheduling_commands_impl::enqueue_section_type_1_message(
@@ -167,16 +168,19 @@ void data_flow_cplane_scheduling_commands_impl::enqueue_section_type_1_message(
 {
   data_direction    direction = context.direction;
   slot_point        slot      = context.slot;
-  slot_symbol_point symbol_point(slot, 0, nof_symbols_per_slot);
-  logger.debug("Sector#{}: packing a {} type 1 Control-Plane message for slot '{}' and eAxC '{}'",
-               sector_id,
-               (direction == data_direction::downlink) ? "downlink" : "uplink",
-               slot,
-               context.eaxc);
+  slot_symbol_point symbol_point(slot, context.symbol_range.start(), nof_symbols_per_slot);
+
+  if (SRSRAN_UNLIKELY(logger.debug.enabled())) {
+    logger.debug("Sector#{}: packing a {} type 1 Control-Plane message for slot '{}' and eAxC '{}'",
+                 sector_id,
+                 (direction == data_direction::downlink) ? "downlink" : "uplink",
+                 slot,
+                 context.eaxc);
+  }
 
   // Get an ethernet frame buffer.
-  scoped_frame_buffer scoped_buffer(*frame_pool, symbol_point, message_type::control_plane, direction);
-  if (scoped_buffer.empty()) {
+  auto scoped_buffer = frame_pool->reserve(symbol_point);
+  if (SRSRAN_UNLIKELY(!scoped_buffer)) {
     logger.warning("Sector#{}: not enough space in the buffer pool to create a {} type 1 Control-Plane message for "
                    "slot '{}' and eAxC '{}'",
                    sector_id,
@@ -185,15 +189,14 @@ void data_flow_cplane_scheduling_commands_impl::enqueue_section_type_1_message(
                    context.eaxc);
     return;
   }
-  ether::frame_buffer& frame_buffer = scoped_buffer.get_next_frame();
-  span<uint8_t>        buffer       = frame_buffer.data();
+  span<uint8_t> buffer = scoped_buffer->get_buffer();
 
   // Build the Open Fronthaul control message. Only one port supported.
-  units::bytes  ether_hdr_size  = eth_builder->get_header_size();
-  units::bytes  ecpri_hdr_size  = ecpri_builder->get_header_size(ecpri::message_type::rt_control_data);
-  units::bytes  offset          = ether_hdr_size + ecpri_hdr_size;
-  span<uint8_t> ofh_buffer      = span<uint8_t>(buffer).last(buffer.size() - offset.value());
-  const auto&   ofh_ctrl_params = generate_section1_control_parameters(
+  units::bytes                    ether_hdr_size = eth_builder->get_header_size();
+  units::bytes                    ecpri_hdr_size = ecpri_builder->get_header_size(ecpri::message_type::rt_control_data);
+  units::bytes                    offset         = ether_hdr_size + ecpri_hdr_size;
+  span<uint8_t>                   ofh_buffer     = span<uint8_t>(buffer).last(buffer.size() - offset.value());
+  cplane_section_type1_parameters ofh_ctrl_params = generate_section1_control_parameters(
       context, ru_nof_prbs, (direction == data_direction::downlink) ? dl_compr_params : ul_compr_params);
   unsigned bytes_written = cp_builder->build_dl_ul_radio_channel_message(ofh_buffer, ofh_ctrl_params);
 
@@ -202,7 +205,8 @@ void data_flow_cplane_scheduling_commands_impl::enqueue_section_type_1_message(
   if (direction == data_direction::uplink) {
     ul_cplane_context_repo->add(slot,
                                 eaxc,
-                                {ofh_ctrl_params.radio_hdr,
+                                {ofh_ctrl_params.radio_hdr.filter_index,
+                                 ofh_ctrl_params.radio_hdr.start_symbol,
                                  ofh_ctrl_params.section_fields.common_fields.prb_start,
                                  ofh_ctrl_params.section_fields.common_fields.nof_prb,
                                  ofh_ctrl_params.section_fields.common_fields.nof_symbols});
@@ -222,7 +226,7 @@ void data_flow_cplane_scheduling_commands_impl::enqueue_section_type_1_message(
   span<uint8_t> eth_buffer = span<uint8_t>(buffer).first(ether_hdr_size.value() + bytes_written);
   eth_builder->build_frame(eth_buffer);
 
-  frame_buffer.set_size(eth_buffer.size());
+  scoped_buffer->set_size(eth_buffer.size());
 }
 
 void data_flow_cplane_scheduling_commands_impl::enqueue_section_type_3_prach_message(
@@ -230,14 +234,16 @@ void data_flow_cplane_scheduling_commands_impl::enqueue_section_type_3_prach_mes
 {
   slot_point        slot = context.slot;
   slot_symbol_point symbol_point(slot, context.start_symbol, nof_symbols_per_slot);
-  logger.debug("Sector#{}: packing a type 3 PRACH Control-Plane message for slot '{}' and eAxC '{}'",
-               sector_id,
-               slot,
-               context.eaxc);
+  if (SRSRAN_UNLIKELY(logger.debug.enabled())) {
+    logger.debug("Sector#{}: packing a type 3 PRACH Control-Plane message for slot '{}' and eAxC '{}'",
+                 sector_id,
+                 slot,
+                 context.eaxc);
+  }
 
   // Get an ethernet frame buffer.
-  scoped_frame_buffer scoped_buffer(*frame_pool, symbol_point, message_type::control_plane, data_direction::uplink);
-  if (scoped_buffer.empty()) {
+  auto scoped_buffer = frame_pool->reserve(symbol_point);
+  if (SRSRAN_UNLIKELY(!scoped_buffer)) {
     logger.warning("Sector#{}: not enough space in the buffer pool to create a type 3 PRACH Control-Plane message for "
                    "slot '{}' and eAxC '{}'",
                    sector_id,
@@ -245,38 +251,43 @@ void data_flow_cplane_scheduling_commands_impl::enqueue_section_type_3_prach_mes
                    context.eaxc);
     return;
   }
-  ether::frame_buffer& frame_buffer = scoped_buffer.get_next_frame();
-  span<uint8_t>        buffer       = frame_buffer.data();
+  span<uint8_t> buffer = scoped_buffer->get_buffer();
 
   // Build the Open Fronthaul control message. Only one port supported.
-  units::bytes  ether_hdr_size  = eth_builder->get_header_size();
-  units::bytes  ecpri_hdr_size  = ecpri_builder->get_header_size(ecpri::message_type::rt_control_data);
-  units::bytes  offset          = ether_hdr_size + ecpri_hdr_size;
-  span<uint8_t> ofh_buffer      = buffer.last(buffer.size() - offset.value());
-  const auto&   ofh_ctrl_params = generate_prach_control_parameters(context, prach_compr_params, ru_nof_prbs);
+  units::bytes                    ether_hdr_size = eth_builder->get_header_size();
+  units::bytes                    ecpri_hdr_size = ecpri_builder->get_header_size(ecpri::message_type::rt_control_data);
+  units::bytes                    offset         = ether_hdr_size + ecpri_hdr_size;
+  span<uint8_t>                   ofh_buffer     = buffer.last(buffer.size() - offset.value());
+  cplane_section_type3_parameters ofh_ctrl_params =
+      generate_prach_control_parameters(context, prach_compr_params, ru_nof_prbs);
 
-  logger.debug("Sector#{}: generated a PRACH request for slot '{}': numSymbols={}, startSym={}, start_re={}, scs={}, "
-               "prach_scs={}, nof_rb={}, timeOffset={}, freqOffset={}",
-               sector_id,
-               slot,
-               context.nof_repetitions,
-               context.start_symbol,
-               context.prach_start_re,
-               to_string(context.scs),
-               to_string(context.prach_scs),
-               context.prach_nof_rb,
-               ofh_ctrl_params.time_offset,
-               ofh_ctrl_params.section_fields.frequency_offset);
+  if (SRSRAN_UNLIKELY(logger.debug.enabled())) {
+    logger.debug(
+        "Sector#{}: generated a PRACH request for eaxc '{}', slot '{}': numSymbols={}, startSym={}, start_re={}, "
+        "scs={}, prach_scs={}, nof_rb={}, timeOffset={}, freqOffset={}",
+        sector_id,
+        context.eaxc,
+        slot,
+        context.nof_repetitions,
+        ofh_ctrl_params.radio_hdr.start_symbol,
+        context.prach_start_re,
+        to_string(context.scs),
+        to_string(context.prach_scs),
+        ofh_ctrl_params.section_fields.common_fields.nof_prb,
+        ofh_ctrl_params.time_offset,
+        ofh_ctrl_params.section_fields.frequency_offset);
+  }
 
   unsigned bytes_written = cp_builder->build_prach_mixed_numerology_message(ofh_buffer, ofh_ctrl_params);
   unsigned eaxc          = context.eaxc;
 
-  ul_cplane_context_repo->add(slot,
-                              eaxc,
-                              {ofh_ctrl_params.radio_hdr,
-                               ofh_ctrl_params.section_fields.common_fields.prb_start,
-                               ofh_ctrl_params.section_fields.common_fields.nof_prb,
-                               ofh_ctrl_params.section_fields.common_fields.nof_symbols});
+  prach_cplane_context_repo->add(slot,
+                                 eaxc,
+                                 {ofh_ctrl_params.radio_hdr.filter_index,
+                                  ofh_ctrl_params.radio_hdr.start_symbol,
+                                  ofh_ctrl_params.section_fields.common_fields.prb_start,
+                                  ofh_ctrl_params.section_fields.common_fields.nof_prb,
+                                  ofh_ctrl_params.section_fields.common_fields.nof_symbols});
 
   // Add eCPRI header.
   span<uint8_t> ecpri_buffer = buffer.subspan(ether_hdr_size.value(), ecpri_hdr_size.value() + bytes_written);
@@ -290,5 +301,10 @@ void data_flow_cplane_scheduling_commands_impl::enqueue_section_type_3_prach_mes
   span<uint8_t> eth_buffer = span<uint8_t>(buffer).first(ether_hdr_size.value() + bytes_written);
   eth_builder->build_frame(eth_buffer);
 
-  frame_buffer.set_size(eth_buffer.size());
+  scoped_buffer->set_size(eth_buffer.size());
+}
+
+data_flow_message_encoding_metrics_collector* data_flow_cplane_scheduling_commands_impl::get_metrics_collector()
+{
+  return nullptr;
 }

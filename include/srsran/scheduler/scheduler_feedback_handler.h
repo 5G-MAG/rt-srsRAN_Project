@@ -130,10 +130,10 @@ public:
 
   mac_harq_ack_report_status&       operator[](unsigned idx) { return to_span()[idx]; }
   const mac_harq_ack_report_status& operator[](unsigned idx) const { return to_span()[idx]; }
-                                    operator span<mac_harq_ack_report_status>() { return to_span(); }
-                                    operator span<const mac_harq_ack_report_status>() const { return to_span(); }
-  size_t                            size() const { return to_span().size(); }
-  bool                              empty() const { return to_span().empty(); }
+  operator span<mac_harq_ack_report_status>() { return to_span(); }
+  operator span<const mac_harq_ack_report_status>() const { return to_span(); }
+  size_t size() const { return to_span().size(); }
+  bool   empty() const { return to_span().empty(); }
 
   auto begin() { return to_span().begin(); }
   auto begin() const { return to_span().begin(); }
@@ -141,7 +141,7 @@ public:
   auto end() const { return to_span().end(); }
 
 private:
-  constexpr static size_t nof_harq_reports_thres = 11;
+  static constexpr size_t nof_harq_reports_thres = 11;
   // type used when the number of harq-bits is equal or below \c nof_harq_reports_thres
   using small_buffer_type = static_vector<mac_harq_ack_report_status, nof_harq_reports_thres>;
   // type used when the number of harq-bits is above \c nof_harq_reports_thres

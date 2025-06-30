@@ -11,7 +11,9 @@ import sys
 
 GITLAB_URL = "https://gitlab.com"
 NEEDS_REGEX = re.compile(r"Downloading artifacts for .* \((\d+)\)...", flags=re.MULTILINE)
-VARIABLE_REGEX = re.compile(r"^(?:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z \d{2}O )?(\w+)=(.*)?$", flags=re.MULTILINE)
+VARIABLE_REGEX = re.compile(
+    r"^(?:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z \d{2}O )?(\w+)=(.*)?$", flags=re.MULTILINE
+)
 
 
 try:
@@ -45,11 +47,12 @@ def _parse_args() -> Tuple[str, str, str, str, str, int, bool]:
         help='Job name. Please use "" when the job name contains spaces',
     )
     parser.add_argument(
-        "--plugin-branch",
+        "--test",
         required=False,
         type=str,
-        help="Remote branch for plugin repository. Set to '' to skip plugin repository.",
         default="",
+        help="In E2E jobs, the name of the test to run (default: empty for all tests defined in the job). "
+        "Use full name, f.e. tests/attach_detach.py::test_zmq[band:3-scs:15-bandwidth:50-udp-uplink]",
     )
     parser.add_argument(
         "--timeout", required=False, type=int, default=300, help="Search for job timeout (default: %(default)s)"
@@ -58,7 +61,7 @@ def _parse_args() -> Tuple[str, str, str, str, str, int, bool]:
         "--dryrun", action="store_true", help="Search the job but skip pipeline creation (default: false)"
     )
     args = parser.parse_args()
-    return args.token, args.project, args.branch, args.plugin_branch, args.job.strip(), args.timeout, args.dryrun
+    return args.token, args.project, args.branch, args.job.strip(), args.test.strip(), args.timeout, args.dryrun
 
 
 def _get_project(token: str, instance: str, project: str) -> Project:
@@ -74,8 +77,9 @@ def _search_job_by_name(project: Project, job_name: str, timeout: int) -> Dict[s
     for pipeline in project.pipelines.list(iterator=True, source="schedule"):
         for job in pipeline.jobs.list(iterator=True):
             if job.name == job_name:
-                print(f'🟢 Job "{job.name}" found (id: {job.id})')
                 variable_dict.update(_extract_variables_from_job(project, job.id))
+                if not variable_dict:
+                    continue  # If the variable dict is empty, keep searching
                 if "TESTBED" not in variable_dict:
                     variable_dict["TESTBED"] = "none"
                 return variable_dict
@@ -90,20 +94,29 @@ def _search_job_by_name(project: Project, job_name: str, timeout: int) -> Dict[s
 
 def _extract_variables_from_job(project: Project, job_id: int) -> Dict[str, str]:
     job = project.jobs.get(job_id)
+    if "driver" in job.name:
+        return {}  # Filter out driver jobs
     job_log = job.trace().decode("utf-8")
+    if not job_log:
+        return {}  # Filter out jobs without output - we can't extract variables
+    print(f'🟢 Job "{job.name}" found (id: {job.id})')
 
     variable_dict = {}
     for needs_job_id in re.findall(NEEDS_REGEX, job_log):
         variable_dict.update(_extract_variables_from_job(project, needs_job_id))
     for item in re.findall(VARIABLE_REGEX, job_log):
         key, value = item
-        variable_dict[key] = value.strip()
+        if key.isupper() and "$" not in value:
+            variable_dict[key] = value.strip()
 
     return variable_dict
 
 
-def _create_pipeline(project: Project, branch: str, variables: Dict[str, str], dryrun: bool):
+def _create_pipeline(project: Project, branch: str, variables: Dict[str, str], test: str, dryrun: bool):
     variable_array = []
+    if test and variables.get("TESTBED", "none") != "none":
+        print(f"  - Requested test: {test}")
+        variables["E2E_FILE_OR_DIR"] = test
     print("⏩ Creating pipeline with variables:")
     for key, value in variables.items():
         if value:
@@ -121,11 +134,10 @@ def main():
     Entrypoint runner.
     """
     try:
-        token, project_name, branch, plugin_branch, job, timeout, dryrun = _parse_args()
+        token, project_name, branch, job, test, timeout, dryrun = _parse_args()
         project = _get_project(token=token, instance=GITLAB_URL, project=project_name)
         variable_dict = _search_job_by_name(project=project, job_name=job, timeout=timeout)
-        variable_dict["PLUGIN_BRANCH"] = plugin_branch
-        _create_pipeline(project=project, branch=branch, variables=variable_dict, dryrun=dryrun)
+        _create_pipeline(project=project, branch=branch, variables=variable_dict, test=test, dryrun=dryrun)
     except KeyboardInterrupt:
         print()
         print("⛔ Process cancelled by user ⛔")

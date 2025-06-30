@@ -53,6 +53,8 @@ public:
 
   virtual void add_cell(const ue_scheduler_cell_params& params) = 0;
 
+  virtual void rem_cell(du_cell_index_t cell_index) = 0;
+
   /// Schedule UE DL and UL grants for a given {slot, cell}.
   virtual void run_slot(slot_point slot_tx) = 0;
 
@@ -67,6 +69,8 @@ public:
   virtual scheduler_feedback_handler& get_feedback_handler() = 0;
 
   virtual scheduler_dl_buffer_state_indication_handler& get_dl_buffer_state_indication_handler() = 0;
+
+  virtual scheduler_positioning_handler& get_positioning_handler() = 0;
 };
 
 } // namespace srsran

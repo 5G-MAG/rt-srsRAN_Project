@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include "apps/services/e2/e2_metric_connector_manager.h"
+#include "apps/helpers/e2/e2_metric_connector_manager.h"
 #include "srsran/cu_cp/o_cu_cp.h"
 #include "srsran/e2/e2_cu_metrics_connector.h"
 #include "srsran/ngap/gateways/n2_connection_client.h"
@@ -46,7 +46,7 @@ public:
   srs_cu_cp::cu_cp& get_cu_cp() override;
 
   // See interface for documentation.
-  srs_cu_cp::cu_cp_power_controller& get_power_controller() override;
+  srs_cu_cp::cu_cp_operation_controller& get_operation_controller() override;
 
 private:
   std::vector<std::unique_ptr<srs_cu_cp::n2_connection_client>> n2_clients;

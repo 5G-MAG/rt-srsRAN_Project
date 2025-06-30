@@ -29,6 +29,7 @@
 #include "srsran/cu_cp/cu_cp_factory.h"
 #include "srsran/du/du_cell_config_helpers.h"
 #include "srsran/du/du_high/du_high_factory.h"
+#include "srsran/mac/mac_cell_timing_context.h"
 #include "srsran/scheduler/config/scheduler_expert_config_factory.h"
 #include "srsran/support/test_utils.h"
 #include <gtest/gtest.h>
@@ -53,12 +54,14 @@ static void init_loggers()
   srslog::init();
 }
 
-du_high_cu_cp_worker_manager::du_high_cu_cp_worker_manager(unsigned nof_dus) : test_worker(task_worker_queue_size)
+du_high_cu_cp_worker_manager::du_high_cu_cp_worker_manager(unsigned nof_dus, timer_manager& timers) :
+  test_worker(task_worker_queue_size)
 {
   init_loggers();
 
   for (unsigned i = 0; i != nof_dus; ++i) {
-    dus.push_back(test_helpers::create_multi_threaded_du_high_executor_mapper(test_helpers::du_high_worker_config{1}));
+    dus.push_back(test_helpers::create_multi_threaded_du_high_executor_mapper(
+        test_helpers::du_high_worker_config{1, false, {}, timers}));
   }
 
   // CU-CP especific executor.
@@ -80,13 +83,13 @@ void du_high_cu_cp_worker_manager::stop()
 }
 
 du_high_cu_test_simulator::du_high_cu_test_simulator(const du_high_cu_cp_test_simulator_config& cfg_) :
-  cfg(cfg_), logger(srslog::fetch_basic_logger("TEST")), workers(cfg.dus.size())
+  cfg(cfg_), logger(srslog::fetch_basic_logger("TEST")), workers(cfg.dus.size(), timers)
 {
   // Prepare CU-CP config.
   srs_cu_cp::cu_cp_configuration cu_cfg = config_helpers::make_default_cu_cp_config();
   cu_cfg.services.cu_cp_executor        = workers.cu_cp_exec;
   cu_cfg.services.timers                = &timers;
-  cu_cfg.ngaps.push_back(srs_cu_cp::cu_cp_configuration::ngap_params{
+  cu_cfg.ngap.ngaps.push_back(srs_cu_cp::cu_cp_configuration::ngap_config{
       &n2_gw, {{7, {{plmn_identity::test_value(), {{slice_service_type{1}}}}}}}});
 
   // Instatiate CU-CP.
@@ -150,14 +153,14 @@ void du_high_cu_test_simulator::start_dus()
     du_hi_cfg.ran.sched_cfg                  = config_helpers::make_default_scheduler_expert_config();
 
     srs_du::du_high_dependencies du_dependencies;
-    du_dependencies.exec_mapper               = &workers.dus[du_idx]->get_exec_mapper();
-    du_dependencies.f1c_client                = &f1c_gw;
-    du_dependencies.f1u_gw                    = nullptr;
-    du_dependencies.phy_adapter               = &du_ctxt.phy;
-    du_dependencies.timers                    = &timers;
-    du_dependencies.sched_ue_metrics_notifier = &du_ctxt.ue_metrics_notifier;
-    du_dependencies.mac_p                     = &du_ctxt.mac_pcap;
-    du_dependencies.rlc_p                     = &du_ctxt.rlc_pcap;
+    du_dependencies.exec_mapper            = &workers.dus[du_idx]->get_exec_mapper();
+    du_dependencies.f1c_client             = &f1c_gw;
+    du_dependencies.f1u_gw                 = nullptr;
+    du_dependencies.phy_adapter            = &du_ctxt.phy;
+    du_dependencies.timers                 = &timers;
+    du_dependencies.sched_metrics_notifier = &du_ctxt.ue_metrics_notifier;
+    du_dependencies.mac_p                  = &du_ctxt.mac_pcap;
+    du_dependencies.rlc_p                  = &du_ctxt.rlc_pcap;
 
     du_ctxt.du_high_inst = make_du_high(du_hi_cfg, du_dependencies);
 
@@ -171,7 +174,8 @@ void du_high_cu_test_simulator::run_slot()
     srs_du::du_high& du_hi = *dus[i]->du_high_inst;
 
     // Signal slot indication to l2.
-    du_hi.get_slot_handler(to_du_cell_index(0)).handle_slot_indication(dus[i]->next_slot);
+    du_hi.get_slot_handler(to_du_cell_index(0))
+        .handle_slot_indication({dus[i]->next_slot, std::chrono::system_clock::now()});
 
     // Wait for slot indication to be processed and the l2 results to be sent back to the l1 (in this case, the test
     // main thread).

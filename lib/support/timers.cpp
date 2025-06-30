@@ -70,9 +70,9 @@ struct cmd_t {
 /// Queue used by timer frontend to report that they have a new pending action to be processed by the backend.
 class timer_update_signaller
 {
-  constexpr static size_t initial_batch_size            = 128;
-  constexpr static size_t warn_on_nof_dequeues_per_tick = 4096U;
-  constexpr static size_t default_queue_capacity        = 16384;
+  static constexpr size_t initial_batch_size            = 128;
+  static constexpr size_t warn_on_nof_dequeues_per_tick = 4096U;
+  static constexpr size_t default_queue_capacity        = 16384;
 
 public:
   explicit timer_update_signaller(srslog::basic_logger& logger_, size_t initial_capacity = default_queue_capacity) :
@@ -218,7 +218,8 @@ public:
   /// Pending commands to be handled by the backend.
   backend_channel backend_ch;
 
-  frontend_handle(timer_id_t id_, timer_update_signaller& ev_signaller) : frontend_state(id_), backend_ch(ev_signaller)
+  frontend_handle(timer_id_t id_, timer_update_signaller& ev_signaller, std::atomic<unsigned>& cur_time_) :
+    frontend_state(id_), backend_ch(ev_signaller), cur_time(cur_time_)
   {
   }
 
@@ -260,6 +261,11 @@ public:
     state = state_t::stopped;
     backend_ch.push(id, cmd_t::stop{});
   }
+
+  tick_point_t now() const { return cur_time.load(std::memory_order_relaxed); }
+
+private:
+  std::atomic<unsigned>& cur_time;
 };
 
 } // namespace
@@ -267,8 +273,6 @@ public:
 /// Implementation of timer_manager.
 class timer_manager::manager_impl
 {
-  constexpr static size_t TIMER_CREATION_QUEUE_INITIAL_CAPACITY = 32;
-
 public:
   /// Timer context used solely by the back-end side of the timer manager.
   struct timer_backend_context {
@@ -292,13 +296,15 @@ public:
     logger(srslog::fetch_basic_logger("ALL")),
     timer_free_list(capacity),
     time_wheel(WHEEL_SIZE),
-    pending_timers_to_create(TIMER_CREATION_QUEUE_INITIAL_CAPACITY),
+    pending_timers_to_create(capacity),
     timers_with_pending_events(logger)
   {
     // Pre-reserve timers.
     for (unsigned i = 0; i != capacity; ++i) {
       timers.emplace_back().frontend = std::make_unique<frontend_handle>(
-          static_cast<timer_id_t>(next_timer_id.fetch_add(1, std::memory_order_relaxed)), timers_with_pending_events);
+          static_cast<timer_id_t>(next_timer_id.fetch_add(1, std::memory_order_relaxed)),
+          timers_with_pending_events,
+          cur_time);
     }
 
     // Push to free list in ascending id order.
@@ -353,7 +359,7 @@ public:
     srsran_assert(timer.backend.state != state_t::running, "Invalid timer state");
     srsran_assert(timer.frontend != nullptr, "Invalid timer state");
 
-    timer.backend.timeout = cur_time + std::max((unsigned)duration.count(), 1U);
+    timer.backend.timeout = cur_time.load(std::memory_order_relaxed) + std::max((unsigned)duration.count(), 1U);
     timer.backend.state   = state_t::running;
     time_wheel[timer.backend.timeout & WHEEL_MASK].push_front(&timer);
     ++nof_timers_running;
@@ -382,7 +388,7 @@ public:
   srslog::basic_logger& logger;
 
   /// Counter of the number of ticks elapsed. This counter gets incremented on every \c tick call.
-  unsigned cur_time = 0;
+  std::atomic<tick_point_t> cur_time = 0;
 
   /// Number of created timer_handle objects that are currently running.
   size_t nof_timers_running = 0;
@@ -510,20 +516,21 @@ bool timer_manager::manager_impl::try_stop_timer_backend(timer_handle& timer, bo
 
 bool timer_manager::manager_impl::trigger_timeout_handling(timer_handle& timer)
 {
-  return timer.frontend->exec->defer([frontend = timer.frontend.get(), expiry_epoch = timer.backend.cmd_id]() {
-    // In case, the timer state has not been updated since the task was dispatched (epoches match).
-    // Note: Now that we are in the same execution context as the timer frontend, the frontend cmd_id is precise.
-    if (frontend->backend_ch.current_cmd_id() == expiry_epoch) {
-      srsran_assert(frontend->state == state_t::running, "The timer can only expire if it was already running");
-      // Update timer frontend state to expired.
-      frontend->state = state_t::expired;
+  return timer.frontend->exec->defer(
+      TRACE_TASK([frontend = timer.frontend.get(), expiry_epoch = timer.backend.cmd_id]() {
+        // In case, the timer state has not been updated since the task was dispatched (epoches match).
+        // Note: Now that we are in the same execution context as the timer frontend, the frontend cmd_id is precise.
+        if (frontend->backend_ch.current_cmd_id() == expiry_epoch) {
+          srsran_assert(frontend->state == state_t::running, "The timer can only expire if it was already running");
+          // Update timer frontend state to expired.
+          frontend->state = state_t::expired;
 
-      // Run callback if configured.
-      if (not frontend->timeout_callback.is_empty()) {
-        frontend->timeout_callback(frontend->id);
-      }
-    }
-  });
+          // Run callback if configured.
+          if (not frontend->timeout_callback.is_empty()) {
+            frontend->timeout_callback(frontend->id);
+          }
+        }
+      }));
 }
 
 void timer_manager::manager_impl::handle_postponed_timeouts()
@@ -557,7 +564,7 @@ frontend_handle& timer_manager::manager_impl::create_frontend_timer(task_executo
 
   // In case it fails to reuse a cached timer frontend object, we create a new one.
   const auto id         = (timer_id_t)next_timer_id.fetch_add(1, std::memory_order_relaxed);
-  auto       new_handle = std::make_unique<frontend_handle>(id, timers_with_pending_events);
+  auto       new_handle = std::make_unique<frontend_handle>(id, timers_with_pending_events, cur_time);
   new_handle->exec      = &exec;
   cached_timer          = new_handle.get();
 
@@ -583,10 +590,10 @@ void timer_manager::tick()
   impl->handle_postponed_timeouts();
 
   // Advance time.
-  ++impl->cur_time;
+  unsigned cur_time = impl->cur_time.fetch_add(1, std::memory_order_relaxed) + 1;
 
   // Process the timer runs which expire in this tick.
-  auto& wheel_list = impl->time_wheel[impl->cur_time & WHEEL_MASK];
+  auto& wheel_list = impl->time_wheel[cur_time & WHEEL_MASK];
 
   // Iterate intrusive linked list of running timers with same wheel index.
   for (auto it = wheel_list.begin(); it != wheel_list.end();) {
@@ -596,7 +603,7 @@ void timer_manager::tick()
     ++it;
 
     // If the timer does not expire yet, continue the iteration in the same wheel bucket.
-    if (impl->cur_time != timer.backend.timeout) {
+    if (cur_time != timer.backend.timeout) {
       continue;
     }
 
@@ -618,6 +625,11 @@ size_t timer_manager::nof_timers() const
 size_t timer_manager::nof_running_timers() const
 {
   return impl->nof_timers_running;
+}
+
+tick_point_t timer_manager::now() const
+{
+  return impl->cur_time.load(std::memory_order_relaxed);
 }
 
 // unique_timer methods
@@ -665,4 +677,10 @@ void unique_timer::stop()
   if (is_running()) {
     static_cast<frontend_handle*>(handle)->stop();
   }
+}
+
+tick_point_t unique_timer::now() const
+{
+  srsran_assert(is_valid(), "Getting tick from invalid timer");
+  return static_cast<frontend_handle*>(handle)->now();
 }

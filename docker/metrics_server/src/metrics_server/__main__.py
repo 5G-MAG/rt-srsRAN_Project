@@ -9,6 +9,7 @@ import json
 import logging
 import signal
 import socket
+import sys
 from contextlib import suppress
 from datetime import datetime, UTC
 from http.client import RemoteDisconnected
@@ -21,6 +22,37 @@ from influxdb_client import InfluxDBClient, WriteApi
 from influxdb_client.client.write_api import SYNCHRONOUS
 
 
+class _Warnings:  #
+# Copyright 2021-2025 Software Radio Systems Limited
+#
+# This file is part of srsRAN
+#
+# srsRAN is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# srsRAN is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# A copy of the GNU Affero General Public License can be found in
+# the LICENSE file in the top-level directory of this distribution
+# and at http://www.gnu.org/licenses/.
+#
+    no_metric_received = True
+    decoding_error = False
+    push_error = False
+
+    @classmethod
+    def any(cls) -> bool:
+        """
+        Check if any warning was raised
+        """
+        return cls.no_metric_received or cls.decoding_error or cls.push_error
+
+
 def main():
     """
     Main Entrypoint
@@ -29,7 +61,7 @@ def main():
     client, bucket, testbed, clean_bucket, port, log_level = _parse_args()
 
     logging.basicConfig(format="%(asctime)s \x1b[32;20m[%(levelname)s]\x1b[0m %(message)s", level=log_level)
-    logging.info("Starting srsRAN Project Metrics Server")
+    logging.info("Starting srsRAN 5G Metrics Server")
 
     if clean_bucket:
         _recreate_bucket(client, bucket)
@@ -73,6 +105,16 @@ def main():
     pushing_thread.join()
 
     logging.info("End")
+
+    if _Warnings.no_metric_received:
+        logging.error("No metric received")
+    if _Warnings.decoding_error:
+        logging.error("Error decoding metrics")
+    if _Warnings.push_error:
+        logging.error("Error pushing data to InfluxDB")
+
+    if _Warnings.any():
+        sys.exit(1)
 
 
 def _parse_args() -> Tuple[InfluxDBClient, str, str, bool, int, int]:
@@ -141,6 +183,7 @@ def _start_metric_server(
             try:
                 queue_obj.put(json.loads(item))
             except json.JSONDecodeError:
+                _Warnings.decoding_error = True
                 logging.error("Error decoding json: %s", item)
             header = "{"
 
@@ -164,10 +207,9 @@ def _publish_data(
             if metric is None:
                 break
             try:
-                # Currently we only support ue_list metric
+                _Warnings.no_metric_received = False
                 if "ue_list" in metric:
                     timestamp = datetime.fromtimestamp(metric["timestamp"], UTC).isoformat()
-                    # UE Info measurement
                     for ue_info in metric["ue_list"]:
                         ue_container = ue_info["ue_container"]
                         rnti = ue_container.pop("rnti")
@@ -182,13 +224,50 @@ def _publish_data(
                                     "rnti": f"{rnti:x}",
                                     "testbed": testbed,
                                 },
-                                "fields": dict(ue_container.items()),
+                                "fields": dict(convert_integers_to_floats(ue_container).items()),
                                 "time": timestamp,
                             },
                             record_time_key="time",
                         )
                     logging.debug("Pushed %s", metric)
+                elif "app_resource_usage" in metric:
+                    timestamp = datetime.fromtimestamp(metric["timestamp"], UTC).isoformat()
+                    _influx_push(
+                        write_api,
+                        bucket=bucket,
+                        record={
+                            "measurement": "app_resource_usage",
+                            "tags": {
+                                "testbed": testbed,
+                            },
+                            "fields": dict(convert_integers_to_floats(metric["app_resource_usage"]).items()),
+                            "time": timestamp,
+                        },
+                        record_time_key="time",
+                    )
+                    logging.debug("Pushed %s", metric)
+                elif "ru" in metric and "ofh" in metric["ru"] and metric["ru"]["ofh"]:
+                    timestamp = datetime.fromtimestamp(metric["timestamp"], UTC).isoformat()
+                    for cell in metric["ru"]["ofh"]:
+                        cell = cell["cell"]
+                        if cell["ul"]["received_packets"]:
+                            _influx_push(
+                                write_api,
+                                bucket=bucket,
+                                record={
+                                    "measurement": "ofh_ul_received_packets",
+                                    "tags": {
+                                        "pci": cell["pci"],
+                                        "testbed": testbed,
+                                    },
+                                    "fields": dict(convert_integers_to_floats(cell["ul"]["received_packets"]).items()),
+                                    "time": timestamp,
+                                },
+                                record_time_key="time",
+                            )
+                            logging.debug("Pushed %s", metric)
             except Exception as err:  # pylint: disable=broad-exception-caught
+                _Warnings.push_error = True
                 logging.exception(err)
 
 
@@ -210,6 +289,16 @@ def _recreate_bucket(client: InfluxDBClient, bucket_name: str) -> None:
     api.delete_bucket(bucket_ref)
     api.create_bucket(bucket_ref)
     logging.info("Bucket cleaned")
+
+
+def convert_integers_to_floats(dictionary):
+    """
+    Function to convert all integers in a dictionary to floats
+    """
+    for key, value in dictionary.items():
+        if isinstance(value, int):
+            dictionary[key] = float(value)
+    return dictionary
 
 
 if __name__ == "__main__":

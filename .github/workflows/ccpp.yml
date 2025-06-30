@@ -1,5 +1,5 @@
 #
-# Copyright 2013-2024 Software Radio Systems Limited
+# Copyright 2013-2025 Software Radio Systems Limited
 #
 # By using this file, you agree to the terms and conditions set
 # forth in the LICENSE file which can be found at the top level of
@@ -18,13 +18,16 @@ jobs:
         os: [ubuntu-24.04]
         compiler: [gcc]
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        token: ${{ secrets.CI_TOKEN != '' && secrets.CI_TOKEN || github.token }}
     - name: Install Dependencies
       run: |
         sudo docker/scripts/install_dependencies.sh
     - name: Build srsRAN Project on x86 ${{ matrix.os }} with compiler ${{ matrix.compiler }}
       run: |
-        docker/scripts/builder.sh -c ${{ matrix.compiler }} -m "-j$(nproc)" .
+        docker/scripts/builder.sh -c ${{ matrix.compiler }} -m "-j$(nproc)" -DBUILD_TESTING=On .
     - name: Run unit tests
       run: |
         cd build && ctest -j$(nproc) --schedule-random --output-on-failure

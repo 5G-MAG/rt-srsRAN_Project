@@ -23,14 +23,12 @@
 #include "scheduler_impl.h"
 #include "ue_scheduling/ue_scheduler_impl.h"
 #include "srsran/scheduler/config/scheduler_cell_config_validator.h"
+#include "srsran/support/rtsan.h"
 
 using namespace srsran;
 
 scheduler_impl::scheduler_impl(const scheduler_config& sched_cfg_) :
-  expert_params(sched_cfg_.expert_params),
-  logger(srslog::fetch_basic_logger("SCHED")),
-  metrics(expert_params.metrics_report_period, sched_cfg_.metrics_notifier),
-  cfg_mng(sched_cfg_, metrics)
+  expert_params(sched_cfg_.expert_params), logger(srslog::fetch_basic_logger("SCHED")), cfg_mng(sched_cfg_, metrics)
 {
 }
 
@@ -53,6 +51,39 @@ bool scheduler_impl::handle_cell_configuration_request(const sched_cell_configur
                     expert_params, msg, *cell_cfg, *groups[msg.cell_group_index], metrics.at(msg.cell_index)));
 
   return true;
+}
+
+void scheduler_impl::handle_cell_removal_request(du_cell_index_t cell_index)
+{
+  srsran_assert(cells.contains(cell_index), "cell={} does not exist", fmt::underlying(cell_index));
+  srsran_assert(not cells[cell_index]->is_running(), "cell={} is not stopped", fmt::underlying(cell_index));
+
+  // Remove cell from ue scheduler.
+  groups[cells[cell_index]->cell_cfg.cell_group_index]->rem_cell(cell_index);
+
+  // Remove cell.
+  cells.erase(cell_index);
+
+  // Remove cell from config.
+  cfg_mng.rem_cell(cell_index);
+}
+
+void scheduler_impl::handle_cell_activation_request(du_cell_index_t cell_index)
+{
+  srsran_assert(cells.contains(cell_index), "cell={} does not exist", fmt::underlying(cell_index));
+  cells[cell_index]->start();
+}
+
+void scheduler_impl::handle_cell_deactivation_request(du_cell_index_t cell_index)
+{
+  srsran_assert(cells.contains(cell_index), "cell={} does not exist", fmt::underlying(cell_index));
+  cells[cell_index]->stop();
+}
+
+void scheduler_impl::handle_si_update_request(const si_scheduling_update_request& req)
+{
+  srsran_assert(cells.contains(req.cell_index), "cell={} does not exist", fmt::underlying(req.cell_index));
+  cells[req.cell_index]->handle_si_update_request(req);
 }
 
 void scheduler_impl::handle_ue_creation_request(const sched_ue_creation_request_message& ue_request)
@@ -178,7 +209,8 @@ void scheduler_impl::handle_dl_mac_ce_indication(const dl_mac_ce_indication& mac
   groups[grp_idx]->get_feedback_handler().handle_dl_mac_ce_indication(mac_ce);
 }
 
-const sched_result& scheduler_impl::slot_indication(slot_point sl_tx, du_cell_index_t cell_index)
+const sched_result& scheduler_impl::slot_indication(slot_point      sl_tx,
+                                                    du_cell_index_t cell_index) noexcept SRSRAN_RTSAN_NONBLOCKING
 {
   srsran_assert(cells.contains(cell_index), "cell={} does not exist", fmt::underlying(cell_index));
   cell_scheduler& cell = *cells[cell_index];
@@ -208,4 +240,20 @@ void scheduler_impl::handle_paging_information(const sched_paging_information& p
   for (const auto cell_id : pi.paging_cells) {
     cells[cell_id]->handle_paging_information(pi);
   }
+}
+
+void scheduler_impl::handle_positioning_measurement_request(const positioning_measurement_request& req)
+{
+  du_cell_group_index_t group_idx = cfg_mng.get_cell_group_index(req.cell_index);
+  srsran_assert(group_idx != INVALID_DU_CELL_GROUP_INDEX, "cell={} does not exist", fmt::underlying(req.cell_index));
+  ue_scheduler& ue_sched = *groups[group_idx];
+  ue_sched.get_positioning_handler().handle_positioning_measurement_request(req);
+}
+
+void scheduler_impl::handle_positioning_measurement_stop(du_cell_index_t cell_index, rnti_t pos_rnti)
+{
+  du_cell_group_index_t group_idx = cfg_mng.get_cell_group_index(cell_index);
+  srsran_assert(group_idx != INVALID_DU_CELL_GROUP_INDEX, "cell={} does not exist", fmt::underlying(cell_index));
+  ue_scheduler& ue_sched = *groups[group_idx];
+  ue_sched.get_positioning_handler().handle_positioning_measurement_stop(cell_index, pos_rnti);
 }

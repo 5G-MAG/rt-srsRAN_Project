@@ -40,10 +40,13 @@ public:
   void on_configuration_parameters_autoderivation(CLI::App& app) override;
 
   // See interface for documentation.
-  bool on_configuration_validation(const os_sched_affinity_bitmask& available_cpus) const override;
+  bool on_configuration_validation(bool tracing_enabled) const override;
 
   // See interface for documentation.
   void on_loggers_registration() override;
+
+  // See interface for documentation.
+  bool are_metrics_enabled() const override;
 
   // See interface for documentation.
   o_cu_up_unit create_o_cu_up_unit(const o_cu_up_unit_dependencies& dependencies) override;

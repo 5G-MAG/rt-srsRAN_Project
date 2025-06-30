@@ -27,10 +27,8 @@
 using namespace srsran;
 using namespace srs_du;
 
-expected<mac_rx_data_indication> srsran::srs_du::create_test_pdu_with_bsr(du_cell_index_t cell_index,
-                                                                          slot_point      sl_rx,
-                                                                          rnti_t          test_rnti,
-                                                                          harq_id_t       harq_id)
+expected<mac_rx_data_indication>
+srs_du::create_test_pdu_with_bsr(du_cell_index_t cell_index, slot_point sl_rx, rnti_t test_rnti, harq_id_t harq_id)
 {
   // - 8-bit R/LCID MAC subheader.
   // - MAC CE with Long BSR.
@@ -43,6 +41,21 @@ expected<mac_rx_data_indication> srsran::srs_du::create_test_pdu_with_bsr(du_cel
 
   // We pass BSR=254, which according to TS38.321 is the maximum value for the LBSR size.
   auto buf = byte_buffer::create({0x3e, 0x02, 0x01, 254});
+  if (not buf.has_value()) {
+    return make_unexpected(default_error_t{});
+  }
+  return mac_rx_data_indication{
+      sl_rx, cell_index, mac_rx_pdu_list{mac_rx_pdu{test_rnti, 0, harq_id, std::move(buf.value())}}};
+}
+
+expected<mac_rx_data_indication> srs_du::create_test_pdu_with_rrc_setup_complete(du_cell_index_t cell_index,
+                                                                                 slot_point      sl_rx,
+                                                                                 rnti_t          test_rnti,
+                                                                                 harq_id_t       harq_id)
+{
+  auto buf = byte_buffer::create({0x01, 0x23, 0xc0, 0x00, 0x00, 0x00, 0x10, 0x00, 0x05, 0xdf, 0x80, 0x10, 0x5e,
+                                  0x40, 0x03, 0x40, 0x40, 0x3c, 0x44, 0x3c, 0x3f, 0xc0, 0x00, 0x04, 0x0c, 0x95,
+                                  0x1d, 0xa6, 0x0b, 0x80, 0xb8, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00});
   if (not buf.has_value()) {
     return make_unexpected(default_error_t{});
   }
@@ -86,13 +99,10 @@ static unsigned get_nof_ports(const csi_report_configuration& csi_rep_cfg)
   switch (csi_rep_cfg.pmi_codebook) {
     case pmi_codebook_type::one:
       return 1;
-      break;
     case pmi_codebook_type::two:
       return 2;
-      break;
     case pmi_codebook_type::typeI_single_panel_4ports_mode1:
       return 4;
-      break;
     default:
       report_fatal_error("Unsupported CSI report type");
   }
@@ -127,53 +137,60 @@ static mac_uci_pdu::pucch_f0_or_f1_type make_f0f1_uci_pdu(const pucch_info&     
   mac_uci_pdu::pucch_f0_or_f1_type pucch_ind;
 
   pucch_ind.ul_sinr_dB = 100;
-  srsran_assert(pucch.format == pucch_format::FORMAT_0 or pucch.format == pucch_format::FORMAT_1,
+  srsran_assert(pucch.format() == pucch_format::FORMAT_0 or pucch.format() == pucch_format::FORMAT_1,
                 "Expected PUCCH Format is F0 or F1");
-  if (pucch.format == pucch_format::FORMAT_0) {
+  if (pucch.format() == pucch_format::FORMAT_0) {
     // In case of Format 0, unlike with Format 0, the GNB only schedules 1 PUCCH per slot; this PUCCH (and the
     // corresponding UCI indication) can have HARQ-ACK bits or SR bits, or both.
-    if (pucch.format_0.sr_bits != sr_nof_bits::no_sr) {
+    if (pucch.uci_bits.sr_bits != sr_nof_bits::no_sr) {
       // In test mode, SRs are never detected, and instead BSR is injected.
       pucch_ind.sr_info.emplace();
       pucch_ind.sr_info.value().detected = false;
     }
-    if (pucch.format_0.harq_ack_nof_bits > 0) {
+    if (pucch.uci_bits.harq_ack_nof_bits > 0) {
       pucch_ind.harq_info.emplace();
-      pucch_ind.harq_info->harqs.resize(pucch.format_0.harq_ack_nof_bits, uci_pucch_f0_or_f1_harq_values::ack);
+      pucch_ind.harq_info->harqs.resize(pucch.uci_bits.harq_ack_nof_bits, uci_pucch_f0_or_f1_harq_values::ack);
     }
   } else {
-    if (pucch.format_1.sr_bits != sr_nof_bits::no_sr) {
+    if (pucch.uci_bits.sr_bits != sr_nof_bits::no_sr) {
       // In test mode, SRs are never detected, and instead BSR is injected.
       pucch_ind.sr_info.emplace();
       pucch_ind.sr_info.value().detected = false;
     }
-    if (pucch.format_1.harq_ack_nof_bits > 0) {
+    if (pucch.uci_bits.harq_ack_nof_bits > 0) {
       pucch_ind.harq_info.emplace();
       // In case of PUCCH F1 with only HARQ-ACK bits, set all HARQ-ACK bits to ACK. If SR is included, then we
       // consider that the PUCCH is not detected.
-      auto ack_val = pucch.format_1.sr_bits == sr_nof_bits::no_sr ? uci_pucch_f0_or_f1_harq_values::ack
+      auto ack_val = pucch.uci_bits.sr_bits == sr_nof_bits::no_sr ? uci_pucch_f0_or_f1_harq_values::ack
                                                                   : uci_pucch_f0_or_f1_harq_values::dtx;
-      pucch_ind.harq_info->harqs.resize(pucch.format_1.harq_ack_nof_bits, ack_val);
+      pucch_ind.harq_info->harqs.resize(pucch.uci_bits.harq_ack_nof_bits, ack_val);
     }
   }
   return pucch_ind;
 }
 
 static mac_uci_pdu::pucch_f2_or_f3_or_f4_type
-make_f2_uci_pdu(const pucch_info& pucch, const du_test_mode_config::test_mode_ue_config& test_ue_cfg)
+make_f2f3f4_uci_pdu(const pucch_info& pucch, const du_test_mode_config::test_mode_ue_config& test_ue_cfg)
 {
+  srsran_assert(pucch.format() == pucch_format::FORMAT_2 or pucch.format() == pucch_format::FORMAT_3 or
+                    pucch.format() == pucch_format::FORMAT_4,
+                "Expected PUCCH Format is F2, F3 or F4");
+
+  const sr_nof_bits sr_bits           = pucch.uci_bits.sr_bits;
+  const unsigned    harq_ack_nof_bits = pucch.uci_bits.harq_ack_nof_bits;
+
   mac_uci_pdu::pucch_f2_or_f3_or_f4_type pucch_ind;
   pucch_ind.ul_sinr_dB = 100;
-  if (pucch.format_2.sr_bits != sr_nof_bits::no_sr) {
+  if (sr_bits != sr_nof_bits::no_sr) {
     // Set SR to not detected.
     pucch_ind.sr_info.emplace();
-    pucch_ind.sr_info->resize(sr_nof_bits_to_uint(pucch.format_2.sr_bits));
+    pucch_ind.sr_info->resize(sr_nof_bits_to_uint(sr_bits));
   }
-  if (pucch.format_2.harq_ack_nof_bits > 0) {
+  if (harq_ack_nof_bits > 0) {
     // Set all HARQ-ACK bits to ACK.
     pucch_ind.harq_info.emplace();
     pucch_ind.harq_info->is_valid = true;
-    pucch_ind.harq_info->payload.resize(pucch.format_2.harq_ack_nof_bits);
+    pucch_ind.harq_info->payload.resize(harq_ack_nof_bits);
     pucch_ind.harq_info->payload.fill();
   }
   if (pucch.csi_rep_cfg.has_value()) {
@@ -184,18 +201,19 @@ make_f2_uci_pdu(const pucch_info& pucch, const du_test_mode_config::test_mode_ue
   return pucch_ind;
 }
 
-mac_uci_pdu srsran::srs_du::create_uci_pdu(const pucch_info&                               pucch,
-                                           const du_test_mode_config::test_mode_ue_config& test_ue_cfg)
+mac_uci_pdu srs_du::create_uci_pdu(const pucch_info& pucch, const du_test_mode_config::test_mode_ue_config& test_ue_cfg)
 {
   mac_uci_pdu pdu;
   pdu.rnti = pucch.crnti;
-  switch (pucch.format) {
+  switch (pucch.format()) {
     case pucch_format::FORMAT_0:
     case pucch_format::FORMAT_1:
       pdu.pdu = make_f0f1_uci_pdu(pucch, test_ue_cfg);
       break;
     case pucch_format::FORMAT_2:
-      pdu.pdu = make_f2_uci_pdu(pucch, test_ue_cfg);
+    case pucch_format::FORMAT_3:
+    case pucch_format::FORMAT_4:
+      pdu.pdu = make_f2f3f4_uci_pdu(pucch, test_ue_cfg);
       break;
     default:
       report_fatal_error("Invalid format");
@@ -203,8 +221,8 @@ mac_uci_pdu srsran::srs_du::create_uci_pdu(const pucch_info&                    
   return pdu;
 }
 
-mac_uci_pdu srsran::srs_du::create_uci_pdu(const ul_sched_info&                            pusch,
-                                           const du_test_mode_config::test_mode_ue_config& test_ue_cfg)
+mac_uci_pdu srs_du::create_uci_pdu(const ul_sched_info&                            pusch,
+                                   const du_test_mode_config::test_mode_ue_config& test_ue_cfg)
 {
   mac_uci_pdu pdu;
   pdu.rnti                  = pusch.pusch_cfg.rnti;
@@ -226,36 +244,39 @@ mac_uci_pdu srsran::srs_du::create_uci_pdu(const ul_sched_info&                 
   return pdu;
 }
 
-bool srsran::srs_du::pucch_info_and_uci_ind_match(const pucch_info& pucch, const mac_uci_pdu& uci_ind)
+bool srs_du::pucch_info_and_uci_ind_match(const pucch_info& pucch, const mac_uci_pdu& uci_ind)
 {
   if (pucch.crnti != uci_ind.rnti) {
     return false;
   }
-  if ((pucch.format == pucch_format::FORMAT_0 or pucch.format == pucch_format::FORMAT_1) and
+  if ((pucch.format() == pucch_format::FORMAT_0 or pucch.format() == pucch_format::FORMAT_1) and
       std::holds_alternative<mac_uci_pdu::pucch_f0_or_f1_type>(uci_ind.pdu)) {
-    const auto pucch_pdu_sr_bits =
-        pucch.format == pucch_format::FORMAT_1 ? pucch.format_1.sr_bits : pucch.format_0.sr_bits;
-    const auto& f1_ind = std::get<mac_uci_pdu::pucch_f0_or_f1_type>(uci_ind.pdu);
-    if (f1_ind.sr_info.has_value() != (pucch_pdu_sr_bits != sr_nof_bits::no_sr)) {
+    const auto  pucch_pdu_sr_bits = pucch.uci_bits.sr_bits;
+    const auto& f0f1_ind          = std::get<mac_uci_pdu::pucch_f0_or_f1_type>(uci_ind.pdu);
+    if (f0f1_ind.sr_info.has_value() != (pucch_pdu_sr_bits != sr_nof_bits::no_sr)) {
       return false;
     }
-    const auto pucch_pdu_harq_bits =
-        pucch.format == pucch_format::FORMAT_1 ? pucch.format_1.harq_ack_nof_bits : pucch.format_0.harq_ack_nof_bits;
-    if (f1_ind.harq_info.has_value() != (pucch_pdu_harq_bits > 0)) {
+    const auto pucch_pdu_harq_bits = pucch.uci_bits.harq_ack_nof_bits;
+    if (f0f1_ind.harq_info.has_value() != (pucch_pdu_harq_bits > 0)) {
       return false;
     }
     return true;
   }
-  if (pucch.format == pucch_format::FORMAT_2 and
+  if ((pucch.format() == pucch_format::FORMAT_2 or pucch.format() == pucch_format::FORMAT_3 or
+       pucch.format() == pucch_format::FORMAT_4) and
       std::holds_alternative<mac_uci_pdu::pucch_f2_or_f3_or_f4_type>(uci_ind.pdu)) {
-    const auto& f2_ind = std::get<mac_uci_pdu::pucch_f2_or_f3_or_f4_type>(uci_ind.pdu);
-    if (f2_ind.sr_info.has_value() != (pucch.format_2.sr_bits != sr_nof_bits::no_sr)) {
+    const auto& f2f3f4_ind = std::get<mac_uci_pdu::pucch_f2_or_f3_or_f4_type>(uci_ind.pdu);
+
+    const sr_nof_bits sr_bits           = pucch.uci_bits.sr_bits;
+    const unsigned    harq_ack_nof_bits = pucch.uci_bits.harq_ack_nof_bits;
+
+    if (f2f3f4_ind.sr_info.has_value() != (sr_bits != sr_nof_bits::no_sr)) {
       return false;
     }
-    if (f2_ind.harq_info.has_value() != (pucch.format_2.harq_ack_nof_bits > 0)) {
+    if (f2f3f4_ind.harq_info.has_value() != (harq_ack_nof_bits > 0)) {
       return false;
     }
-    if (f2_ind.csi_part1_info.has_value() != pucch.csi_rep_cfg.has_value()) {
+    if (f2f3f4_ind.csi_part1_info.has_value() != pucch.csi_rep_cfg.has_value()) {
       return false;
     }
     return true;

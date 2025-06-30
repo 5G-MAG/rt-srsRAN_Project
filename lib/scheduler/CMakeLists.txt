@@ -31,16 +31,16 @@ set(SOURCES
         pdcch_scheduling/pdcch_slot_resource_allocator.cpp
         policy/scheduler_policy_factory.cpp
         policy/scheduler_time_rr.cpp
-        policy/scheduler_time_pf.cpp
+        policy/scheduler_time_qos.cpp
         pucch_scheduling/pucch_allocator_impl.cpp
         pucch_scheduling/pucch_guardbands_scheduler.cpp
         pucch_scheduling/pucch_resource_manager.cpp
         uci_scheduling/uci_scheduler_impl.cpp
         uci_scheduling/uci_allocator_impl.cpp
-        srs/srs_scheduler_impl.cpp
-        slicing/slice_scheduler.cpp
+        slicing/inter_slice_scheduler.cpp
         slicing/ran_slice_instance.cpp
         slicing/slice_ue_repository.cpp
+        srs/srs_scheduler_impl.cpp
         cell_scheduler.cpp
         scheduler_factory.cpp
         scheduler_impl.cpp

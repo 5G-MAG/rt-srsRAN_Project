@@ -70,29 +70,43 @@ struct worker_manager_config {
 
   /// DU low worker configuration.
   struct du_low_config {
-    bool     is_blocking_mode_active;
-    unsigned nof_ul_threads;
-    unsigned nof_dl_threads;
-    unsigned nof_pusch_decoder_threads;
-    unsigned nof_cells;
+    bool                                     is_blocking_mode_active;
+    unsigned                                 nof_ul_threads;
+    unsigned                                 nof_dl_threads;
+    unsigned                                 nof_pusch_decoder_threads;
+    unsigned                                 nof_cells;
+    std::optional<std::chrono::milliseconds> metrics_period;
   };
 
   /// DU high worker configuration.
   struct du_high_config {
-    /// DU-high PDU queue size.
-    unsigned pdu_queue_size;
+    /// DU-high UE data related tasks queue size.
+    unsigned ue_data_tasks_queue_size;
     /// DU high number of cells.
     unsigned nof_cells;
     /// Real-time mode enabled flag.
     bool is_rt_mode_enabled;
+    /// Whether to log performance metrics for the DU-high executors.
+    std::optional<std::chrono::milliseconds> metrics_period;
+    /// Whether to enable task tracing.
+    bool executor_tracing_enable;
   };
 
   // CU-UP worker configuration
   struct cu_up_config {
     unsigned max_nof_ue_strands = 16;
-    /// GTPU queue size.
-    unsigned gtpu_queue_size        = 2048;
-    bool     dedicated_io_ul_strand = true;
+    /// UE task queue size.
+    uint32_t dl_ue_executor_queue_size   = 2048;
+    uint32_t ul_ue_executor_queue_size   = 2048;
+    uint32_t ctrl_ue_executor_queue_size = 2048;
+    /// Maximum batch size used in CU-UP strands.
+    unsigned strand_batch_size = 256;
+    /// Wether to offload socket TX to a dedicated strand.
+    bool dedicated_io_ul_strand = true;
+    /// Whether to enable task tracing.
+    bool executor_tracing_enable = false;
+    /// Whether to log performance metrics for the CU-UP executors.
+    std::optional<std::chrono::milliseconds> metrics_period;
   };
 
   /// PCAP worker configuration.
@@ -119,6 +133,8 @@ struct worker_manager_config {
   timer_manager* app_timers = nullptr;
   /// Vector of affinities mask indexed by cell.
   std::vector<std::vector<os_sched_affinity_config>> config_affinities;
+  /// Split 6 enabled flag.
+  bool is_split6_enabled = false;
   /// CU-UP configuration.
   std::optional<cu_up_config> cu_up_cfg;
   /// DU high configuration.

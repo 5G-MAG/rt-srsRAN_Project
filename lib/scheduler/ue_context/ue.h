@@ -103,9 +103,6 @@ public:
   /// \brief Handle received SR indication.
   void handle_sr_indication() { ul_lc_ch_mgr.handle_sr_indication(); }
 
-  /// \brief Once an UL grant is given, the SR status of the UE must be reset.
-  void reset_sr_indication() { ul_lc_ch_mgr.reset_sr_indication(); }
-
   /// \brief Handles received BSR indication by updating UE UL logical channel states.
   void handle_bsr_indication(const ul_bsr_indication_message& msg) { ul_lc_ch_mgr.handle_bsr_indication(msg); }
 
@@ -113,13 +110,15 @@ public:
   void handle_ul_n_ta_update_indication(du_cell_index_t cell_index, float ul_sinr, phy_time_unit n_ta_diff)
   {
     const ue_cell* ue_cc = find_cell(cell_index);
-    ta_mgr.handle_ul_n_ta_update_indication(ue_cc->cfg().cfg_dedicated().tag_id, n_ta_diff.to_Tc(), ul_sinr);
+    ta_mgr.handle_ul_n_ta_update_indication(ue_cc->cfg().tag_id(), n_ta_diff.to_Tc(), ul_sinr);
   }
 
   /// \brief Handles MAC CE indication.
   void handle_dl_mac_ce_indication(const dl_mac_ce_indication& msg)
   {
-    dl_lc_ch_mgr.handle_mac_ce_indication({.ce_lcid = msg.ce_lcid, .ce_payload = dummy_ce_payload{}});
+    if (not dl_lc_ch_mgr.handle_mac_ce_indication({.ce_lcid = msg.ce_lcid, .ce_payload = dummy_ce_payload{}})) {
+      logger.warning("Dropped MAC CE, queue is full.");
+    }
   }
 
   /// Called when a new UE configuration is passed to the scheduler, as part of the RRC Reconfiguration procedure.
@@ -132,15 +131,11 @@ public:
   bool is_reconfig_ongoing() const { return reconf_ongoing; }
 
   /// \brief Handles DL Buffer State indication.
-  void handle_dl_buffer_state_indication(const dl_buffer_state_indication_message& msg);
+  void handle_dl_buffer_state_indication(lcid_t lcid, unsigned bs, slot_point hol_toa = {});
 
   /// \brief Checks if there are DL pending bytes that are yet to be allocated in a DL HARQ.
   /// This method is faster than computing \c pending_dl_newtx_bytes() > 0.
   bool has_pending_dl_newtx_bytes() const { return dl_lc_ch_mgr.has_pending_bytes(); }
-  bool has_pending_dl_newtx_bytes(const bounded_bitset<MAX_NOF_RB_LCIDS>& bearers) const
-  {
-    return dl_lc_ch_mgr.has_pending_bytes(bearers);
-  }
 
   /// \brief Checks if there are DL pending bytes for a specific LCID that are yet to be allocated in a DL HARQ.
   bool has_pending_dl_newtx_bytes(lcid_t lcid) const { return dl_lc_ch_mgr.has_pending_bytes(lcid); }
@@ -165,17 +160,13 @@ public:
   {
     return lcid != INVALID_LCID ? dl_lc_ch_mgr.pending_bytes(lcid) : dl_lc_ch_mgr.pending_bytes();
   }
-  unsigned pending_dl_newtx_bytes(const bounded_bitset<MAX_NOF_RB_LCIDS>& bearers) const
-  {
-    return dl_lc_ch_mgr.pending_bytes(bearers);
-  }
 
   /// \brief Computes the number of UL pending bytes that are not already allocated in a UL HARQ. The value is used
   /// to derive the required transport block size for an UL grant.
   unsigned pending_ul_newtx_bytes() const;
 
   /// \brief Computes the number of UL pending bytes for a LCG ID.
-  unsigned pending_ul_newtx_bytes(lcg_id_t lcg_id) const;
+  unsigned pending_ul_newtx_bytes(lcg_id_t lcg_id) const { return ul_lc_ch_mgr.pending_bytes(lcg_id); }
 
   /// \brief Returns whether a SR indication handling is pending.
   bool has_pending_sr() const;
@@ -186,15 +177,24 @@ public:
   /// \brief Defines the list of subPDUs, including LCID and payload size, that will compose the transport block.
   /// \return Returns the number of bytes reserved in the TB for subPDUs (other than padding).
   /// \remark Excludes SRB0.
-  unsigned build_dl_transport_block_info(dl_msg_tb_info&                         tb_info,
-                                         unsigned                                tb_size_bytes,
-                                         const bounded_bitset<MAX_NOF_RB_LCIDS>& lcids);
+  unsigned build_dl_transport_block_info(dl_msg_tb_info& tb_info, unsigned tb_size_bytes, ran_slice_id_t slice_id);
 
   /// \brief Defines the list of subPDUs, including LCID and payload size, that will compose the transport block for
   /// SRB0 or for SRB1 in fallback mode.
   /// It includes the UE Contention Resolution Identity CE if it is pending.
   /// \return Returns the number of bytes reserved in the TB for subPDUs (other than padding).
   unsigned build_dl_fallback_transport_block_info(dl_msg_tb_info& tb_info, unsigned tb_size_bytes);
+
+  /// \brief UE DL logical channels.
+  const dl_logical_channel_manager& dl_logical_channels() const { return dl_lc_ch_mgr; }
+  dl_logical_channel_manager&       dl_logical_channels() { return dl_lc_ch_mgr; }
+
+  /// \brief UE UL logical channels.
+  const ul_logical_channel_manager& ul_logical_channels() const { return ul_lc_ch_mgr; }
+  ul_logical_channel_manager&       ul_logical_channels() { return ul_lc_ch_mgr; }
+
+  /// \brief Handle UL TB scheduling.
+  void handle_ul_transport_block_info(unsigned tb_size_bytes) { ul_lc_ch_mgr.handle_ul_grant(tb_size_bytes); }
 
 private:
   /// Update UE configuration.

@@ -133,16 +133,22 @@ public:
     std::unique_ptr<dmrs_pucch_estimator_format1> estimator_format1 = std::make_unique<dmrs_pucch_estimator_format1>(
         prg_factory->create(),
         lpc_factory->create(m, delta, alphas),
-        ch_estimator_factory->create(port_channel_estimator_fd_smoothing_strategy::mean, /*compensate_cfo =*/false));
+        ch_estimator_factory->create(port_channel_estimator_fd_smoothing_strategy::mean,
+                                     port_channel_estimator_td_interpolation_strategy::average,
+                                     /*compensate_cfo =*/false));
 
     std::unique_ptr<dmrs_pucch_estimator_format2> estimator_format2 = std::make_unique<dmrs_pucch_estimator_format2>(
-        prg_factory->create(), ch_estimator_factory->create(port_channel_estimator_fd_smoothing_strategy::filter));
+        prg_factory->create(),
+        ch_estimator_factory->create(port_channel_estimator_fd_smoothing_strategy::filter,
+                                     port_channel_estimator_td_interpolation_strategy::average,
+                                     true));
 
     std::unique_ptr<dmrs_pucch_estimator_formats3_4> estimator_formats3_4 =
         std::make_unique<dmrs_pucch_estimator_formats3_4>(
             prg_factory->create(),
             lpg_factory->create(),
             ch_estimator_factory->create(port_channel_estimator_fd_smoothing_strategy::mean,
+                                         port_channel_estimator_td_interpolation_strategy::average,
                                          /*compensate_cfo =*/false));
 
     return std::make_unique<dmrs_pucch_estimator_impl>(
@@ -161,10 +167,16 @@ class dmrs_pusch_estimator_factory_sw : public dmrs_pusch_estimator_factory
 public:
   dmrs_pusch_estimator_factory_sw(std::shared_ptr<pseudo_random_generator_factory>     prg_factory_,
                                   std::shared_ptr<low_papr_sequence_generator_factory> low_papr_gen_factory_,
-                                  std::shared_ptr<port_channel_estimator_factory>      ch_estimator_factory_) :
+                                  std::shared_ptr<port_channel_estimator_factory>      ch_estimator_factory_,
+                                  port_channel_estimator_fd_smoothing_strategy         fd_smoothing_strategy_,
+                                  port_channel_estimator_td_interpolation_strategy     td_interpolation_strategy_,
+                                  bool                                                 compensate_cfo_) :
     prg_factory(std::move(prg_factory_)),
     low_papr_gen_factory(std::move(low_papr_gen_factory_)),
-    ch_estimator_factory(std::move(ch_estimator_factory_))
+    ch_estimator_factory(std::move(ch_estimator_factory_)),
+    fd_smoothing_strategy(fd_smoothing_strategy_),
+    td_interpolation_strategy(td_interpolation_strategy_),
+    compensate_cfo(compensate_cfo_)
   {
     srsran_assert(prg_factory, "Invalid PRG factory.");
     srsran_assert(low_papr_gen_factory, "Invalid low-PAPR generator factory.");
@@ -176,13 +188,16 @@ public:
     return std::make_unique<dmrs_pusch_estimator_impl>(
         prg_factory->create(),
         low_papr_gen_factory->create(),
-        ch_estimator_factory->create(port_channel_estimator_fd_smoothing_strategy::filter));
+        ch_estimator_factory->create(fd_smoothing_strategy, td_interpolation_strategy, compensate_cfo));
   }
 
 private:
   std::shared_ptr<pseudo_random_generator_factory>     prg_factory;
   std::shared_ptr<low_papr_sequence_generator_factory> low_papr_gen_factory;
   std::shared_ptr<port_channel_estimator_factory>      ch_estimator_factory;
+  port_channel_estimator_fd_smoothing_strategy         fd_smoothing_strategy;
+  port_channel_estimator_td_interpolation_strategy     td_interpolation_strategy;
+  bool                                                 compensate_cfo;
 };
 
 class nzp_csi_rs_generator_factory_sw : public nzp_csi_rs_generator_factory
@@ -270,13 +285,18 @@ public:
     srsran_assert(ta_estimator_factory, "Invalid TA estimator factory.");
   }
 
-  std::unique_ptr<port_channel_estimator> create(port_channel_estimator_fd_smoothing_strategy fd_smoothing_strategy,
-                                                 bool                                         compensate_cfo) override
+  std::unique_ptr<port_channel_estimator>
+  create(port_channel_estimator_fd_smoothing_strategy     fd_smoothing_strategy,
+         port_channel_estimator_td_interpolation_strategy td_interpolation_strategy,
+         bool                                             compensate_cfo) override
   {
     std::unique_ptr<interpolator> interp = create_interpolator();
 
-    return std::make_unique<port_channel_estimator_average_impl>(
-        std::move(interp), ta_estimator_factory->create(), fd_smoothing_strategy, compensate_cfo);
+    return std::make_unique<port_channel_estimator_average_impl>(std::move(interp),
+                                                                 ta_estimator_factory->create(),
+                                                                 fd_smoothing_strategy,
+                                                                 td_interpolation_strategy,
+                                                                 compensate_cfo);
   }
 
 private:
@@ -329,10 +349,17 @@ srsran::create_dmrs_pucch_estimator_factory_sw(std::shared_ptr<pseudo_random_gen
 std::shared_ptr<dmrs_pusch_estimator_factory> srsran::create_dmrs_pusch_estimator_factory_sw(
     std::shared_ptr<pseudo_random_generator_factory>     prg_factory,
     std::shared_ptr<low_papr_sequence_generator_factory> low_papr_sequence_gen_factory,
-    std::shared_ptr<port_channel_estimator_factory>      ch_estimator_factory)
+    std::shared_ptr<port_channel_estimator_factory>      ch_estimator_factory,
+    port_channel_estimator_fd_smoothing_strategy         fd_smoothing_strategy,
+    port_channel_estimator_td_interpolation_strategy     td_interpolation_strategy,
+    bool                                                 compensate_cfo)
 {
-  return std::make_shared<dmrs_pusch_estimator_factory_sw>(
-      std::move(prg_factory), std::move(low_papr_sequence_gen_factory), std::move(ch_estimator_factory));
+  return std::make_shared<dmrs_pusch_estimator_factory_sw>(std::move(prg_factory),
+                                                           std::move(low_papr_sequence_gen_factory),
+                                                           std::move(ch_estimator_factory),
+                                                           fd_smoothing_strategy,
+                                                           td_interpolation_strategy,
+                                                           compensate_cfo);
 }
 
 std::shared_ptr<nzp_csi_rs_generator_factory>
@@ -365,20 +392,20 @@ std::shared_ptr<sss_processor_factory> srsran::create_sss_processor_factory_sw()
   return std::make_shared<sss_processor_factory_sw>();
 }
 
-template <typename Func>
-static std::chrono::nanoseconds time_execution(Func&& func)
-{
-  auto start = std::chrono::steady_clock::now();
-  func();
-  auto end = std::chrono::steady_clock::now();
-
-  return std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-}
-
 namespace {
 
 class logging_nzp_csi_rs_generator_decorator : public nzp_csi_rs_generator
 {
+  template <typename Func>
+  static std::chrono::nanoseconds time_execution(Func&& func)
+  {
+    auto start = std::chrono::steady_clock::now();
+    func();
+    auto end = std::chrono::steady_clock::now();
+
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+  }
+
 public:
   logging_nzp_csi_rs_generator_decorator(srslog::basic_logger&                 logger_,
                                          std::unique_ptr<nzp_csi_rs_generator> generator_) :

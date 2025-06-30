@@ -26,7 +26,6 @@
 #include "rlc_tx_entity.h"
 #include "srsran/support/executors/task_executor.h"
 #include "fmt/format.h"
-#include <mutex>
 
 namespace srsran {
 
@@ -69,7 +68,11 @@ private:
   pcap_rlc_pdu_context pcap_context;
 
   // Storage for previous buffer state
-  unsigned prev_buffer_state = 0;
+  rlc_buffer_state prev_buffer_state = {};
+
+  /// This flag is used to temporarily disable barring of huge buffer state notifications after seeing a small buffer
+  /// state (<= MAX_DL_PDU_LENGTH) until sending at least one notification towards lower layer.
+  bool suspend_bs_notif_barring = true;
 
   /// This atomic_flag indicates whether a buffer state update task has been queued but not yet run by pcell_executor.
   /// It helps to avoid queuing of redundant notification tasks in case of frequent changes of the buffer status.
@@ -85,7 +88,7 @@ public:
                    rlc_tx_upper_layer_data_notifier&    upper_dn_,
                    rlc_tx_upper_layer_control_notifier& upper_cn_,
                    rlc_tx_lower_layer_notifier&         lower_dn_,
-                   rlc_metrics_aggregator&              metrics_agg_,
+                   rlc_bearer_metrics_collector&        metrics_coll_,
                    rlc_pcap&                            pcap_,
                    task_executor&                       pcell_executor_,
                    task_executor&                       ue_executor_,
@@ -106,8 +109,8 @@ public:
   void discard_sdu(uint32_t pdcp_sn) override;
 
   // Interfaces for lower layers
-  size_t   pull_pdu(span<uint8_t> mac_sdu_buf) override;
-  uint32_t get_buffer_state() override;
+  size_t           pull_pdu(span<uint8_t> mac_sdu_buf) noexcept override;
+  rlc_buffer_state get_buffer_state() override;
 
 private:
   bool get_si_and_expected_header_size(uint32_t      so,
@@ -129,7 +132,7 @@ private:
   /// its execution is queued by \c handle_changed_buffer_state.
   ///
   /// Safe execution from: pcell_executor
-  void update_mac_buffer_state();
+  void update_mac_buffer_state() noexcept;
 
   void log_state(srslog::basic_levels level) { logger.log(level, "TX entity state. {} next_so={}", st, next_so); }
 

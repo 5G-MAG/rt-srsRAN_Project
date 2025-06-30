@@ -138,6 +138,10 @@ void du_ue_manager::handle_reestablishment_request(du_ue_index_t new_ue_index, d
   // Retrieve the old UE context for the RRC connection reestablishment procedure, as defined in TS 48.473, 8.4.2.2 and
   // TS 38.401.
   new_ue.reestablished_cfg_pending = std::make_unique<du_ue_resource_config>(old_ue_it->resources.value());
+  if (old_ue_it->resources.get_ue_capabilities().has_value()) {
+    new_ue.reestablished_ue_caps_summary =
+        std::make_unique<ue_capability_summary>(*old_ue_it->resources.get_ue_capabilities());
+  }
 
   // Delete the old UE context.
   schedule_async_task(old_ue_index, handle_ue_delete_request(f1ap_ue_delete_request{old_ue_index}));
@@ -146,6 +150,9 @@ void du_ue_manager::handle_reestablishment_request(du_ue_index_t new_ue_index, d
 void du_ue_manager::handle_ue_config_applied(du_ue_index_t ue_index)
 {
   srsran_assert(ue_db.contains(ue_index), "Invalid UE index={}", fmt::underlying(ue_index));
+
+  // Notify UE resource configurator of config completion.
+  ue_db[ue_index].resources.handle_ue_config_applied();
 
   // Forward configuration to MAC.
   cfg.mac.ue_cfg.handle_ue_config_applied(ue_index);

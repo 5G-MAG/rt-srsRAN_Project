@@ -37,7 +37,7 @@ class du_high_impl final : public du_high
 {
 public:
   explicit du_high_impl(const du_high_configuration& cfg_, const du_high_dependencies& dependencies);
-  ~du_high_impl();
+  ~du_high_impl() override;
 
   void start() override;
 
@@ -55,6 +55,8 @@ public:
 
   du_configurator& get_du_configurator() override;
 
+  du_manager_time_mapper_accessor& get_du_manager_time_mapper_accessor() override;
+
 private:
   class layer_connector;
 
@@ -70,14 +72,11 @@ private:
   std::unique_ptr<layer_connector> adapters;
 
   std::unique_ptr<scheduler_metrics_notifier> hub_metrics;
-  std::unique_ptr<scheduler_metrics_notifier> metrics_notifier;
 
   // DU-high Layers.
   std::unique_ptr<du_manager_interface> du_manager;
   std::unique_ptr<f1ap_du>              f1ap;
   std::unique_ptr<mac_interface>        mac;
-
-  std::unique_ptr<mac_cell_slot_handler> main_cell_slot_handler;
 };
 
 } // namespace srs_du

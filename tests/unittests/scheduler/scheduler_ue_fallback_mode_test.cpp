@@ -45,11 +45,7 @@ public:
     builder_params.channel_bw_mhz = bs_channel_bandwidth::MHz20;
 
     // Create cell config with space for two PDCCHs in the SearchSpace#1.
-    sched_cell_configuration_request_message cell_cfg_req =
-        sched_config_helper::make_default_sched_cell_configuration_request(builder_params);
-    cell_cfg_req.dl_cfg_common.init_dl_bwp.pdcch_common.search_spaces[1].set_non_ss0_nof_candidates(
-        std::array<uint8_t, 5>{0, 0, 2, 0, 0});
-    add_cell(cell_cfg_req);
+    add_cell(sched_config_helper::make_default_sched_cell_configuration_request(builder_params));
 
     srsran_assert(not this->cell_cfg_list[0].nzp_csi_rs_list.empty(),
                   "This test assumes a setup with NZP CSI-RS enabled");
@@ -159,9 +155,9 @@ TEST_P(scheduler_con_res_msg4_test,
 
 static bool is_f1_pucch(const pucch_info& pucch, bool is_common, bool has_sr)
 {
-  return pucch.format == pucch_format::FORMAT_1 and ((pucch.format_1.sr_bits != sr_nof_bits::no_sr) == has_sr) and
-         pucch.format_1.harq_ack_nof_bits > 0 and (pucch.resources.second_hop_prbs.empty() != is_common);
-};
+  return pucch.format() == pucch_format::FORMAT_1 and ((pucch.uci_bits.sr_bits != sr_nof_bits::no_sr) == has_sr) and
+         pucch.uci_bits.harq_ack_nof_bits > 0 and (pucch.resources.second_hop_prbs.empty() != is_common);
+}
 
 TEST_P(scheduler_con_res_msg4_test, while_ue_is_in_fallback_then_common_pucch_is_used)
 {
@@ -179,8 +175,8 @@ TEST_P(scheduler_con_res_msg4_test, while_ue_is_in_fallback_then_common_pucch_is
     return std::any_of(this->last_sched_res_list[to_du_cell_index(0)]->ul.pucchs.begin(),
                        this->last_sched_res_list[to_du_cell_index(0)]->ul.pucchs.end(),
                        [rnti = this->rnti](const pucch_info& pucch) {
-                         return pucch.crnti == rnti and pucch.format == pucch_format::FORMAT_1 and
-                                pucch.format_1.harq_ack_nof_bits > 0;
+                         return pucch.crnti == rnti and pucch.format() == pucch_format::FORMAT_1 and
+                                pucch.uci_bits.harq_ack_nof_bits > 0;
                        });
   }));
 
@@ -229,13 +225,13 @@ TEST_P(scheduler_con_res_msg4_test, while_ue_is_in_fallback_then_common_pucch_is
           pucch_res_ptrs.f1_common_ptr = &pucch;
         } else if (is_f1_pucch(pucch, false, false)) {
           pucch_res_ptrs.f1_ded_ptr = &pucch;
-        } else if (pucch.format == pucch_format::FORMAT_2 and pucch.format_2.harq_ack_nof_bits > 0) {
+        } else if (pucch.format() == pucch_format::FORMAT_2 and pucch.uci_bits.harq_ack_nof_bits > 0) {
           pucch_res_ptrs.f2_ptr = &pucch;
         }
       }
     } else if (nof_pucchs == 3) {
       for (const auto& pucch : pucchs) {
-        if (pucch.crnti == rnti and pucch.format == pucch_format::FORMAT_1) {
+        if (pucch.crnti == rnti and pucch.format() == pucch_format::FORMAT_1) {
           if (is_f1_pucch(pucch, true, false)) {
             pucch_res_ptrs.f1_common_ptr = &pucch;
           } else if (is_f1_pucch(pucch, false, true)) {

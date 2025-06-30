@@ -35,4 +35,19 @@ public:
   void report_metrics(const scheduler_cell_metrics& metrics) override { last_metrics = metrics; }
 };
 
+class dummy_scheduler_cell_metrics_notifier : public scheduler_cell_metrics_notifier
+{
+public:
+  scheduler_cell_metrics last_metrics;
+
+  scheduler_cell_metrics& get_next() override { return last_metrics; }
+
+  void commit(scheduler_cell_metrics& ptr) override
+  {
+    srsran_assert(&ptr == &last_metrics, "Invalid reference passed");
+  }
+
+  bool is_sched_report_required(slot_point sl_tx) const override { return false; }
+};
+
 } // namespace srsran

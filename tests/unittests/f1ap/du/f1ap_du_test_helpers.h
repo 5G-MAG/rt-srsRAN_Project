@@ -27,6 +27,7 @@
 #include "srsran/asn1/f1ap/f1ap_ies.h"
 #include "srsran/f1ap/du/f1ap_du.h"
 #include "srsran/f1ap/du/f1ap_du_factory.h"
+#include "srsran/f1ap/du/f1ap_du_positioning_handler.h"
 #include "srsran/f1ap/f1ap_message.h"
 #include "srsran/f1ap/gateways/f1c_connection_client.h"
 #include "srsran/f1u/du/f1u_rx_sdu_notifier.h"
@@ -41,7 +42,7 @@ namespace srsran::srs_du {
 /// \brief Generate a random gnb_du_ue_f1ap_id
 gnb_du_ue_f1ap_id_t generate_random_gnb_du_ue_f1ap_id();
 
-class dummy_f1ap_du_configurator : public f1ap_du_configurator
+class dummy_f1ap_du_configurator : public f1ap_du_configurator, public f1ap_du_positioning_handler
 {
 public:
   struct dummy_ue_task_sched : public f1ap_ue_task_scheduler {
@@ -66,8 +67,11 @@ public:
   f1ap_ue_configuration_request                          next_ue_cfg_req;
   std::optional<f1ap_ue_configuration_response>          last_ue_cfg_response;
   std::optional<std::pair<du_ue_index_t, du_ue_index_t>> last_reestablishment_ue_indexes;
+  du_positioning_info_response                           next_positioning_info_response;
 
   // F1AP procedures.
+  std::optional<gnbcu_config_update_request>      last_cu_upd_req;
+  gnbcu_config_update_response                    next_cu_upd_resp;
   std::optional<f1ap_ue_context_creation_request> last_ue_context_creation_req;
   f1ap_ue_context_creation_response               next_ue_context_creation_response;
   std::optional<f1ap_ue_context_update_request>   last_ue_context_update_req;
@@ -75,6 +79,8 @@ public:
   std::optional<f1ap_ue_delete_request>           last_ue_delete_req;
   std::optional<du_ue_index_t>                    last_ue_cfg_applied;
   std::optional<std::vector<du_ue_index_t>>       last_ues_to_reset;
+  std::optional<du_positioning_info_request>      last_positioning_info_request;
+  std::optional<du_positioning_meas_request>      last_positioning_meas_request;
 
   explicit dummy_f1ap_du_configurator(timer_factory& timers_) : timers(timers_), task_loop(128), ue_sched(this) {}
 
@@ -90,6 +96,13 @@ public:
   {
     last_ues_to_reset = ues_to_reset;
     return launch_no_op_task();
+  }
+
+  async_task<gnbcu_config_update_response>
+  request_cu_context_update(const gnbcu_config_update_request& request) override
+  {
+    last_cu_upd_req = request;
+    return launch_no_op_task(next_cu_upd_resp);
   }
 
   du_ue_index_t find_free_ue_index() override { return next_ue_creation_req.ue_index; }
@@ -132,6 +145,23 @@ public:
   void notify_reestablishment_of_old_ue(du_ue_index_t new_ue_index, du_ue_index_t old_ue_index) override
   {
     last_reestablishment_ue_indexes = std::make_pair(new_ue_index, old_ue_index);
+  }
+
+  f1ap_du_positioning_handler& get_positioning_handler() override { return *this; }
+
+  du_trp_info_response request_trp_info() override { return du_trp_info_response{}; }
+
+  async_task<du_positioning_info_response> request_positioning_info(const du_positioning_info_request& req) override
+  {
+    last_positioning_info_request = req;
+    return launch_no_op_task(du_positioning_info_response{next_positioning_info_response});
+  }
+
+  async_task<du_positioning_meas_response>
+  request_positioning_measurement(const du_positioning_meas_request& req) override
+  {
+    last_positioning_meas_request = req;
+    return launch_no_op_task(du_positioning_meas_response{});
   }
 
   /// \brief Retrieve task scheduler specific to a given UE.

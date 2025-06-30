@@ -106,6 +106,9 @@ public:
   virtual async_task<ngap_handover_resource_allocation_response>
   handle_ngap_handover_request(const ngap_handover_request& request) = 0;
 
+  /// \brief Handle the transmission of a handover required message to the AMF.
+  virtual void handle_transmission_of_handover_required() = 0;
+
   /// \brief Handle the reception of a new Handover Command.
   /// \param[in] ue_index The index of the UE that received the Handover Command.
   /// \param[in] command The received Handover Command.
@@ -119,10 +122,13 @@ public:
   virtual void handle_dl_ue_associated_nrppa_transport_pdu(ue_index_t ue_index, const byte_buffer& nrppa_pdu) = 0;
 
   /// \brief Handles a DL non UE associated NRPPa transport.
-  virtual void handle_dl_non_ue_associated_nrppa_transport_pdu(const byte_buffer& nrppa_pdu) = 0;
+  /// \param[in] amf_index The index of the AMF that received the NRPPa transport.
+  /// \param[in] nrppa_pdu The NRPPa transport PDU.
+  virtual void handle_dl_non_ue_associated_nrppa_transport_pdu(amf_index_t amf_index, const byte_buffer& nrppa_pdu) = 0;
 
   /// \brief Handle N2 AMF connection drop.
-  virtual void handle_n2_disconnection() = 0;
+  /// \param[in] amf_index The index of the dropped AMF.
+  virtual void handle_n2_disconnection(amf_index_t amf_index) = 0;
 };
 
 /// Interface for the NRPPa notifier to communicate with the CU-CP.
@@ -138,8 +144,15 @@ public:
 
   /// \brief Handle a UL NRPPa PDU.
   /// \param[in] msg The NRPPa PDU.
-  /// \param[in] ue_index For UE associated messages the index of the UE.
-  virtual void handle_ul_nrppa_pdu(const byte_buffer& nrppa_pdu, std::optional<ue_index_t> ue_index) = 0;
+  /// \param[in] ue_or_amf_index The UE index for UE associated NRPPa messages or the AMF index for non UE associated
+  virtual void handle_ul_nrppa_pdu(const byte_buffer&                    nrppa_pdu,
+                                   std::variant<ue_index_t, amf_index_t> ue_or_amf_index) = 0;
+
+  /// \brief Handle a TRP information request.
+  /// \param[in] request The TRP information request.
+  /// \returns The TRP information CU-CP response.
+  virtual async_task<trp_information_cu_cp_response_t>
+  handle_trp_information_request(const trp_information_request_t& request) = 0;
 };
 
 /// Handler of E1AP-CU-CP events.
@@ -227,14 +240,22 @@ public:
 
   /// \brief Handle the trasmission of the handover reconfiguration by notifying the target RRC UE to await a RRC
   /// Reconfiguration Complete.
-  /// \param[in] transaction_id The transaction ID of the RRC Reconfiguration Complete.
-  /// \returns True if the RRC Reconfiguration Complete was received, false otherwise.
-  virtual async_task<bool> handle_handover_reconfiguration_sent(ue_index_t target_ue_index, uint8_t transaction_id) = 0;
+  /// \param[in] request The intra CU handover target request.
+  virtual void handle_handover_reconfiguration_sent(const cu_cp_intra_cu_handover_target_request& request) = 0;
 
   /// \brief Handle a UE context push during handover.
   /// \param[in] source_ue_index The index of the UE that is the source of the handover.
   /// \param[in] target_ue_index The index of the UE that is the target of the handover.
   virtual void handle_handover_ue_context_push(ue_index_t source_ue_index, ue_index_t target_ue_index) = 0;
+
+  /// \brief Initialize a handover UE release timer. When the timeout is reached, a release request is sent to the AMF.
+  /// \param[in] ue_index The index of the UE.
+  /// \param[in] handover_ue_release_timeout The timeout for the release.
+  /// \param[in] ue_context_release_request The release request.
+  virtual void
+  initialize_handover_ue_release_timer(ue_index_t                              ue_index,
+                                       std::chrono::milliseconds               handover_ue_release_timeout,
+                                       const cu_cp_ue_context_release_request& ue_context_release_request) = 0;
 };
 
 /// Methods used by CU-CP to transfer the RRC UE context e.g. for RRC Reestablishments.
@@ -306,6 +327,17 @@ public:
   virtual void handle_pending_ue_task_cancellation(ue_index_t ue_index) = 0;
 };
 
+/// Interface to handle AMF reconnections.
+class cu_cp_amf_reconnection_handler
+{
+public:
+  virtual ~cu_cp_amf_reconnection_handler() = default;
+
+  /// \brief Handle AMF reconnections.
+  /// \param[in] amf_index The index of the AMF that reconnected.
+  virtual void handle_amf_reconnection(amf_index_t amf_index) = 0;
+};
+
 class cu_cp_impl_interface : public cu_cp_e1ap_event_handler,
                              public cu_cp_du_event_handler,
                              public cu_cp_rrc_ue_interface,
@@ -315,7 +347,8 @@ class cu_cp_impl_interface : public cu_cp_e1ap_event_handler,
                              public cu_cp_nrppa_handler,
                              public cu_cp_ue_context_manipulation_handler,
                              public cu_cp_mobility_manager_handler,
-                             public cu_cp_ue_removal_handler
+                             public cu_cp_ue_removal_handler,
+                             public cu_cp_amf_reconnection_handler
 {
 public:
   virtual ~cu_cp_impl_interface() = default;
@@ -329,6 +362,7 @@ public:
   virtual cu_cp_measurement_config_handler&      get_cu_cp_measurement_config_handler() = 0;
   virtual cu_cp_mobility_manager_handler&        get_cu_cp_mobility_manager_handler()   = 0;
   virtual cu_cp_ue_removal_handler&              get_cu_cp_ue_removal_handler()         = 0;
+  virtual cu_cp_amf_reconnection_handler&        get_cu_cp_amf_reconnection_handler()   = 0;
 };
 
 } // namespace srs_cu_cp

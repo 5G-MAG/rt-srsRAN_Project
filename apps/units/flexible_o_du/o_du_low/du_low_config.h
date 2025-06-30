@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "apps/helpers/metrics/metrics_config.h"
 #include "apps/services/worker_manager/os_sched_affinity_manager.h"
 #include <optional>
 #include <string>
@@ -48,16 +49,46 @@ struct du_low_unit_expert_upper_phy_config {
   /// -\c post_equalization: SINR is calculated using the post-equalization noise variances of the equalized RE.
   /// -\c evm: SINR is obtained from the EVM of the PUSCH symbols.
   std::string pusch_sinr_calc_method = "post_equalization";
+  /// \brief PUSCH channel estimator frequency-domain smoothing strategy.
+  ///
+  /// Use one of these options:
+  /// - \c filter: applies a low pass filter to the channel estimates, or
+  /// - \c mean: averages the channel estimates, or
+  /// - \c none: it does not apply any smoothing strategy.
+  std::string pusch_channel_estimator_fd_strategy = "filter";
+  /// \brief PUSCH channel estimator time-domain interpolation strategy.
+  ///
+  /// Use one of these options:
+  /// - \c average: averages the DM-RS in time domain, or
+  /// - \c interpolate: performs linear interpolation between the OFDM symbols containing DM-RS.
+  ///
+  /// The \c average strategy is more robust against noise and interference while \c interpolate is more robust for
+  /// fast fading channels.
+  std::string pusch_channel_estimator_td_strategy = "average";
+  /// PUSCH channel estimator CFO compensation.
+  bool pusch_channel_estimator_cfo_compensation = true;
+  /// \brief PUSCH channel equalizer algorithm.
+  ///
+  /// Use one of these options:
+  /// - \c zf: use zero-forcing algorithm, or
+  /// - \c mmse: use minimum mean square error algorithm.
+  std::string pusch_channel_equalizer_algorithm = "zf";
   /// \brief Request headroom size in slots.
   ///
   /// The request headroom size is the number of delayed slots that the upper physical layer will accept, ie, if the
   /// current slot is M, the upper phy will consider the slot M - nof_slots_request_headroom as valid and process it.
   unsigned nof_slots_request_headroom = 0U;
+  /// \brief Allows resource grid requests on empty uplink slots.
+  ///
+  /// An uplink slot is considered empty when it does not contain PUCCH/PUSCH/SRS PDUs.
+  bool allow_request_on_empty_uplink_slot = false;
 };
 
 /// DU low logging functionalities.
 struct du_low_unit_logger_config {
+  /// Upper physical layer log level.
   srslog::basic_levels phy_level = srslog::basic_levels::warning;
+  /// Hardware Abstraction Layer log level.
   srslog::basic_levels hal_level = srslog::basic_levels::warning;
   /// Set to true to log broadcasting messages and all PRACH opportunities.
   bool broadcast_enabled = false;
@@ -85,33 +116,41 @@ struct du_low_unit_expert_threads_config {
   {
     unsigned nof_threads = cpu_architecture_info::get().get_host_nof_available_cpus();
 
-    if (nof_threads < 4) {
+    if (nof_threads <= 4) {
       nof_ul_threads            = 1;
       nof_pusch_decoder_threads = 0;
-      nof_dl_threads            = 2;
+      nof_dl_threads            = 3;
     } else if (nof_threads < 8) {
       nof_ul_threads            = 1;
       nof_pusch_decoder_threads = 1;
-      nof_dl_threads            = 4;
+      nof_dl_threads            = 5;
     } else if (nof_threads < 16) {
       nof_ul_threads            = 1;
       nof_pusch_decoder_threads = 1;
-      nof_dl_threads            = 4;
+      nof_dl_threads            = 5;
     } else {
       nof_ul_threads            = 2;
       nof_pusch_decoder_threads = 2;
-      nof_dl_threads            = 6;
+      nof_dl_threads            = 7;
     }
   }
 
+  /// Codeblock batch length for ensuring synchronous processing within the flexible PDSCH processor implementation.
+  static constexpr unsigned synchronous_cb_batch_length = std::numeric_limits<unsigned>::max();
+
   /// \brief PDSCH processor type.
   ///
-  /// Use of there options:
-  /// - \c automatic: selects \c lite implementation if \c nof_pdsch_threads is one, otherwise \c concurrent, or
+  /// Use of one of these options:
+  /// - \c auto: selects \c flexible implementation, or
   /// - \c generic: for using unoptimized PDSCH processing, or
-  /// - \c concurrent: for using a processor that processes code blocks in parallel, or
-  /// - \c lite: for using a memory optimized processor.
+  /// - \c flexible: for using a memory optimized processor if the number of codeblocks is smaller than \c
+  /// pdsch_cb_batch_length, or a performance-optimized implementation that processes code blocks in parallel otherwise.
   std::string pdsch_processor_type = "auto";
+  /// \brief PDSCH codeblock-batch length per thread (flexible PDSCH processor only).
+  ///
+  /// Set it to 0 (default) for an homogeneous split of codeblocks per thread. Set it to \c pdsch_cb_batch_length_sync
+  /// for guaranteeing synchronous processing with the most memory-optimized processor.
+  unsigned pdsch_cb_batch_length = 0;
   /// \brief Number of threads for concurrent PUSCH decoding.
   ///
   /// If the number of PUSCH decoder threads is greater than zero, the PUSCH decoder will enqueue received soft bits and
@@ -148,7 +187,7 @@ struct hwacc_pdsch_appconfig {
   /// Set to the maximum supported size by default.
   std::optional<unsigned> max_buffer_size;
   /// \brief Type of hardware queue usage (dedicated = true [default], shared = false). In case of a shared usage, the
-  /// accelerated function needs to reseve a hardware-queue for each operation.
+  /// accelerated function needs to reserve a hardware-queue for each operation.
   bool dedicated_queue = true;
 };
 
@@ -156,14 +195,14 @@ struct hwacc_pdsch_appconfig {
 struct hwacc_pusch_appconfig {
   /// \brief Number of hardware-accelerated PUSCH decoding functions.
   unsigned nof_hwacc;
-  /// \brief Defines if the soft-buffer is implemented in the accelerator (true [default]) or not (false).
-  bool ext_softbuffer = true;
   /// \brief Size of the HARQ context repository.
   ///
   /// Set to the maximum number of CBs supported by the gNB config by default.
   std::optional<unsigned> harq_context_size;
+  /// \brief Force using the host memory to implement the HARQ buffer (disabled by default).
+  bool force_local_harq = false;
   /// \brief Type of hardware queue usage (dedicated = true [default], shared = false). In case of a shared usage, the
-  /// accelerated function needs to reseve a hardware-queue for each operation.
+  /// accelerated function needs to reserve a hardware-queue for each operation.
   bool dedicated_queue = true;
 };
 
@@ -193,10 +232,17 @@ struct bbdev_appconfig {
   std::optional<unsigned> nof_mbuf;
 };
 
-// HAL configuration of the DU low.
+/// HAL configuration of the DU low.
 struct du_low_unit_hal_config {
   /// BBDEV-based hardware-accelerator arguments.
   std::optional<bbdev_appconfig> bbdev_hwacc;
+};
+
+/// Metrics configuration of the DU low.
+struct du_low_unit_metrics_config {
+  app_helpers::metrics_config common_metrics_cfg;
+  bool                        enable_du_low    = false;
+  unsigned                    du_report_period = 1000;
 };
 
 /// DU low configuration.
@@ -209,6 +255,8 @@ struct du_low_unit_config {
   du_low_unit_expert_execution_config expert_execution_cfg;
   /// HAL configuration.
   std::optional<du_low_unit_hal_config> hal_config;
+  /// Metrics configuration.
+  du_low_unit_metrics_config metrics_cfg;
 };
 
 } // namespace srsran

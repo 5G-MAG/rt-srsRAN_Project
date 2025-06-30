@@ -24,6 +24,7 @@
 
 #include "../ngap_repository.h"
 #include "../ue_manager/ue_manager_impl.h"
+#include "metrics/mobility_manager_metrics_aggregator.h"
 #include "srsran/cu_cp/cu_cp_command_handler.h"
 #include "srsran/cu_cp/cu_cp_f1c_handler.h"
 #include "srsran/cu_cp/cu_cp_types.h"
@@ -47,21 +48,20 @@ public:
                                                   pci_t            neighbor_pci) = 0;
 };
 
-/// Methods used by mobility manager to signal handover events to the CU-CP.
-class mobility_manager_cu_cp_notifier
+/// Interface used to capture the mobility management metrics to the CU-CP.
+class mobility_manager_metrics_handler
 {
 public:
-  virtual ~mobility_manager_cu_cp_notifier() = default;
+  virtual ~mobility_manager_metrics_handler() = default;
 
-  /// \brief Notify the CU-CP about an required intra-CU handover.
-  virtual async_task<cu_cp_intra_cu_handover_response>
-  on_intra_cu_handover_required(const cu_cp_intra_cu_handover_request& request,
-                                du_index_t                             source_du_index,
-                                du_index_t                             target_du_index) = 0;
+  /// \brief Handle new metrics request for the mobility manager of the CU-CP.
+  virtual mobility_management_metrics handle_mobility_metrics_report_request() const = 0;
 };
 
-/// Basic cell manager implementation
-class mobility_manager final : public mobility_manager_measurement_handler, public cu_cp_mobility_command_handler
+/// Basic mobility manager implementation.
+class mobility_manager final : public mobility_manager_measurement_handler,
+                               public cu_cp_mobility_command_handler,
+                               public mobility_manager_metrics_handler
 {
 public:
   mobility_manager(const mobility_manager_cfg&      cfg,
@@ -77,6 +77,13 @@ public:
                                           nr_cell_identity neighbor_nci,
                                           pci_t            neighbor_pci) override;
 
+  mobility_manager_metrics_aggregator& get_metrics_handler() { return metrics_handler; }
+
+  mobility_management_metrics handle_mobility_metrics_report_request() const override
+  {
+    return metrics_handler.request_metrics_report();
+  }
+
 private:
   void
   handle_handover(ue_index_t ue_index, gnb_id_t neighbor_gnb_id, nr_cell_identity neighbor_nci, pci_t neighbor_pci);
@@ -91,6 +98,8 @@ private:
   ngap_repository&                 ngap_db;
   du_processor_repository&         du_db;
   ue_manager&                      ue_mng;
+
+  mobility_manager_metrics_aggregator metrics_handler;
 
   srslog::basic_logger& logger;
 };

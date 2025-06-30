@@ -33,7 +33,8 @@ using namespace srsran;
 static size_t get_ring_size(const sched_cell_configuration_request_message& cell_cfg)
 {
   // Estimation of the time it takes the UL lower-layers to process and forward CRC/UCI indications.
-  constexpr static unsigned MAX_UL_PHY_DELAY = 40;
+  // Note: The size of this ring has to be larger than that of the test mode internal buffer.
+  static constexpr unsigned MAX_UL_PHY_DELAY = 80;
   // Note: The history ring size has to be a multiple of the TDD frame size in slots.
   // Number of slots managed by this container.
   return get_allocator_ring_size_gt_min(get_max_slot_ul_alloc_delay(cell_cfg.ntn_cs_koffset) + MAX_UL_PHY_DELAY);
@@ -184,7 +185,10 @@ uci_indication uci_cell_decoder::decode_uci(const mac_uci_indication_message& ms
                            fmt::underlying(uci_pdu.ue_index),
                            uci_pdu.crnti);
           }
+        } else {
+          pdu.csi = csi_report_data{.valid = false};
         }
+
         // NOTE: The RLF detection based on CSI is used when the UE only transmits PUCCHs; if the UE transmit PUSCHs,
         // the RLF detection will be based on the PUSCH CRC. However, if the PUSCH UCI has a correctly decoded CSI, we
         // need to reset the CSI KOs counter.
@@ -230,7 +234,10 @@ uci_indication uci_cell_decoder::decode_uci(const mac_uci_indication_message& ms
                            fmt::underlying(uci_pdu.ue_index),
                            uci_pdu.crnti);
           }
+        } else {
+          pdu.csi = csi_report_data{.valid = false};
         }
+
         // We consider any status other than "crc_pass" as non-decoded CSI.
         rlf_handler.handle_csi(uci_pdu.ue_index, cell_index, pucch_f2f3f4->csi_part1_info->is_valid);
       }

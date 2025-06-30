@@ -27,6 +27,7 @@
 #include "srsran/fapi_adaptor/phy/messages/pdcch.h"
 #include "srsran/fapi_adaptor/phy/messages/pdsch.h"
 #include "srsran/fapi_adaptor/phy/messages/prach.h"
+#include "srsran/fapi_adaptor/phy/messages/prs.h"
 #include "srsran/fapi_adaptor/phy/messages/pucch.h"
 #include "srsran/fapi_adaptor/phy/messages/pusch.h"
 #include "srsran/fapi_adaptor/phy/messages/srs.h"
@@ -35,9 +36,11 @@
 #include "srsran/phy/support/prach_buffer_context.h"
 #include "srsran/phy/support/resource_grid_pool.h"
 #include "srsran/phy/support/shared_resource_grid.h"
+#include "srsran/phy/upper/channel_processors/prach_detector.h"
 #include "srsran/phy/upper/downlink_processor.h"
+#include "srsran/phy/upper/uplink_pdu_slot_repository.h"
+#include "srsran/phy/upper/uplink_pdu_validator.h"
 #include "srsran/phy/upper/uplink_request_processor.h"
-#include "srsran/phy/upper/uplink_slot_pdu_repository.h"
 #include "srsran/srslog/srslog.h"
 
 using namespace srsran;
@@ -65,6 +68,10 @@ public:
   {
     srslog::fetch_basic_logger("FAPI").warning("Could not enqueue NZP-CSI-RS PDU in the downlink processor");
   }
+  void process_prs(const prs_generator_configuration& config) override
+  {
+    srslog::fetch_basic_logger("FAPI").warning("Could not enqueue PRS PDU in the downlink processor");
+  }
   void finish_processing_pdus() override {}
 };
 
@@ -88,10 +95,10 @@ fapi_to_phy_translator::fapi_to_phy_translator(const fapi_to_phy_translator_conf
                                                fapi_to_phy_translator_dependencies&& dependencies) :
   sector_id(config.sector_id),
   nof_slots_request_headroom(config.nof_slots_request_headroom),
+  allow_request_on_empty_ul_tti(config.allow_request_on_empty_ul_tti),
   logger(*dependencies.logger),
   dl_pdu_validator(*dependencies.dl_pdu_validator),
   ul_request_processor(*dependencies.ul_request_processor),
-  ul_rg_pool(*dependencies.ul_rg_pool),
   ul_pdu_validator(*dependencies.ul_pdu_validator),
   ul_pdu_repository(*dependencies.ul_pdu_repository),
   slot_controller_mngr(*dependencies.dl_processor_pool,
@@ -164,14 +171,15 @@ struct downlink_pdus {
   static_vector<pdsch_processor::pdu_t, MAX_PDSCH_PDUS_PER_SLOT>          pdsch;
   static_vector<ssb_processor::pdu_t, MAX_SSB_PER_SLOT>                   ssb;
   static_vector<nzp_csi_rs_generator::config_t, MAX_CSI_RS_PDUS_PER_SLOT> csi_rs;
+  static_vector<prs_generator_configuration, MAX_PRS_PDUS_PER_SLOT>       prs;
 };
 
 /// Helper struct to store the uplink channel PHY PDUs.
 struct uplink_pdus {
-  static_vector<uplink_processor::pucch_pdu, MAX_PUCCH_PDUS_PER_SLOT> pucch;
-  static_vector<uplink_processor::pusch_pdu, MAX_PUSCH_PDUS_PER_SLOT> pusch;
-  static_vector<prach_buffer_context, MAX_PRACH_OCCASIONS_PER_SLOT>   prach;
-  static_vector<uplink_processor::srs_pdu, MAX_SRS_PDUS_PER_SLOT>     srs;
+  static_vector<uplink_pdu_slot_repository::pucch_pdu, MAX_PUCCH_PDUS_PER_SLOT> pucch;
+  static_vector<uplink_pdu_slot_repository::pusch_pdu, MAX_PUSCH_PDUS_PER_SLOT> pusch;
+  static_vector<prach_buffer_context, MAX_PRACH_OCCASIONS_PER_SLOT>             prach;
+  static_vector<uplink_pdu_slot_repository::srs_pdu, MAX_SRS_PDUS_PER_SLOT>     srs;
 };
 
 } // namespace
@@ -220,7 +228,8 @@ static expected<downlink_pdus> translate_dl_tti_pdus_to_phy_pdus(const fapi::dl_
                                                                  srslog::basic_logger&               logger,
                                                                  subcarrier_spacing                  scs_common,
                                                                  uint16_t                            cell_bandwidth_prb,
-                                                                 const precoding_matrix_repository&  pm_repo)
+                                                                 const precoding_matrix_repository&  pm_repo,
+                                                                 unsigned                            sector_id)
 {
   downlink_pdus pdus;
   const auto&   csi_re_patterns = generate_csi_re_pattern_list(msg, cell_bandwidth_prb);
@@ -229,7 +238,8 @@ static expected<downlink_pdus> translate_dl_tti_pdus_to_phy_pdus(const fapi::dl_
     switch (pdu.pdu_type) {
       case fapi::dl_pdu_type::CSI_RS: {
         if (pdu.csi_rs_pdu.type != csi_rs_type::CSI_RS_NZP && pdu.csi_rs_pdu.type != csi_rs_type::CSI_RS_ZP) {
-          logger.warning("Only NZP-CSI-RS and ZP-CSI-RS PDU types are supported. Skipping DL_TTI.request");
+          logger.warning("Sector#{}: Skipping DL_TTI.request: Only NZP-CSI-RS and ZP-CSI-RS PDU types are supported",
+                         sector_id);
 
           return make_unexpected(default_error_t{});
         }
@@ -239,8 +249,12 @@ static expected<downlink_pdus> translate_dl_tti_pdus_to_phy_pdus(const fapi::dl_
         }
         nzp_csi_rs_generator::config_t& csi_pdu = pdus.csi_rs.emplace_back();
         convert_csi_rs_fapi_to_phy(csi_pdu, pdu.csi_rs_pdu, msg.sfn, msg.slot, cell_bandwidth_prb);
-        if (!dl_pdu_validator.is_valid(csi_pdu)) {
-          logger.warning("Upper PHY flagged a CSI-RS PDU as having an invalid configuration. Skipping DL_TTI.request");
+        error_type<std::string> phy_csi_validator = dl_pdu_validator.is_valid(csi_pdu);
+        if (!phy_csi_validator.has_value()) {
+          logger.warning("Sector#{}: Skipping DL_TTI.request: NZP-CSI-RS PDU flagged as invalid by the Upper PHY with "
+                         "the following error\n    {}",
+                         sector_id,
+                         phy_csi_validator.error());
 
           return make_unexpected(default_error_t{});
         }
@@ -251,10 +265,13 @@ static expected<downlink_pdus> translate_dl_tti_pdus_to_phy_pdus(const fapi::dl_
         for (unsigned i_dci = 0, i_dci_end = pdu.pdcch_pdu.dl_dci.size(); i_dci != i_dci_end; ++i_dci) {
           pdcch_processor::pdu_t& pdcch_pdu = pdus.pdcch.emplace_back();
           convert_pdcch_fapi_to_phy(pdcch_pdu, pdu.pdcch_pdu, msg.sfn, msg.slot, i_dci, pm_repo);
-          if (!dl_pdu_validator.is_valid(pdcch_pdu)) {
-            logger.warning("Upper PHY flagged a DL DCI PDU with index '{}' as having an invalid configuration. "
-                           "Skipping DL_TTI.request",
-                           i_dci);
+          error_type<std::string> phy_pdsch_validator = dl_pdu_validator.is_valid(pdcch_pdu);
+          if (!phy_pdsch_validator.has_value()) {
+            logger.warning("Sector#{}: Skipping DL_TTI.request: DL DCI PDU with index '{}' flagged as invalid by the "
+                           "Upper PHY with the following error\n    {}",
+                           sector_id,
+                           i_dci,
+                           phy_pdsch_validator.error());
 
             return make_unexpected(default_error_t{});
           }
@@ -266,9 +283,10 @@ static expected<downlink_pdus> translate_dl_tti_pdus_to_phy_pdus(const fapi::dl_
         convert_pdsch_fapi_to_phy(pdsch_pdu, pdu.pdsch_pdu, msg.sfn, msg.slot, csi_re_patterns, pm_repo);
         error_type<std::string> phy_pdsch_validator = dl_pdu_validator.is_valid(pdsch_pdu);
         if (!phy_pdsch_validator.has_value()) {
-          logger.warning(
-              "Skipping DL_TTI.request: PDSCH PDU flagged as invalid by the Upper PHY with the following error\n    {}",
-              phy_pdsch_validator.error());
+          logger.warning("Sector#{}: Skipping DL_TTI.request: PDSCH PDU flagged as invalid by the Upper PHY with the "
+                         "following error\n    {}",
+                         sector_id,
+                         phy_pdsch_validator.error());
           return make_unexpected(default_error_t{});
         }
         break;
@@ -276,15 +294,36 @@ static expected<downlink_pdus> translate_dl_tti_pdus_to_phy_pdus(const fapi::dl_
       case fapi::dl_pdu_type::SSB: {
         ssb_processor::pdu_t& ssb_pdu = pdus.ssb.emplace_back();
         convert_ssb_fapi_to_phy(ssb_pdu, pdu.ssb_pdu, msg.sfn, msg.slot, scs_common);
-        if (!dl_pdu_validator.is_valid(ssb_pdu)) {
-          logger.warning("Upper PHY flagged a SSB PDU as having an invalid configuration. Skipping DL_TTI.request");
+        error_type<std::string> phy_ssb_validator = dl_pdu_validator.is_valid(ssb_pdu);
+        if (!phy_ssb_validator.has_value()) {
+          logger.warning("Sector#{}: Skipping DL_TTI.request: SSB PDU flagged as invalid by the Upper PHY with the "
+                         "following error\n    {}",
+                         sector_id,
+                         phy_ssb_validator.error());
+
+          return make_unexpected(default_error_t{});
+        }
+        break;
+      }
+      case fapi::dl_pdu_type::PRS: {
+        prs_generator_configuration& prs_pdu = pdus.prs.emplace_back();
+        convert_prs_fapi_to_phy(prs_pdu, pdu.prs_pdu, msg.sfn, msg.slot, pm_repo);
+        error_type<std::string> phy_prs_validator = dl_pdu_validator.is_valid(prs_pdu);
+        if (!phy_prs_validator.has_value()) {
+          logger.warning("Sector#{}: Skipping DL_TTI.request: PRS PDU flagged as invalid by the Upper PHY with the "
+                         "following error\n    {}",
+                         sector_id,
+                         phy_prs_validator.error());
 
           return make_unexpected(default_error_t{});
         }
         break;
       }
       default:
-        srsran_assert(0, "DL_TTI.request PDU type value '{}' not recognized.", static_cast<unsigned>(pdu.pdu_type));
+        srsran_assert(0,
+                      "Sector#{}: DL_TTI.request PDU type value '{}' not recognized.",
+                      sector_id,
+                      static_cast<unsigned>(pdu.pdu_type));
     }
   }
 
@@ -297,11 +336,13 @@ void fapi_to_phy_translator::dl_tti_request(const fapi::dl_tti_request_message& 
   // :TODO: check the messages order. Do this in a different class.
   slot_point  slot(scs, msg.sfn, msg.slot);
   slot_point  current_slot = get_current_slot();
-  trace_point tp           = l1_tracer.now();
+  trace_point tp           = l1_dl_tracer.now();
 
   if (!pdsch_repository.empty()) {
-    logger.warning(
-        "Could not process '{}' PDSCH PDUs from the slot '{}'", pdsch_repository.pdus.size(), pdsch_repository.slot);
+    logger.warning("Sector#{}: Could not process '{}' PDSCH PDUs from the slot '{}'",
+                   sector_id,
+                   pdsch_repository.pdus.size(),
+                   pdsch_repository.slot);
   }
 
   // Reset the repository.
@@ -313,7 +354,10 @@ void fapi_to_phy_translator::dl_tti_request(const fapi::dl_tti_request_message& 
 
   // Ignore messages that do not correspond to the current slot.
   if (!is_message_in_time(msg)) {
-    logger.warning("Real-time failure in FAPI: Received late DL_TTI.request from slot {}.{}", msg.sfn, msg.slot);
+    logger.warning("Sector#{}: Real-time failure in FAPI: Received late DL_TTI.request from slot {}.{}",
+                   sector_id,
+                   msg.sfn,
+                   msg.slot);
     // Raise out of sync error.
     error_notifier.get().on_error_indication(fapi::build_out_of_sync_error_indication(
         msg.sfn, msg.slot, fapi::message_type_id::dl_tti_request, current_slot.sfn(), current_slot.slot_index()));
@@ -321,12 +365,23 @@ void fapi_to_phy_translator::dl_tti_request(const fapi::dl_tti_request_message& 
     return;
   }
 
+  // Ignore FAPI request message when there are no PDUs to process.
+  if (msg.is_last_dl_message_in_slot && msg.pdus.empty()) {
+    return;
+  }
+
   // Create controller for the current slot.
   slot_based_upper_phy_controller& controller = slot_controller_mngr.acquire_controller(slot);
 
   // Translate the downlink PDUs.
-  expected<downlink_pdus> pdus = translate_dl_tti_pdus_to_phy_pdus(
-      msg, dl_pdu_validator, logger, scs_common, carrier_cfg.dl_grid_size[to_numerology_value(scs_common)], *pm_repo);
+  expected<downlink_pdus> pdus =
+      translate_dl_tti_pdus_to_phy_pdus(msg,
+                                        dl_pdu_validator,
+                                        logger,
+                                        scs_common,
+                                        carrier_cfg.dl_grid_size[to_numerology_value(scs_common)],
+                                        *pm_repo,
+                                        sector_id);
 
   // Raise invalid format error.
   if (!pdus.has_value()) {
@@ -345,40 +400,31 @@ void fapi_to_phy_translator::dl_tti_request(const fapi::dl_tti_request_message& 
   for (const auto& csi : pdus.value().csi_rs) {
     controller->process_nzp_csi_rs(csi);
   }
+  for (const auto& prs : pdus.value().prs) {
+    controller->process_prs(prs);
+  }
   for (const auto& pdsch : pdus.value().pdsch) {
     pdsch_repository.pdus.push_back(pdsch);
   }
 
-  if (msg.is_last_message_in_slot) {
-    srsran_assert(pdsch_repository.empty(),
-                  "The DL_TTI.request message in slot '{}' has been marked as the last message in the slot, but a "
-                  "TX_Data.request message is also being expected",
-                  slot);
+  if (msg.is_last_dl_message_in_slot) {
+    srsran_assert(
+        pdsch_repository.empty(),
+        "Sector#{}: The DL_TTI.request message in slot '{}' has been marked as the last message in the slot, but a "
+        "TX_Data.request message is also being expected",
+        sector_id,
+        slot);
     slot_controller_mngr.release_controller(slot);
   }
-  l1_tracer << trace_event("dl_tti_request", tp);
+  l1_dl_tracer << trace_event("dl_tti_request", tp);
 }
 
 /// Returns true if the given PUCCH PDU is valid, otherwise false.
-static error_type<std::string> is_pucch_pdu_valid(const uplink_pdu_validator&        ul_pdu_validator,
-                                                  const uplink_processor::pucch_pdu& ul_pdu)
+static error_type<std::string> is_pucch_pdu_valid(const uplink_pdu_validator&                  ul_pdu_validator,
+                                                  const uplink_pdu_slot_repository::pucch_pdu& ul_pdu)
 {
-  switch (ul_pdu.context.format) {
-    case pucch_format::FORMAT_0:
-      return ul_pdu_validator.is_valid(ul_pdu.format0);
-    case pucch_format::FORMAT_1:
-      return ul_pdu_validator.is_valid(ul_pdu.format1);
-    case pucch_format::FORMAT_2:
-      return ul_pdu_validator.is_valid(ul_pdu.format2);
-    case pucch_format::FORMAT_3:
-      return ul_pdu_validator.is_valid(ul_pdu.format3);
-    case pucch_format::FORMAT_4:
-      return ul_pdu_validator.is_valid(ul_pdu.format4);
-    default:
-      break;
-  }
-
-  return make_unexpected("Unknown PUCCH format.");
+  return std::visit([&ul_pdu_validator](const auto& config) { return ul_pdu_validator.is_valid(config); },
+                    ul_pdu.config);
 }
 
 /// Returns a PRACH detector slot configuration using the given PRACH buffer context.
@@ -422,9 +468,11 @@ static expected<uplink_pdus> translate_ul_tti_pdus_to_phy_pdus(const fapi::ul_tt
         error_type<std::string> phy_prach_validation =
             ul_pdu_validator.is_valid(get_prach_dectector_config_from(context));
         if (!phy_prach_validation.has_value()) {
-          logger.warning("Skipping UL_TTI.request in slot: PRACH PDU flagged as invalid by the Upper PHY with the "
-                         "following error\n    {}",
-                         phy_prach_validation.error());
+          logger.warning(
+              "Sector#{}: Skipping UL_TTI.request in slot: PRACH PDU flagged as invalid by the Upper PHY with the "
+              "following error\n    {}",
+              sector_id,
+              phy_prach_validation.error());
 
           return make_unexpected(default_error_t{});
         }
@@ -432,13 +480,14 @@ static expected<uplink_pdus> translate_ul_tti_pdus_to_phy_pdus(const fapi::ul_tt
         break;
       }
       case fapi::ul_pdu_type::PUCCH: {
-        uplink_processor::pucch_pdu& ul_pdu = pdus.pucch.emplace_back();
+        uplink_pdu_slot_repository::pucch_pdu& ul_pdu = pdus.pucch.emplace_back();
         convert_pucch_fapi_to_phy(ul_pdu, pdu.pucch_pdu, msg.sfn, msg.slot, carrier_cfg.num_rx_ant);
         error_type<std::string> phy_pucch_validation = is_pucch_pdu_valid(ul_pdu_validator, ul_pdu);
         if (!phy_pucch_validation.has_value()) {
-          logger.warning(
-              "Skipping UL_TTI.request: PUCCH PDU flagged as invalid by the Upper PHY with the following error\n    {}",
-              phy_pucch_validation.error());
+          logger.warning("Sector#{}: Skipping UL_TTI.request: PUCCH PDU flagged as invalid by the Upper PHY with the "
+                         "following error\n    {}",
+                         sector_id,
+                         phy_pucch_validation.error());
 
           return make_unexpected(default_error_t{});
         }
@@ -446,30 +495,36 @@ static expected<uplink_pdus> translate_ul_tti_pdus_to_phy_pdus(const fapi::ul_tt
         break;
       }
       case fapi::ul_pdu_type::PUSCH: {
-        uplink_processor::pusch_pdu& ul_pdu = pdus.pusch.emplace_back();
+        uplink_pdu_slot_repository::pusch_pdu& ul_pdu = pdus.pusch.emplace_back();
         convert_pusch_fapi_to_phy(ul_pdu, pdu.pusch_pdu, msg.sfn, msg.slot, carrier_cfg.num_rx_ant, part2_repo);
         error_type<std::string> phy_pusch_validator = ul_pdu_validator.is_valid(ul_pdu.pdu);
         if (!phy_pusch_validator.has_value()) {
-          logger.warning(
-              "Skipping UL_TTI.request: PUSCH PDU flagged as invalid by the Upper PHY with the following error\n    {}",
-              phy_pusch_validator.error());
+          logger.warning("Sector#{}: Skipping UL_TTI.request: PUSCH PDU flagged as invalid by the Upper PHY with the "
+                         "following error\n    {}",
+                         sector_id,
+                         phy_pusch_validator.error());
           return make_unexpected(default_error_t{});
         }
         break;
       }
       case fapi::ul_pdu_type::SRS: {
-        uplink_processor::srs_pdu& ul_pdu = pdus.srs.emplace_back();
+        uplink_pdu_slot_repository::srs_pdu& ul_pdu = pdus.srs.emplace_back();
         convert_srs_fapi_to_phy(ul_pdu, pdu.srs_pdu, carrier_cfg.num_rx_ant, msg.sfn, msg.slot);
         error_type<std::string> srs_validation = ul_pdu_validator.is_valid(ul_pdu.config);
         if (!srs_validation.has_value()) {
-          logger.warning("Skipping UL_TTI.request: SRS PDU flagged as invalid with the following error\n    {}",
-                         srs_validation.error());
+          logger.warning(
+              "Sector#{}: Skipping UL_TTI.request: SRS PDU flagged as invalid with the following error\n    {}",
+              sector_id,
+              srs_validation.error());
           return make_unexpected(default_error_t{});
         }
         break;
       }
       default:
-        srsran_assert(0, "UL_TTI.request PDU type value '{}' not recognized.", static_cast<unsigned>(pdu.pdu_type));
+        srsran_assert(0,
+                      "Sector#{}: UL_TTI.request PDU type value '{}' not recognized.",
+                      sector_id,
+                      static_cast<unsigned>(pdu.pdu_type));
     }
   }
 
@@ -481,10 +536,21 @@ void fapi_to_phy_translator::ul_tti_request(const fapi::ul_tti_request_message& 
   // :TODO: check the messages order. Do this in a different class.
   slot_point  slot(scs, msg.sfn, msg.slot);
   slot_point  current_slot = get_current_slot();
-  trace_point tp           = l1_tracer.now();
+  trace_point tp           = l1_ul_tracer.now();
 
-  // Clear the repository for the message slot.
-  ul_pdu_repository.clear_slot(slot);
+  // Obtain the PDU repository for the message slot.
+  unique_uplink_pdu_slot_repository ul_pdu_slot_repository = ul_pdu_repository.get_pdu_slot_repository(slot);
+
+  // Verify UL PDU repository is valid.
+  if (!ul_pdu_slot_repository.is_valid()) {
+    logger.warning(
+        "Sector#{}: Real-time failure in FAPI: UL processor is busy for slot {}.{}.", sector_id, msg.sfn, msg.slot);
+    // Raise out of sync error.
+    error_notifier.get().on_error_indication(
+        fapi::build_msg_slot_error_indication(msg.sfn, msg.slot, fapi::message_type_id::ul_tti_request));
+    l2_tracer << instant_trace_event{"ul_tti_req_busy", instant_trace_event::cpu_scope::global};
+    return;
+  }
 
   // Release the controller of the previous slot in case that it has not been released before. In case that it already
   // is released, this call will do nothing.
@@ -492,7 +558,10 @@ void fapi_to_phy_translator::ul_tti_request(const fapi::ul_tti_request_message& 
 
   // Ignore messages that do not correspond to the current slot.
   if (!is_message_in_time(msg)) {
-    logger.warning("Real-time failure in FAPI: Received late UL_TTI.request from slot {}.{}", msg.sfn, msg.slot);
+    logger.warning("Sector#{}: Real-time failure in FAPI: Received late UL_TTI.request from slot {}.{}",
+                   sector_id,
+                   msg.sfn,
+                   msg.slot);
     // Raise out of sync error.
     error_notifier.get().on_error_indication(fapi::build_out_of_sync_error_indication(
         msg.sfn, msg.slot, fapi::message_type_id::ul_tti_request, current_slot.sfn(), current_slot.slot_index()));
@@ -515,50 +584,59 @@ void fapi_to_phy_translator::ul_tti_request(const fapi::ul_tti_request_message& 
     ul_request_processor.process_prach_request(context);
   }
 
-  if (pdus.value().pusch.empty() && pdus.value().pucch.empty() && pdus.value().srs.empty()) {
+  if (!allow_request_on_empty_ul_tti && pdus.value().pusch.empty() && pdus.value().pucch.empty() &&
+      pdus.value().srs.empty()) {
     return;
   }
 
   // Add the PUCCH, PUSCH and SRS PDUs to the repository for later processing.
   for (const auto& pdu : pdus.value().pusch) {
-    ul_pdu_repository.add_pusch_pdu(slot, pdu);
+    ul_pdu_slot_repository->add_pusch_pdu(pdu);
   }
   for (const auto& pdu : pdus.value().pucch) {
-    ul_pdu_repository.add_pucch_pdu(slot, pdu);
+    ul_pdu_slot_repository->add_pucch_pdu(pdu);
   }
   for (const auto& pdu : pdus.value().srs) {
-    ul_pdu_repository.add_srs_pdu(slot, pdu);
+    ul_pdu_slot_repository->add_srs_pdu(pdu);
   }
 
-  // Notify to capture uplink slot.
+  // Release repository and obtain uplink resource grid - it ensures that the uplink processing associated with the slot
+  // is ready when the UL request reaches the RU.
+  shared_resource_grid ul_rg = ul_pdu_slot_repository.release();
+
+  // Prepare the capture uplink slot context.
   resource_grid_context rg_context;
   rg_context.slot   = slot;
   rg_context.sector = sector_id;
 
-  shared_resource_grid ul_rg = ul_rg_pool.allocate_resource_grid(slot);
-
   // Abort UL processing for this slot if the resource grid is not available.
-  if (!ul_rg) {
-    logger.warning("Failed to allocate UL resource grid for UL_TTI.request from slot {}.{}", msg.sfn, msg.slot);
+  if (SRSRAN_UNLIKELY(!ul_rg)) {
+    logger.warning("Sector#{}: Failed to allocate UL resource grid for UL_TTI.request from slot {}.{}",
+                   sector_id,
+                   msg.sfn,
+                   msg.slot);
     // Raise out of message transmit error.
     error_notifier.get().on_error_indication(fapi::build_msg_tx_error_indication(msg.sfn, msg.slot));
-    l1_tracer << instant_trace_event{"ul_tti_failed_grid", instant_trace_event::cpu_scope::global};
+    l1_ul_tracer << instant_trace_event{"ul_tti_failed_grid", instant_trace_event::cpu_scope::global};
     return;
   }
 
   // Request to capture uplink slot.
   ul_request_processor.process_uplink_slot_request(rg_context, ul_rg);
-  l1_tracer << trace_event("ul_tti_request", tp);
+  l1_ul_tracer << trace_event("ul_tti_request", tp);
 }
 
 void fapi_to_phy_translator::ul_dci_request(const fapi::ul_dci_request_message& msg)
 {
   slot_point  current_slot = get_current_slot();
-  trace_point tp           = l1_tracer.now();
+  trace_point tp           = l1_ul_tracer.now();
 
   // Ignore messages that do not correspond to the current slot.
   if (!is_message_in_time(msg)) {
-    logger.warning("Real-time failure in FAPI: Received UL_DCI.request message from slot {}.{}", msg.sfn, msg.slot);
+    logger.warning("Sector#{}: Real-time failure in FAPI: Received UL_DCI.request message from slot {}.{}",
+                   sector_id,
+                   msg.sfn,
+                   msg.slot);
     // Raise invalid sfn error.
     error_notifier.get().on_error_indication(fapi::build_invalid_sfn_error_indication(
         msg.sfn, msg.slot, fapi::message_type_id::ul_dci_request, current_slot.sfn(), current_slot.slot_index()));
@@ -573,9 +651,10 @@ void fapi_to_phy_translator::ul_dci_request(const fapi::ul_dci_request_message& 
       pdcch_processor::pdu_t& pdcch_pdu = pdus.emplace_back();
       convert_pdcch_fapi_to_phy(pdcch_pdu, pdu.pdu, msg.sfn, msg.slot, i_dci, *pm_repo);
       if (!dl_pdu_validator.is_valid(pdcch_pdu)) {
-        logger.warning("Upper PHY flagged a UL DCI PDU with index '{}' as having an invalid configuration. Skipping "
-                       "UL_DCI.request",
-                       i_dci);
+        logger.warning(
+            "Sector#{}: Skipping UL_DCI.request: UL DCI PDU with index '{}' flagged as invalid by the Upper PHY",
+            sector_id,
+            i_dci);
         // Raise invalid format error.
         error_notifier.get().on_error_indication(fapi::build_msg_ul_dci_error_indication(msg.sfn, msg.slot));
         return;
@@ -591,23 +670,26 @@ void fapi_to_phy_translator::ul_dci_request(const fapi::ul_dci_request_message& 
 
   // No more data to process, controller can be removed.
   if (msg.is_last_message_in_slot) {
-    srsran_assert(pdsch_repository.empty(),
-                  "The UL_DCI.request message in slot '{}' has been marked as the last message in the slot, but a "
-                  "TX_Data.request message is also being expected",
-                  slot);
+    srsran_assert(
+        pdsch_repository.empty(),
+        "Sector#{}: The UL_DCI.request message in slot '{}' has been marked as the last message in the slot, but a "
+        "TX_Data.request message is also being expected",
+        sector_id,
+        slot);
     slot_controller_mngr.release_controller(slot);
   }
-  l1_tracer << trace_event("ul_dci_request", tp);
+  l1_ul_tracer << trace_event("ul_dci_request", tp);
 }
 
 void fapi_to_phy_translator::tx_data_request(const fapi::tx_data_request_message& msg)
 {
   slot_point  current_slot = get_current_slot();
-  trace_point tp           = l1_tracer.now();
+  trace_point tp           = l1_dl_tracer.now();
 
   // Ignore messages that do not correspond to the current slot.
   if (!is_message_in_time(msg)) {
-    logger.warning("Real-time failure in FAPI: Received TX_Data.request from slot {}.{}", msg.sfn, msg.slot);
+    logger.warning(
+        "Sector#{}: Real-time failure in FAPI: Received TX_Data.request from slot {}.{}", sector_id, msg.sfn, msg.slot);
     // Raise invalid sfn error.
     error_notifier.get().on_error_indication(fapi::build_invalid_sfn_error_indication(
         msg.sfn, msg.slot, fapi::message_type_id::tx_data_request, current_slot.sfn(), current_slot.slot_index()));
@@ -619,7 +701,8 @@ void fapi_to_phy_translator::tx_data_request(const fapi::tx_data_request_message
   }
 
   if (msg.pdus.size() != pdsch_repository.pdus.size()) {
-    logger.warning("Invalid TX_Data.request. Message contains '{}' payload PDUs but expected '{}'",
+    logger.warning("Sector#{}: Invalid TX_Data.request. Message contains '{}' payload PDUs but expected '{}'",
+                   sector_id,
                    msg.pdus.size(),
                    pdsch_repository.pdus.size());
     // Raise invalid format error.
@@ -633,10 +716,12 @@ void fapi_to_phy_translator::tx_data_request(const fapi::tx_data_request_message
   // Check that the slot of the TX_Data.request matches the slot of the PDSCH PDUs stored.
   slot_point slot(scs, msg.sfn, msg.slot);
   if (slot != pdsch_repository.slot) {
-    logger.warning("Received a TX_Data.request message for slot '{}' that does not match slot '{}' of the previous "
-                   "DL_TTI.request message",
-                   slot,
-                   pdsch_repository.slot);
+    logger.warning(
+        "Sector#{}: Received a TX_Data.request message for slot '{}' that does not match slot '{}' of the previous "
+        "DL_TTI.request message",
+        sector_id,
+        slot,
+        pdsch_repository.slot);
 
     pdsch_repository.clear();
 
@@ -664,19 +749,19 @@ void fapi_to_phy_translator::tx_data_request(const fapi::tx_data_request_message
   // All the PDSCH PDUs have been processed. Clear the repository.
   pdsch_repository.clear();
 
-  l1_tracer << trace_event("tx_data_request", tp);
+  l1_dl_tracer << trace_event("tx_data_request", tp);
 }
 
 void fapi_to_phy_translator::handle_new_slot(slot_point slot)
 {
-  trace_point tp = l1_tracer.now();
+  trace_point tp = l1_common_tracer.now();
 
   update_current_slot(slot);
 
   // Update the logger context.
   logger.set_context(slot.sfn(), slot.slot_index());
 
-  l1_tracer << trace_event("handle_new_slot", tp);
+  l1_common_tracer << trace_event("handle_new_slot", tp);
 }
 
 template <typename T>

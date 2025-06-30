@@ -26,7 +26,9 @@
 #include "adapters/f1ap_adapters.h"
 #include "test_mode/f1ap_test_mode_adapter.h"
 #include "srsran/du/du_high/du_manager/du_manager_factory.h"
-#include "srsran/f1ap/du/f1ap_du_factory.h"
+#include "srsran/mac/mac_cell_timing_context.h"
+#include "srsran/mac/mac_metrics_notifier.h"
+#include "srsran/srslog/srslog.h"
 #include "srsran/support/executors/task_redispatcher.h"
 #include "srsran/support/timers.h"
 
@@ -45,7 +47,7 @@ public:
   /// Connect layers of the DU-high.
   void connect(du_manager_interface& du_mng, mac_interface& mac_inst)
   {
-    mac_ev_notifier.connect(du_mng);
+    mac_ev_notifier.connect(du_mng, du_mng.get_metrics_aggregator());
     f1_to_du_notifier.connect(du_mng);
     f1ap_paging_notifier.connect(mac_inst.get_cell_paging_info_handler());
   }
@@ -60,73 +62,31 @@ public:
   mac_f1ap_paging_handler f1ap_paging_notifier;
 };
 
-/// Cell slot handler that additionally increments the DU high timers.
-class du_high_slot_handler final : public mac_cell_slot_handler
-{
-public:
-  du_high_slot_handler(timer_manager& timers_, mac_interface& mac_, task_executor& tick_exec_) :
-    timers(timers_),
-    mac(mac_),
-    tick_exec(tick_exec_, [this]() { timers.tick(); }),
-    logger(srslog::fetch_basic_logger("MAC"))
-  {
-  }
-  void handle_slot_indication(slot_point sl_tx) override
-  {
-    // Step timers by one millisecond.
-    if (sl_tx.to_uint() % get_nof_slots_per_subframe(to_subcarrier_spacing(sl_tx.numerology())) == 0) {
-      // The timer tick is handled in a separate execution context.
-      if (not tick_exec.defer()) {
-        logger.info("Discarding timer tick={} due to full queue. Retrying later...", sl_tx);
-      }
-    }
-
-    // Handle slot indication in MAC & Scheduler.
-    mac.get_slot_handler(to_du_cell_index(0)).handle_slot_indication(sl_tx);
-  }
-
-  void handle_error_indication(slot_point sl_tx, error_event event) override
-  {
-    mac.get_slot_handler(to_du_cell_index(0)).handle_error_indication(sl_tx, event);
-  }
-
-private:
-  timer_manager&                    timers;
-  mac_interface&                    mac;
-  task_redispatcher<task_executor&> tick_exec;
-  srslog::basic_logger&             logger;
-};
-
-class scheduler_ue_metrics_null_notifier final : public scheduler_metrics_notifier
-{
-public:
-  void report_metrics(const scheduler_cell_metrics& metrics) override
-  {
-    // do nothing.
-  }
-};
-
 du_high_impl::du_high_impl(const du_high_configuration& config_, const du_high_dependencies& dependencies) :
   cfg(config_),
   logger(srslog::fetch_basic_logger("DU")),
   timers(*dependencies.timers),
-  adapters(std::make_unique<layer_connector>(*dependencies.timers, dependencies.exec_mapper->du_control_executor())),
-  metrics_notifier(std::make_unique<scheduler_ue_metrics_null_notifier>())
+  adapters(std::make_unique<layer_connector>(*dependencies.timers, dependencies.exec_mapper->du_control_executor()))
 {
   // Create layers
-  mac = create_du_high_mac(
-      mac_config{adapters->mac_ev_notifier,
-                 dependencies.exec_mapper->ue_mapper(),
-                 dependencies.exec_mapper->cell_mapper(),
-                 dependencies.exec_mapper->du_control_executor(),
-                 *dependencies.phy_adapter,
-                 cfg.ran.mac_cfg,
-                 *dependencies.mac_p,
-                 cfg.ran.sched_cfg,
-                 dependencies.sched_ue_metrics_notifier ? *dependencies.sched_ue_metrics_notifier : *metrics_notifier,
-                 timers},
-      cfg.test_cfg,
-      cfg.ran.cells.size());
+  mac  = create_du_high_mac(mac_config{adapters->mac_ev_notifier,
+                                      dependencies.exec_mapper->ue_mapper(),
+                                      dependencies.exec_mapper->cell_mapper(),
+                                      dependencies.exec_mapper->du_control_executor(),
+                                      dependencies.exec_mapper->du_timer_executor(),
+                                      *dependencies.phy_adapter,
+                                      cfg.ran.mac_cfg,
+                                      *dependencies.mac_p,
+                                      timers,
+                                      mac_config::metrics_config{cfg.metrics.period,
+                                                                 cfg.metrics.enable_mac,
+                                                                 cfg.metrics.enable_sched,
+                                                                 cfg.metrics.max_nof_sched_ue_events,
+                                                                 adapters->mac_ev_notifier,
+                                                                 dependencies.sched_metrics_notifier},
+                                      cfg.ran.sched_cfg},
+                           cfg.test_cfg,
+                           cfg.ran.cells.size());
   f1ap = create_du_high_f1ap(*dependencies.f1c_client,
                              adapters->f1_to_du_notifier,
                              dependencies.exec_mapper->du_control_executor(),
@@ -141,18 +101,19 @@ du_high_impl::du_high_impl(const du_high_configuration& config_, const du_high_d
        dependencies.exec_mapper->du_control_executor(),
        dependencies.exec_mapper->ue_mapper(),
        dependencies.exec_mapper->cell_mapper()},
-      {*f1ap, *f1ap},
+      {*f1ap, *f1ap, f1ap->get_metrics_collector()},
       {*dependencies.f1u_gw},
       {mac->get_ue_control_info_handler(), *f1ap, *f1ap, *dependencies.rlc_p, dependencies.rlc_metrics_notif},
-      {mac->get_cell_manager(), mac->get_ue_configurator(), cfg.ran.sched_cfg},
+      {mac->get_cell_manager(), mac->get_ue_configurator(), cfg.ran.sched_cfg, nullptr},
+      {cfg.metrics.period,
+       dependencies.du_notifier,
+       cfg.metrics.enable_f1ap,
+       cfg.metrics.enable_mac,
+       cfg.metrics.enable_sched},
       cfg.test_cfg});
 
   // Connect Layer<->DU manager adapters.
   adapters->connect(*du_manager, *mac);
-
-  // Cell slot handler.
-  main_cell_slot_handler =
-      std::make_unique<du_high_slot_handler>(timers, *mac, dependencies.exec_mapper->du_timer_executor());
 }
 
 du_high_impl::~du_high_impl()
@@ -169,6 +130,10 @@ void du_high_impl::start()
   // If test mode is enabled, create a test-mode UE by injecting a Msg3.
   if (cfg.test_cfg.test_ue.has_value()) {
     for (unsigned cell_id = 0, cell_end = cfg.ran.cells.size(); cell_id != cell_end; ++cell_id) {
+      if (not cfg.ran.cells[cell_id].enabled) {
+        // Skip cells not enabled at startup.
+        continue;
+      }
       // Push an UL-CCCH message that will trigger the creation of a UE for testing purposes.
       for (unsigned ue_num = 0, nof_ues = cfg.test_cfg.test_ue->nof_ues; ue_num != nof_ues; ++ue_num) {
         auto rx_buf = byte_buffer::create({0x34, 0x1e, 0x4f, 0xc0, 0x4f, 0xa6, 0x06, 0x3f, 0x00, 0x00, 0x00});
@@ -211,9 +176,6 @@ mac_pdu_handler& du_high_impl::get_pdu_handler()
 
 mac_cell_slot_handler& du_high_impl::get_slot_handler(du_cell_index_t cell_idx)
 {
-  if (cell_idx == 0) {
-    return *main_cell_slot_handler;
-  }
   return mac->get_slot_handler(cell_idx);
 }
 
@@ -228,6 +190,11 @@ mac_cell_control_information_handler& du_high_impl::get_control_info_handler(du_
 }
 
 du_configurator& du_high_impl::get_du_configurator()
+{
+  return *du_manager;
+}
+
+du_manager_time_mapper_accessor& du_high_impl::get_du_manager_time_mapper_accessor()
 {
   return *du_manager;
 }

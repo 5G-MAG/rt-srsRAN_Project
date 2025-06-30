@@ -22,7 +22,6 @@
 
 #pragma once
 
-#include "srsran/adt/circular_array.h"
 #include "srsran/ran/csi_report/csi_report_data.h"
 #include "srsran/ran/logical_channel/phr_report.h"
 #include "srsran/ran/phy_time_unit.h"
@@ -33,7 +32,7 @@
 #include "srsran/scheduler/resource_grid_util.h"
 #include "srsran/scheduler/result/pdsch_info.h"
 #include "srsran/srslog/logger.h"
-#include "srsran/support/math/accumulators.h"
+#include "srsran/support/math/exponential_averager.h"
 
 namespace srsran {
 
@@ -45,6 +44,11 @@ public:
   ue_channel_state_manager(const scheduler_ue_expert_config& expert_cfg_, unsigned nof_dl_ports_);
 
   const std::optional<csi_report_data>& get_latest_csi_report() const { return latest_csi_report; }
+
+  const std::optional<pusch_tpmi_select_info>& get_latest_tpmi_select_info() const
+  {
+    return last_pusch_tpmi_select_info;
+  }
 
   void update_pusch_snr(float snr_db);
 
@@ -66,7 +70,7 @@ public:
   unsigned get_recommended_pusch_tpmi(unsigned nof_layers) const;
 
   /// \brief Fetches the precoding codebook to be used in DL based on reported PMI and the chosen nof layers.
-  std::optional<pdsch_precoding_info> get_precoding(unsigned chosen_nof_layers, prb_interval pdsch_prbs) const
+  std::optional<pdsch_precoding_info> get_precoding(unsigned chosen_nof_layers, unsigned nof_rbs) const
   {
     srsran_assert(chosen_nof_layers <= nof_dl_ports, "Invalid number of layers chosen");
     std::optional<pdsch_precoding_info> precoding_info;
@@ -75,7 +79,7 @@ public:
       return precoding_info;
     }
     precoding_info.emplace();
-    precoding_info->nof_rbs_per_prg = pdsch_prbs.length();
+    precoding_info->nof_rbs_per_prg = nof_rbs;
     precoding_info->prg_infos.emplace_back(recommended_prg_info[nof_layers_to_index(chosen_nof_layers)]);
     return precoding_info;
   }

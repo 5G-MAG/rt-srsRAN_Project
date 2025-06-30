@@ -33,28 +33,36 @@ namespace ofh {
 class transmitter_ota_symbol_task_dispatcher : public ota_symbol_boundary_notifier
 {
 public:
-  transmitter_ota_symbol_task_dispatcher(task_executor&                executor_,
-                                         ota_symbol_boundary_notifier& window_checker_,
+  transmitter_ota_symbol_task_dispatcher(srslog::basic_logger&         logger_,
+                                         task_executor&                executor_,
+                                         ota_symbol_boundary_notifier& dl_window_checker_,
+                                         ota_symbol_boundary_notifier& ul_window_checker_,
                                          ota_symbol_boundary_notifier& symbol_handler_) :
-    executor(executor_), window_checker(window_checker_), symbol_handler(symbol_handler_)
+    logger(logger_),
+    executor(executor_),
+    dl_window_checker(dl_window_checker_),
+    ul_window_checker(ul_window_checker_),
+    symbol_handler(symbol_handler_)
   {
   }
 
-  void on_new_symbol(slot_symbol_point symbol_point) override
+  void on_new_symbol(const slot_symbol_point_context& symbol_point_context) override
   {
-    window_checker.on_new_symbol(symbol_point);
+    dl_window_checker.on_new_symbol(symbol_point_context);
+    ul_window_checker.on_new_symbol(symbol_point_context);
 
-    if (!executor.execute([&, symbol_point]() { symbol_handler.on_new_symbol(symbol_point); })) {
-      srslog::fetch_basic_logger("OFH").warning(
-          "Failed to dispatch new symbol task in the message transmitter for slot '{}' and symbol '{}'",
-          symbol_point.get_slot(),
-          symbol_point.get_symbol_index());
+    if (!executor.execute([&, symbol_point_context]() { symbol_handler.on_new_symbol(symbol_point_context); })) {
+      logger.warning("Failed to dispatch new symbol task in the message transmitter for slot '{}' and symbol '{}'",
+                     symbol_point_context.symbol_point.get_slot(),
+                     symbol_point_context.symbol_point.get_symbol_index());
     }
   }
 
 private:
+  srslog::basic_logger&         logger;
   task_executor&                executor;
-  ota_symbol_boundary_notifier& window_checker;
+  ota_symbol_boundary_notifier& dl_window_checker;
+  ota_symbol_boundary_notifier& ul_window_checker;
   ota_symbol_boundary_notifier& symbol_handler;
 };
 

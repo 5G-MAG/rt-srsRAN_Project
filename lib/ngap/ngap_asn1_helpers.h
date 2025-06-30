@@ -256,10 +256,7 @@ inline bool fill_cu_cp_pdu_session_resource_setup_item_base(cu_cp_pdu_session_re
   // pDUSessionNAS-PDU / NAS-PDU will be added in a separate function.
 
   // Fill s-NSSAI.
-  if (asn1_session_item.s_nssai.sd_present) {
-    setup_item.s_nssai.sd = slice_differentiator::create(asn1_session_item.s_nssai.sd.to_number()).value();
-  }
-  setup_item.s_nssai.sst = slice_service_type{(uint8_t)asn1_session_item.s_nssai.sst.to_number()};
+  setup_item.s_nssai = ngap_asn1_to_s_nssai(asn1_session_item.s_nssai);
 
   // Fill PDU session resource setup request transfer.
   asn1::ngap::pdu_session_res_setup_request_transfer_s asn1_setup_req_transfer;
@@ -290,7 +287,11 @@ inline bool fill_cu_cp_pdu_session_resource_setup_item_base(cu_cp_pdu_session_re
   setup_item.ul_ngu_up_tnl_info = asn1_to_up_transport_layer_info(asn1_setup_req_transfer->ul_ngu_up_tnl_info);
 
   // Fill PDU session type.
-  setup_item.pdu_session_type = asn1_setup_req_transfer->pdu_session_type.to_string();
+  if (!asn1_to_pdu_session_type(setup_item.pdu_session_type, asn1_setup_req_transfer->pdu_session_type)) {
+    srslog::fetch_basic_logger("NGAP").error(
+        "Invalid PDU Session Type in PDU Session Resource Setup Request Transfer PDU");
+    return false;
+  }
 
   // Fill security indication.
   if (asn1_setup_req_transfer->security_ind_present) {

@@ -25,7 +25,7 @@ import logging
 from concurrent.futures import as_completed, ThreadPoolExecutor
 from contextlib import contextmanager, suppress
 from time import sleep, time
-from typing import Dict, Generator, List, Optional, Sequence, Tuple
+from typing import Dict, Generator, List, Optional, Sequence, Tuple, Union
 
 import grpc
 import pytest
@@ -36,12 +36,23 @@ from google.protobuf.wrappers_pb2 import StringValue, UInt32Value
 from retina.client.exception import ErrorReportedByAgent
 from retina.launcher.artifacts import RetinaTestData
 from retina.protocol import RanStub
-from retina.protocol.base_pb2 import Metrics, PingRequest, PingResponse, PLMN, StartInfo, StopResponse, UEDefinition
+from retina.protocol.base_pb2 import (
+    ChannelEmulatorType,
+    Metrics,
+    PingRequest,
+    PingResponse,
+    PLMN,
+    StartInfo,
+    StopResponse,
+    UEDefinition,
+)
+from retina.protocol.channel_emulator_pb2 import ChannelEmulatorStartInfo, NtnScenarioConfig, NtnScenarioDefinition
+from retina.protocol.channel_emulator_pb2_grpc import ChannelEmulatorStub
 from retina.protocol.exit_codes import exit_code_to_message
 from retina.protocol.fivegc_pb2 import FiveGCStartInfo, IPerfResponse
 from retina.protocol.fivegc_pb2_grpc import FiveGCStub
 from retina.protocol.gnb_pb2 import GNBStartInfo
-from retina.protocol.gnb_pb2_grpc import GNBStub
+from retina.protocol.gnb_pb2_grpc import DUStub, GNBStub
 from retina.protocol.ric_pb2 import KpmMonXappRequest, NearRtRicStartInfo, RcXappRequest
 from retina.protocol.ric_pb2_grpc import NearRtRicStub
 from retina.protocol.ue_pb2 import (
@@ -66,6 +77,50 @@ RELEASE_TIMEOUT: int = 90
 INTER_UE_START_PERIOD: int = 0
 
 
+def is_ntn_channel_emulator(channel_emulator: ChannelEmulatorStub):
+    """
+    Check if the emulator is of NTN type.
+    """
+    channel_emulator_def = channel_emulator.GetDefinition(Empty())
+    return channel_emulator_def.type == ChannelEmulatorType.NTN
+
+
+def start_ntn_channel_emulator(
+    ue_array: Sequence[UEStub],
+    gnb: GNBStub,
+    channel_emulator: ChannelEmulatorStub,
+    ntn_scenario_def: NtnScenarioDefinition,
+) -> NtnScenarioConfig:
+    """
+    Start NTN Channel Emulator and get NTN configs for gnb and UE.
+    """
+    ue_def_for_gnb = UEDefinition()
+    for ue_stub in ue_array:
+        ue_def: UEDefinition = ue_stub.GetDefinition(Empty())
+        if ue_def.zmq_ip is not None:
+            ue_def_for_gnb = ue_def
+
+    gnb_definition = gnb.GetDefinition(Empty())
+    channel_emulator_start_info = ChannelEmulatorStartInfo(
+        gnb_definition=gnb_definition,
+        ue_definition=ue_def_for_gnb,
+        ntn_scenario=ntn_scenario_def,
+        start_info=StartInfo(timeout=20),
+    )
+    channel_emulator.Start(channel_emulator_start_info)
+
+
+def get_ntn_configs(channel_emulator: ChannelEmulatorStub):
+    """
+    Get NTN configs for gnb and UE from the NTN channel emulator.
+    """
+    ntn_gnb_cfg = None
+    emulation_scenario_config = channel_emulator.GetScenarioConfigs(Empty())
+    if emulation_scenario_config.HasField("ntn_config"):
+        ntn_gnb_cfg = emulation_scenario_config.ntn_config
+    return ntn_gnb_cfg
+
+
 # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
 def start_and_attach(
     ue_array: Sequence[UEStub],
@@ -80,6 +135,7 @@ def start_and_attach(
     plmn: Optional[PLMN] = None,
     inter_ue_start_period=INTER_UE_START_PERIOD,
     ric: Optional[NearRtRicStub] = None,
+    channel_emulator: Optional[ChannelEmulatorStub] = None,
 ) -> Dict[UEStub, UEAttachedInfo]:
     """
     Start stubs & wait until attach
@@ -94,6 +150,7 @@ def start_and_attach(
         gnb_post_cmd,
         plmn=plmn,
         ric=ric,
+        channel_emulator=channel_emulator,
     )
 
     return ue_start_and_attach(
@@ -103,6 +160,7 @@ def start_and_attach(
         ue_startup_timeout=ue_startup_timeout,
         attach_timeout=attach_timeout,
         inter_ue_start_period=inter_ue_start_period,
+        channel_emulator=channel_emulator,
     )
 
 
@@ -127,6 +185,7 @@ def start_network(
     gnb_post_cmd: Tuple[str, ...] = tuple(),
     plmn: Optional[PLMN] = None,
     ric: Optional[NearRtRicStub] = None,
+    channel_emulator: Optional[ChannelEmulatorStub] = None,
 ):
     """
     Start Network (5GC + gNB + RIC(optional))
@@ -162,6 +221,12 @@ def start_network(
             )
         )
 
+    if channel_emulator and ue_def_for_gnb.zmq_ip is not None:
+        # Overwrite the ZMQ IP and port, so the GNB connects to the channel emulator.
+        channel_emulator_definition = channel_emulator.GetDefinition(Empty())
+        ue_def_for_gnb.zmq_ip = channel_emulator_definition.zmq_ip
+        ue_def_for_gnb.zmq_port_array[0] = channel_emulator_definition.ul_zmq_port
+
     ric_definition = None
     if ric:
         ric_startup_timeout = fivegc_startup_timeout
@@ -194,21 +259,29 @@ def start_network(
 
 def ue_start_and_attach(
     ue_array: Sequence[UEStub],
-    gnb: GNBStub,
+    gnb: Union[GNBStub, DUStub],
     fivegc: FiveGCStub,
     ue_startup_timeout: int = UE_STARTUP_TIMEOUT,
     attach_timeout: int = ATTACH_TIMEOUT,
     inter_ue_start_period: int = INTER_UE_START_PERIOD,
+    channel_emulator: Optional[ChannelEmulatorStub] = None,
 ) -> Dict[UEStub, UEAttachedInfo]:
     """
     Start an array of UEs and wait until attached to already running gnb and 5gc
     """
 
+    gnb_definition = gnb.GetDefinition(Empty())
+    if channel_emulator and gnb_definition.zmq_ip is not None:
+        # Overwrite the ZMQ IP and port, so the UE connects to the channel emulator.
+        channel_emulator_definition = channel_emulator.GetDefinition(Empty())
+        gnb_definition.zmq_ip = channel_emulator_definition.zmq_ip
+        gnb_definition.zmq_port_array[0] = channel_emulator_definition.dl_zmq_port
+
     for ue_stub in ue_array:
         with handle_start_error(name=f"UE [{id(ue_stub)}]"):
             ue_stub.Start(
                 UEStartInfo(
-                    gnb_definition=gnb.GetDefinition(Empty()),
+                    gnb_definition=gnb_definition,
                     fivegc_definition=fivegc.GetDefinition(Empty()),
                     start_info=StartInfo(timeout=ue_startup_timeout),
                 )
@@ -441,6 +514,7 @@ def iperf_parallel(
     direction: IPerfDir,
     iperf_duration: int,
     bitrate: int,
+    packet_length: int = 0,
     bitrate_threshold_ratio: float = 0,  # real_bitrate > (bitrate_threshold_ratio * ideal_bitrate)
     parallel_iperfs: int = 8,
 ) -> List[IPerfResponse]:
@@ -461,6 +535,7 @@ def iperf_parallel(
                 direction,
                 iperf_duration,
                 bitrate,
+                packet_length,
                 bitrate_threshold_ratio,
             )
             for ue_stub, ue_attached_info in ue_attach_info_dict.items()
@@ -486,6 +561,7 @@ def iperf_sequentially(
     direction: IPerfDir,
     iperf_duration: int,
     bitrate: int,
+    packet_length: int = 0,
     bitrate_threshold_ratio: float = 0,  # real_bitrate > (bitrate_threshold_ratio * ideal_bitrate)
     max_retries: int = 5,
     sleep_between_retries: int = 3,
@@ -504,6 +580,7 @@ def iperf_sequentially(
                 direction,
                 iperf_duration,
                 bitrate,
+                packet_length,
             )
             sleep(iperf_duration)
             iperf_success, iperf_data = iperf_wait_until_finish(
@@ -532,6 +609,7 @@ def iperf_start(
     direction: IPerfDir,
     duration: int,
     bitrate: int,
+    packet_length: int = 0,
 ) -> Tuple[grpc.Future, IPerfRequest]:
     """
     Start a Iperf and keep it running
@@ -543,6 +621,7 @@ def iperf_start(
         direction=direction,
         proto=protocol,
         bitrate=bitrate,
+        packet_length=packet_length,
     )
 
     # Run iperf
@@ -774,12 +853,18 @@ def stop(
     warning_as_errors: bool = True,
     fail_if_kos: bool = False,
     ric: Optional[NearRtRicStub] = None,
+    channel_emulator: Optional[ChannelEmulatorStub] = None,
+    stop_gnb_first: bool = False,
 ):
     """
     Stop ue(s), gnb and 5gc, ric
     """
     # Stop
     error_msg_array = []
+    if (stop_gnb_first is True) and (gnb is not None):
+        error_message, _ = _stop_stub(gnb, "GNB", retina_data, gnb_stop_timeout, log_search, warning_as_errors)
+        error_msg_array.append(error_message)
+
     for index, ue_stub in enumerate(ue_array):
         error_message, _ = _stop_stub(
             ue_stub,
@@ -791,9 +876,10 @@ def stop(
         )
         error_msg_array.append(error_message)
 
-    if gnb is not None:
+    if (stop_gnb_first is False) and (gnb is not None):
         error_message, _ = _stop_stub(gnb, "GNB", retina_data, gnb_stop_timeout, log_search, warning_as_errors)
         error_msg_array.append(error_message)
+
     if fivegc is not None:
         error_message, _ = _stop_stub(
             fivegc,
@@ -807,6 +893,12 @@ def stop(
 
     if ric is not None:
         error_message, _ = _stop_stub(ric, "RIC", retina_data, gnb_stop_timeout, log_search, warning_as_errors)
+        error_msg_array.append(error_message)
+
+    if channel_emulator is not None:
+        error_message, _ = _stop_stub(
+            ric, "CHANNEL_EMULATOR", retina_data, gnb_stop_timeout, log_search, warning_as_errors
+        )
         error_msg_array.append(error_message)
 
     # Fail if stop errors
@@ -918,11 +1010,7 @@ def _get_metrics_msg(stub: RanStub, name: str, fail_if_kos: bool = False) -> str
     if fail_if_kos:
         with suppress(grpc.RpcError):
             metrics: Metrics = stub.GetMetrics(Empty())
-
-            nof_kos = 0
-            for ue_info in metrics.ue_array:
-                nof_kos = ue_info.dl_nof_ko + ue_info.ul_nof_ko
+            nof_kos = metrics.total.dl_nof_ko + metrics.total.ul_nof_ko
             if nof_kos and fail_if_kos:
                 return f"{name} has {nof_kos} KOs / retrxs"
-
     return ""

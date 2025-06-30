@@ -27,12 +27,14 @@
 #include "srsran/ran/pdcch/dci_format.h"
 #include "srsran/ran/pdsch/pdsch_mcs.h"
 #include "srsran/ran/precoding/precoding_constants.h"
+#include "srsran/ran/resource_allocation/vrb_to_prb.h"
 #include "srsran/ran/rnti.h"
 #include "srsran/ran/slot_pdu_capacity_constants.h"
 #include "srsran/ran/time_alignment_config.h"
 #include "srsran/scheduler/config/bwp_configuration.h"
 #include "srsran/scheduler/harq_id.h"
 #include "srsran/scheduler/result/dmrs_info.h"
+#include "srsran/scheduler/result/vrb_alloc.h"
 
 namespace srsran {
 
@@ -90,9 +92,9 @@ struct pdsch_information {
   /// Number of layers as per TS 38.211, Section 7.3.1.3. Values: {1,...,8}.
   unsigned nof_layers;
   /// Whether the PDSCH is interleaved via VRB-to-PRB mapping.
-  bool                  is_interleaved;
-  search_space_set_type ss_set_type;
-  dci_dl_format         dci_fmt;
+  vrb_to_prb::mapping_type vrb_prb_mapping;
+  search_space_set_type    ss_set_type;
+  dci_dl_format            dci_fmt;
   /// HARQ process number as per TS38.212 Section 7.3.1.1. Values: {0,...,15}.
   harq_id_t harq_id;
   /// Precoding information for the PDSCH. This field is empty in case of 1-antenna port setups.
@@ -187,8 +189,16 @@ struct ssb_information {
 struct sib_information {
   enum si_indicator_type { sib1, other_si } si_indicator;
   std::optional<uint8_t> si_msg_index;
-  unsigned               nof_txs;
-  pdsch_information      pdsch_cfg;
+  /// \brief Version of the SIB1/SI message payload. This counter should be incremented every time the content of the
+  /// respective SIB1/SI message changes.
+  unsigned version;
+  /// \brief Number of times the SIB has been transmitted.
+  ///
+  /// If the SI message is segmented, all transmission events are counted, regardless of the transmitted segment.
+  unsigned long nof_txs;
+  /// Set to \c true if the SIB allocation is for an SIB retransmission, \c false otherwise.
+  bool              is_repetition;
+  pdsch_information pdsch_cfg;
 };
 
 /// See ORAN WG8, 9.2.3.3.12 - Downlink Broadcast Allocation.

@@ -283,6 +283,15 @@ bool du_processor_impl::has_cell(nr_cell_global_id_t cgi)
   return cfg.du_cfg_hdlr->get_context().find_cell(cgi) != nullptr;
 }
 
+async_task<f1ap_gnb_cu_configuration_update_response>
+du_processor_impl::handle_configuration_update(const f1ap_gnb_cu_configuration_update& request)
+{
+  // Update the DU configuration.
+  cfg.du_cfg_hdlr->handle_gnb_cu_configuration_update(request);
+
+  return f1ap->handle_gnb_cu_configuration_update(request);
+}
+
 std::optional<nr_cell_global_id_t> du_processor_impl::get_cgi(pci_t pci)
 {
   const du_cell_configuration* cell = cfg.du_cfg_hdlr->get_context().find_cell(pci);
@@ -316,5 +325,8 @@ metrics_report::du_info du_processor_impl::handle_du_metrics_report_request() co
       report.cells.back().pci = cell.pci;
     }
   }
+  // Get RRC metrics.
+  rrc->get_rrc_du_metrics_collector().collect_metrics(report.rrc_metrics);
+
   return report;
 }

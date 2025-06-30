@@ -22,7 +22,8 @@
 
 #pragma once
 
-#include "procedures/ngap_transaction_manager.h"
+#include "../metrics/ngap_metrics_aggregator.h"
+#include "ngap_transaction_manager.h"
 #include "ue_context/ngap_ue_context.h"
 #include "srsran/ngap/ngap.h"
 #include "srsran/ngap/ngap_handover.h"

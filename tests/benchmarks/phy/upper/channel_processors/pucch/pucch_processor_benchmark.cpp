@@ -26,9 +26,9 @@
 #include "srsran/phy/upper/channel_processors/pucch/factories.h"
 #include "srsran/ran/pucch/pucch_constants.h"
 #include "srsran/support/benchmark_utils.h"
-#include "srsran/support/complex_normal_random.h"
 #include "srsran/support/executors/task_worker_pool.h"
 #include "srsran/support/executors/unique_thread.h"
+#include "srsran/support/math/complex_normal_random.h"
 #include "srsran/support/math/math_utils.h"
 #include "srsran/support/srsran_test.h"
 #include <getopt.h>
@@ -95,8 +95,6 @@ static uint64_t                     nof_threads           = 1;
 static uint64_t                     batch_size_per_thread = 100;
 static std::string                  selected_profile_name = "all";
 static benchmark_modes              benchmark_mode        = benchmark_modes::latency;
-static std::unique_ptr<task_worker_pool<concurrent_queue_policy::locking_mpmc>>          worker_pool = nullptr;
-static std::unique_ptr<task_worker_pool_executor<concurrent_queue_policy::locking_mpmc>> executor    = nullptr;
 
 // Thread shared variables.
 static constexpr auto        thread_sync_sleep_duration = std::chrono::nanoseconds(10U);
@@ -310,7 +308,7 @@ static pucch_processor_factory& get_pucch_processor_factory()
   std::shared_ptr<channel_equalizer_factory> equalizer_factory = create_channel_equalizer_generic_factory();
   TESTASSERT(equalizer_factory);
 
-  std::shared_ptr<channel_modulation_factory> demod_factory = create_channel_modulation_sw_factory();
+  std::shared_ptr<demodulation_mapper_factory> demod_factory = create_demodulation_mapper_factory();
   TESTASSERT(demod_factory);
 
   std::shared_ptr<pseudo_random_generator_factory> prg_factory = create_pseudo_random_generator_sw_factory();
@@ -351,7 +349,7 @@ static pucch_processor_factory& get_pucch_processor_factory()
 
   // Create PUCCH detector factory.
   std::shared_ptr<pucch_detector_factory> detector_factory =
-      create_pucch_detector_factory_sw(lpc_factory, prg_factory, equalizer_factory);
+      create_pucch_detector_factory_sw(lpc_factory, prg_factory, equalizer_factory, dft_factory);
   TESTASSERT(detector_factory);
 
   // Create short block detector factory.
@@ -434,7 +432,7 @@ static void thread_process(pucch_processor& proc, const pucch_configuration& con
     if (auto pucch0 = get_config<pucch_processor::format0_configuration>(config)) {
       proc.process(grid, *pucch0);
     } else if (auto pucch1 = get_config<pucch_processor::format1_configuration>(config)) {
-      proc.process(grid, *pucch1);
+      proc.process(grid, pucch_processor::format1_batch_configuration(*pucch1));
     } else if (auto pucch2 = get_config<pucch_processor::format2_configuration>(config)) {
       proc.process(grid, *pucch2);
     } else if (auto pucch3 = get_config<pucch_processor::format3_configuration>(config)) {
@@ -580,10 +578,6 @@ int main(int argc, char** argv)
   if ((benchmark_mode == benchmark_modes::throughput_thread) || (benchmark_mode == benchmark_modes::all)) {
     fmt::print("\n--- Thread throughput ---\n");
     perf_meas.print_percentiles_throughput("transmissions", 1.0 / static_cast<double>(nof_threads));
-  }
-
-  if (worker_pool) {
-    worker_pool->stop();
   }
 
   return 0;
