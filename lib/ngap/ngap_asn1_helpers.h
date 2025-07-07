@@ -38,6 +38,8 @@
 #include "srsran/ran/cu_types.h"
 #include "srsran/ran/tac.h"
 #include "srsran/security/security.h"
+#include "srsran/ran/mbs.h"
+#include "srsran/ngap/ngap_broadcast_session_setup.h"
 #include <string>
 #include <vector>
 
@@ -582,6 +584,149 @@ inline void fill_asn1_initial_context_setup_failure(asn1::ngap::init_context_set
   // Fill criticality diagnostics.
   if (fail.crit_diagnostics.has_value()) {
     // TODO: Add crit diagnostics.
+  }
+}
+
+/// \brief Convert NGAP ASN1 Broadcast Session Setup Request ASN1 struct to common type.
+/// \param[out] request The ngap_broadcast_session_setup_request struct to fill.
+/// \param[in] asn1_request The Broadcast Session Setup Request ASN1 struct.
+inline bool fill_ngap_broadcast_session_setup_request(ngap_broadcast_session_setup_request&                request,
+                                                      const asn1::ngap::broadcast_session_setup_request_s& asn1_request)
+{
+  // Fill MBS Session ID.
+  // Fill TMGI.
+  request.mbs_session_id.tmgi = uint_to_tmgi(asn1_request->mbs_session_id.tmgi.to_number());
+  // Fill NID.
+  if (asn1_request->mbs_session_id.nid_present) {
+    request.mbs_session_id.nid = uint_to_nid(asn1_request->mbs_session_id.nid.to_number());
+  }
+
+  // Fill s-NSSAI.
+  request.s_nssai = ngap_asn1_to_s_nssai(asn1_request->s_nssai);
+
+  // Fill MBS Service Area.
+  if (asn1_request->mbs_service_area.type() ==
+      asn1::ngap::mbs_service_area_c::types::locationindependent) {
+    location_independent locationindependent = {};
+
+    for (const auto& nr_cgi_item : asn1_request->mbs_service_area.locationindependent().mbs_service_area_cell_list) {
+      locationindependent.mbs_service_area_information.mbs_service_area_cell_list.push_back(ngap_asn1_to_nr_cgi(nr_cgi_item));
+    }
+
+    for (const auto& tai_item : asn1_request->mbs_service_area.locationindependent().mbs_service_area_tai_list) {
+      tai_t tai;
+      tai.plmn_id = plmn_identity::from_bytes(tai_item.plmn_id.to_bytes()).value();
+      tai.tac     = tai_item.tac.to_number();
+
+      locationindependent.mbs_service_area_information.mbs_service_area_tai_list.push_back(tai);
+    }
+
+    request.mbs_service_area = mbs_service_area_t{locationindependent};
+
+  } else if (asn1_request->mbs_service_area.type() ==
+             asn1::ngap::mbs_service_area_c::types::locationdependent) {
+    location_dependent locationdependent = {};
+
+    for (const auto& locationdependent_item : asn1_request->mbs_service_area.locationdependent()) {
+      mbs_service_area_information_item mbs_service_area_information_item;
+
+      area_session_id_t mbs_area_session_id = uint_to_area_session_id(locationdependent_item.mbs_area_session_id);
+
+      mbs_service_area_information_item.mbs_area_session_id = mbs_area_session_id;
+
+      mbs_service_area_information_t mbs_service_area_information;
+
+      for (const auto& nr_cgi_item : locationdependent_item.mbs_service_area_info.mbs_service_area_cell_list) {
+       mbs_service_area_information.mbs_service_area_cell_list.push_back(ngap_asn1_to_nr_cgi(nr_cgi_item));
+      }
+
+      for (const auto& tai_item : locationdependent_item.mbs_service_area_info.mbs_service_area_tai_list) {
+        tai_t tai;
+        tai.plmn_id = plmn_identity::from_bytes(tai_item.plmn_id.to_bytes()).value();
+        tai.tac     = tai_item.tac.to_number();
+
+        mbs_service_area_information.mbs_service_area_tai_list.push_back(tai);
+      }
+      mbs_service_area_information_item.mbs_service_area_information = mbs_service_area_information;
+      locationdependent.mbs_service_area_information_list.push_back(mbs_service_area_information_item);
+    }
+
+    request.mbs_service_area = mbs_service_area_t{locationdependent};
+  }
+
+  // Fill MBS Session Setup Request Transfer.
+  if (!asn1_request->mbs_session_setup_request_transfer.empty()) {
+    if (!request.mbs_session_setup_request_transfer.resize(asn1_request->mbs_session_setup_request_transfer.size())) {
+      return false;
+    }
+    std::copy(asn1_request->mbs_session_setup_request_transfer.begin(),
+              asn1_request->mbs_session_setup_request_transfer.end(),
+              request.mbs_session_setup_request_transfer.begin());
+  }
+
+  return true;
+}
+
+/// \brief Convert common type Broadcast Session Setup Response message to NGAP Broadcast Session Setup Response
+/// message.
+/// \param[out] asn1_response The ASN1 NGAP Broadcast Session Setup Response message.
+/// \param[in] response The common type Broadcast Session Setup Response message.
+inline void fill_asn1_broadcast_session_setup_response(asn1::ngap::broadcast_session_setup_resp_s& asn1_response,
+                                                       const ngap_broadcast_session_setup_response& response)
+{
+  // Fill MBS Session ID.
+  // Fill TMGI.
+  asn1_response->mbs_session_id.tmgi.from_number(tmgi_to_uint(response.mbs_session_id.tmgi));
+
+  // Fill NID.
+  if (response.mbs_session_id.nid.has_value()) {
+    asn1_response->mbs_session_id.nid_present = true;
+    asn1_response->mbs_session_id.nid.from_number(nid_to_uint(response.mbs_session_id.nid.value()));
+  }
+
+  // Fill MBS Session Setup Response Transfer.
+  if (response.mbs_session_setup_response_transfer.has_value()) {
+    asn1_response->mbs_session_setup_resp_transfer_present = true;
+    asn1_response->mbs_session_setup_resp_transfer = response.mbs_session_setup_response_transfer.value().copy();
+  }
+
+  // Fill Criticality Diagnostics.
+  if (response.crit_diagnostics.has_value()) {
+    // TODO (borieher): Add Criticality Diagnostics.
+    //asn1_response->crit_diagnostics_present = true;
+  }
+}
+
+/// \brief Convert common type Broadcast Session Setup Failure message to NGAP Broadcast Session Setup Failure
+/// message.
+/// \param[out] asn1_fail The ASN1 NGAP Broadcast Session Setup Failure message.
+/// \param[in] fail The common type Broadcast Session Setup Failure message.
+inline void fill_asn1_broadcast_session_setup_failure(asn1::ngap::broadcast_session_setup_fail_s& asn1_fail,
+                                                      const ngap_broadcast_session_setup_failure& fail)
+{
+  // Fill MBS Session ID.
+  // Fill TMGI.
+  asn1_fail->mbs_session_id.tmgi.from_number(tmgi_to_uint(fail.mbs_session_id.tmgi));
+
+  // Fill NID.
+  if (fail.mbs_session_id.nid.has_value()) {
+    asn1_fail->mbs_session_id.nid_present = true;
+    asn1_fail->mbs_session_id.nid.from_number(nid_to_uint(fail.mbs_session_id.nid.value()));
+  }
+
+  // Fill MBS Session Setup Failure Transfer.
+  if (fail.mbs_session_setup_failure_transfer.has_value()) {
+    asn1_fail->mbs_session_setup_fail_transfer_present = true;
+    asn1_fail->mbs_session_setup_fail_transfer = fail.mbs_session_setup_failure_transfer.value().copy();
+  }
+
+  // Fill Cause.
+  asn1_fail->cause = cause_to_asn1(fail.cause);
+
+  // Fill Criticality Diagnostics.
+  if (fail.crit_diagnostics.has_value()) {
+    // TODO (borieher): Add Criticality Diagnostics.
+    //asn1_fail->crit_diagnostics_present = true;
   }
 }
 

@@ -35,6 +35,7 @@
 #include "procedures/ngap_pdu_session_resource_release_procedure.h"
 #include "procedures/ngap_pdu_session_resource_setup_procedure.h"
 #include "procedures/ngap_ue_context_release_procedure.h"
+#include "procedures/ngap_broadcast_session_setup_procedure.h"
 #include "srsran/asn1/ngap/common.h"
 #include "srsran/ngap/ngap_reset.h"
 #include "srsran/ngap/ngap_setup.h"
@@ -937,20 +938,18 @@ void ngap_impl::handle_broadcast_session_setup_request(const asn1::ngap::broadca
 {
   logger.info("Received Broadcast Session Setup Request");
 
-  // TODO (borieher): Convert to common type
-  // TODO (borieher): start routine
+  // Convert to common type
+  ngap_broadcast_session_setup_request broadcast_session_setup_req;
+  if (!fill_ngap_broadcast_session_setup_request(broadcast_session_setup_req, msg)) {
+    logger.error("Conversion of Broadcast Session Setup Request failed");
+    //send_error?
+    //send_error_indication(tx_pdu_notifier, logger, {}, {}, ngap_cause_radio_network_t::unspecified);
+    return;
+  }
 
-  // NOTE (borieher): Just a way to test the reception
-  ngap_message response = {};
-  response.pdu.set_successful_outcome();
-  response.pdu.successful_outcome().load_info_obj(ASN1_NGAP_ID_BROADCAST_SESSION_SETUP);
-  auto& broadcast_session_setup_response = response.pdu.successful_outcome().value.broadcast_session_setup_resp();
-
-  broadcast_session_setup_response->mbs_session_id = msg->mbs_session_id;
-
-  logger.info("Sending Broadcast Session Setup Response");
-  // Send message to the AMF
-  tx_pdu_notifier->on_new_message(response);
+  // Start routine from the common task scheduler
+  cu_cp_notifier.schedule_common_async_task(launch_async<ngap_broadcast_session_setup_procedure>(
+    broadcast_session_setup_req, cu_cp_notifier, tx_pdu_notifier, logger));
 }
 
 void ngap_impl::handle_successful_outcome(const successful_outcome_s& outcome)
