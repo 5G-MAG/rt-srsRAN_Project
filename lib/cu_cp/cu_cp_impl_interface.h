@@ -58,6 +58,11 @@ public:
   /// \param[in] task The task to schedule.
   /// \returns True if the task was successfully scheduled, false otherwise.
   virtual bool schedule_ue_task(ue_index_t ue_index, async_task<void> task) = 0;
+
+  /// \brief Schedule a common task.
+  /// \param[in] task The task to schedule.
+  /// \returns True if the task was successfully scheduled, false otherwise.
+  virtual bool schedule_common_async_task(async_task<void> task) = 0;
 };
 
 /// Interface for the NGAP notifier to communicate with the CU-CP.

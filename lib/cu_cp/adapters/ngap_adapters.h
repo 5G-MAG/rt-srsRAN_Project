@@ -68,6 +68,11 @@ public:
     return cu_cp_handler->schedule_ue_task(ue_index, std::move(task));
   }
 
+  bool schedule_common_async_task(async_task<void> task) override
+  {
+    return cu_cp_handler->schedule_common_async_task(std::move(task));
+  }
+
   bool on_handover_request_received(ue_index_t ue_index, security::security_context sec_ctxt) override
   {
     srsran_assert(cu_cp_handler != nullptr, "CU-CP NGAP handler must not be nullptr");

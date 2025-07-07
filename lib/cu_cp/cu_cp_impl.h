@@ -191,6 +191,7 @@ private:
 
   // cu_cp_task_scheduler_handler.
   bool schedule_ue_task(ue_index_t ue_index, async_task<void> task) override;
+  bool schedule_common_async_task(async_task<void> task) override;
 
   void on_statistics_report_timer_expired();
 

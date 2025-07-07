@@ -917,3 +917,8 @@ void cu_cp_impl::on_statistics_report_timer_expired()
                               [this](timer_id_t /*tid*/) { on_statistics_report_timer_expired(); });
   statistics_report_timer.run();
 }
+
+bool cu_cp_impl::schedule_common_async_task(async_task<void> task)
+{
+  return common_task_sched.schedule_async_task(std::move(task));
+}

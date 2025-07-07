@@ -161,6 +161,11 @@ public:
   /// \returns True if the task was successfully scheduled, false otherwise.
   virtual bool schedule_async_task(ue_index_t ue_index, async_task<void> task) = 0;
 
+  /// \brief Request scheduling a common task.
+  /// \param[in] task The task to schedule.
+  /// \returns True if the task was successfully scheduled, false otherwise.
+  virtual bool schedule_common_async_task(async_task<void> task) = 0;
+
   /// \brief Notify the CU-CP about a security context received in a handover request.
   /// \param[in] ue_index Index of the UE.
   /// \param[in] sec_ctxt The received security context.
