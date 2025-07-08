@@ -23,6 +23,8 @@
 #pragma once
 
 #include "srsran/ran/plmn_identity.h"
+#include "srsran/ran/nr_cgi.h"
+#include "srsran/ran/mbs.h"
 #include <limits>
 
 namespace srsran {
@@ -56,6 +58,48 @@ struct guami_t {
 struct ngap_ue_aggr_max_bit_rate {
   uint64_t ue_aggr_max_bit_rate_dl;
   uint64_t ue_aggr_max_bit_rate_ul;
+};
+
+/// \brief MBS Service Area Information.
+/// \remark See 3GPP TS 38.413, 9.3.1.209 - MBS Service Area Information.
+struct ngap_mbs_service_area_information {
+  //mbs_service_area_cell_list (0..maxnoofCellsforMBS)
+  std::vector<nr_cell_global_id_t> mbs_service_area_cell_list;
+  //mbs_service_area_tai_list (0..maxnoofTAIforMBS)
+  std::vector<tai_t> mbs_service_area_tai_list;
+};
+
+struct ngap_mbs_service_area_information_item {
+  //mbs_area_session_id (M)
+  area_session_id_t mbs_area_session_id;
+  //mbs_service_area_information (M)
+  ngap_mbs_service_area_information mbs_service_area_information;
+};
+
+struct ngap_location_independent {
+  //mbs_service_area_information (M)
+  ngap_mbs_service_area_information mbs_service_area_information;
+};
+
+struct ngap_location_dependent {
+  //mbs_service_area_information_list (1)
+  std::vector<ngap_mbs_service_area_information_item> mbs_service_area_information_list;
+};
+
+/// \brief MBS Service Area.
+/// \remark See 3GPP TS 38.413, 9.3.1.208 - MBS Service Area.
+struct ngap_mbs_service_area {
+  ngap_mbs_service_area() : choice(ngap_location_independent{}) {}
+  ngap_mbs_service_area(const ngap_location_independent& val) : choice(val) {}
+  ngap_mbs_service_area(const ngap_location_dependent& val) : choice(val) {}
+
+  bool is_locationdependent() const { return std::holds_alternative<ngap_location_dependent>(choice); }
+
+  ngap_location_independent get_locationindependent() { return std::get<ngap_location_independent>(choice); }
+  ngap_location_dependent get_locationdependent() { return std::get<ngap_location_dependent>(choice); }
+
+private:
+  std::variant<ngap_location_independent, ngap_location_dependent> choice;
 };
 
 } // namespace srs_cu_cp

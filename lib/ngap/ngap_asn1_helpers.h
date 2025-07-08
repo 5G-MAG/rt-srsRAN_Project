@@ -607,7 +607,7 @@ inline bool fill_ngap_broadcast_session_setup_request(ngap_broadcast_session_set
   // Fill MBS Service Area.
   if (asn1_request->mbs_service_area.type() ==
       asn1::ngap::mbs_service_area_c::types::locationindependent) {
-    location_independent locationindependent = {};
+    ngap_location_independent locationindependent = {};
 
     for (const auto& nr_cgi_item : asn1_request->mbs_service_area.locationindependent().mbs_service_area_cell_list) {
       locationindependent.mbs_service_area_information.mbs_service_area_cell_list.push_back(ngap_asn1_to_nr_cgi(nr_cgi_item));
@@ -621,20 +621,20 @@ inline bool fill_ngap_broadcast_session_setup_request(ngap_broadcast_session_set
       locationindependent.mbs_service_area_information.mbs_service_area_tai_list.push_back(tai);
     }
 
-    request.mbs_service_area = mbs_service_area_t{locationindependent};
+    request.mbs_service_area = ngap_mbs_service_area{locationindependent};
 
   } else if (asn1_request->mbs_service_area.type() ==
              asn1::ngap::mbs_service_area_c::types::locationdependent) {
-    location_dependent locationdependent = {};
+    ngap_location_dependent locationdependent = {};
 
     for (const auto& locationdependent_item : asn1_request->mbs_service_area.locationdependent()) {
-      mbs_service_area_information_item mbs_service_area_information_item;
+      ngap_mbs_service_area_information_item mbs_service_area_information_item;
 
       area_session_id_t mbs_area_session_id = uint_to_area_session_id(locationdependent_item.mbs_area_session_id);
 
       mbs_service_area_information_item.mbs_area_session_id = mbs_area_session_id;
 
-      mbs_service_area_information_t mbs_service_area_information;
+      ngap_mbs_service_area_information mbs_service_area_information;
 
       for (const auto& nr_cgi_item : locationdependent_item.mbs_service_area_info.mbs_service_area_cell_list) {
        mbs_service_area_information.mbs_service_area_cell_list.push_back(ngap_asn1_to_nr_cgi(nr_cgi_item));
@@ -651,7 +651,7 @@ inline bool fill_ngap_broadcast_session_setup_request(ngap_broadcast_session_set
       locationdependent.mbs_service_area_information_list.push_back(mbs_service_area_information_item);
     }
 
-    request.mbs_service_area = mbs_service_area_t{locationdependent};
+    request.mbs_service_area = ngap_mbs_service_area{locationdependent};
   }
 
   // Fill MBS Session Setup Request Transfer.

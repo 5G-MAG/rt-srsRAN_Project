@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "srsran/ngap/ngap_types.h"
 #include "srsran/ran/mbs.h"
 #include "srsran/ran/s_nssai.h"
 #include "srsran/ran/crit_diagnostics.h"
@@ -37,7 +38,7 @@ struct ngap_broadcast_session_setup_request {
   //s_nssai (M)
   s_nssai_t s_nssai;
   //mbs_service_area (M)
-  mbs_service_area_t mbs_service_area;
+  ngap_mbs_service_area mbs_service_area;
   //mbs_session_setup_request_transfer (M)
   byte_buffer mbs_session_setup_request_transfer;
 };

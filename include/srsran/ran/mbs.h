@@ -25,10 +25,8 @@
 #include <cstdint>
 #include <optional>
 #include <variant>
-#include "srsran/ran/nr_cgi.h"
 #include "srsran/ran/plmn_identity.h"
 #include "srsran/ran/tac.h"
-#include "srsran/adt/slotted_vector.h"
 
 namespace srsran {
 
@@ -106,42 +104,6 @@ constexpr inline area_session_id_t uint_to_area_session_id(uint32_t idx)
 {
   return static_cast<area_session_id_t>(idx);
 }
-
-/// \brief MBS Service Area Information.
-/// \remark See 3GPP TS 38.413, 9.3.1.209 - MBS Service Area Information.
-struct mbs_service_area_information_t {
-  std::vector<nr_cell_global_id_t> mbs_service_area_cell_list;
-  std::vector<tai_t> mbs_service_area_tai_list;
-};
-
-struct mbs_service_area_information_item {
-  area_session_id_t mbs_area_session_id;
-  mbs_service_area_information_t mbs_service_area_information;
-};
-
-struct location_independent {
-  mbs_service_area_information_t mbs_service_area_information;
-};
-
-struct location_dependent {
-  std::vector<mbs_service_area_information_item> mbs_service_area_information_list;
-};
-
-/// \brief MBS Service Area.
-/// \remark See 3GPP TS 38.413, 9.3.1.208 - MBS Service Area.
-struct mbs_service_area_t {
-  mbs_service_area_t() : choice(location_independent{}) {}
-  mbs_service_area_t(const location_independent& val) : choice(val) {}
-  mbs_service_area_t(const location_dependent& val) : choice(val) {}
-
-  bool is_locationdependent() const { return std::holds_alternative<location_dependent>(choice); }
-
-  location_independent get_locationindependent() { return std::get<location_independent>(choice); }
-  location_dependent get_locationdependent() { return std::get<location_dependent>(choice); }
-
-private:
-  std::variant<location_independent, location_dependent> choice;
-};
 
 struct mbs_config {};
 
