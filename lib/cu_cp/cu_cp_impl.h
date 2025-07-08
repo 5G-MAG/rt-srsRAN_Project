@@ -127,6 +127,8 @@ public:
   void handle_dl_ue_associated_nrppa_transport_pdu(ue_index_t ue_index, const byte_buffer& nrppa_pdu) override;
   void handle_dl_non_ue_associated_nrppa_transport_pdu(amf_index_t amf_index, const byte_buffer& nrppa_pdu) override;
   void handle_n2_disconnection(amf_index_t amf_index) override;
+  async_task<expected<ngap_broadcast_session_setup_response, ngap_broadcast_session_setup_failure>>
+  handle_broadcast_session_setup_request(const ngap_broadcast_session_setup_request& request) override;
 
   // cu_cp_nrppa_handler.
   nrppa_cu_cp_ue_notifier* handle_new_nrppa_ue(ue_index_t ue_index) override;

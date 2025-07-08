@@ -39,29 +39,18 @@ ngap_broadcast_session_setup_procedure::ngap_broadcast_session_setup_procedure(
 {
 }
 
-// NOTE (borieher): Workaround for now, delete this when implementing the cu_cp_notifier.on_broadcast_session_setup_request
-async_task<expected<ngap_broadcast_session_setup_response, ngap_broadcast_session_setup_failure>>
-cu_cp_notifier_on_broadcast_session_setup_request() {
-  return launch_async(
-        [](coro_context<async_task<expected<ngap_broadcast_session_setup_response, ngap_broadcast_session_setup_failure>>>& ctx) {
-          CORO_BEGIN(ctx);
-          CORO_RETURN(ngap_broadcast_session_setup_response{});
-        });
-}
-
 void ngap_broadcast_session_setup_procedure::operator()(coro_context<async_task<void>>& ctx)
 {
   CORO_BEGIN(ctx);
 
   logger.debug("\"{}\" started...", name());
 
-  // NOTE (borieher): Workaround to avoid implementing the cu_cp_notifier.on_broadcast_session_setup_request for now
-  //CORO_AWAIT_VALUE(broadcast_session_setup_routine_outcome, cu_cp_notifier.on_broadcast_session_setup_request(request));
-  CORO_AWAIT_VALUE(broadcast_session_setup_routine_outcome, cu_cp_notifier_on_broadcast_session_setup_request());
+  // Start the routine in the CU-CP
+  CORO_AWAIT_VALUE(broadcast_session_setup_routine_outcome, cu_cp_notifier.on_broadcast_session_setup_request(request));
 
   if (not broadcast_session_setup_routine_outcome.has_value()) {
     send_broadcast_session_setup_failure(broadcast_session_setup_routine_outcome.error());
-    logger.debug("\"{}\" failed", name());
+    logger.error("\"{}\" failed", name());
   } else {
     // NOTE (borieher): Fill the TMGI in the response, should be done on the broadcast_session_setup_routine_outcome
     broadcast_session_setup_routine_outcome.value().mbs_session_id.tmgi = request.mbs_session_id.tmgi;
@@ -69,7 +58,6 @@ void ngap_broadcast_session_setup_procedure::operator()(coro_context<async_task<
     send_broadcast_session_setup_response(broadcast_session_setup_routine_outcome.value());
     logger.debug("\"{}\" finished successfully", name());
   }
-  logger.debug("\"{}\" finished successfully", name());
 
   CORO_RETURN();
 }
@@ -85,7 +73,6 @@ void ngap_broadcast_session_setup_procedure::send_broadcast_session_setup_respon
 
   fill_asn1_broadcast_session_setup_response(broadcast_session_setup_response, msg);
 
-  logger.info("Sending Broadcast Session Setup Response");
   // Forward message to the AMF
   if (!amf_notifier.on_new_message(ngap_msg)) {
     logger.warning("AMF notifier is not set. Cannot send Broadcast Session Setup Response");
@@ -103,8 +90,6 @@ void ngap_broadcast_session_setup_procedure::send_broadcast_session_setup_failur
   auto& broadcast_session_setup_failure = ngap_msg.pdu.unsuccessful_outcome().value.broadcast_session_setup_fail();
 
   fill_asn1_broadcast_session_setup_failure(broadcast_session_setup_failure, msg);
-
-  logger.info("Sending Broadcast Session Setup Failure");
 
   // Forward message to the AMF
   if (!amf_notifier.on_new_message(ngap_msg)) {

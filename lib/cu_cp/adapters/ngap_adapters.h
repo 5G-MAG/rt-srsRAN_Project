@@ -150,6 +150,13 @@ public:
     cu_cp_handler->handle_n2_disconnection(amf_index);
   }
 
+  async_task<expected<ngap_broadcast_session_setup_response, ngap_broadcast_session_setup_failure>>
+  on_broadcast_session_setup_request(ngap_broadcast_session_setup_request& request) override
+  {
+    srsran_assert(cu_cp_handler != nullptr, "CU-CP NGAP handler must not be nullptr");
+    return cu_cp_handler->handle_broadcast_session_setup_request(request);
+  }
+
 private:
   cu_cp_ngap_handler*     cu_cp_handler  = nullptr;
   paging_message_handler* paging_handler = nullptr;

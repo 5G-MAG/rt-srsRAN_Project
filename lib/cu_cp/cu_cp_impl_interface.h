@@ -134,6 +134,12 @@ public:
   /// \brief Handle N2 AMF connection drop.
   /// \param[in] amf_index The index of the dropped AMF.
   virtual void handle_n2_disconnection(amf_index_t amf_index) = 0;
+
+  /// \brief Handle the reception of a Broadcast Session Setup Request.
+  /// \param[in] request The received Broadcast Session Setup Request.
+  /// \returns The Broadcast Session Setup Response or the Broadcast Session Setup Failure.
+  virtual async_task<expected<ngap_broadcast_session_setup_response, ngap_broadcast_session_setup_failure>>
+  handle_broadcast_session_setup_request(const ngap_broadcast_session_setup_request& request) = 0;
 };
 
 /// Interface for the NRPPa notifier to communicate with the CU-CP.

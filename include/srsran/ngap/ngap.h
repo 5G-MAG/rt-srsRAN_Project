@@ -30,6 +30,7 @@
 #include "srsran/ngap/ngap_reset.h"
 #include "srsran/ngap/ngap_setup.h"
 #include "srsran/ngap/ngap_ue_radio_capability_management.h"
+#include "srsran/ngap/ngap_broadcast_session_setup.h"
 #include "srsran/support/async/async_task.h"
 
 namespace srsran {
@@ -232,6 +233,12 @@ public:
   /// \param[in] amf_index The index of the AMF that received the NRPPa transport.
   /// \param[in] nrppa_pdu The NRPPa transport PDU.
   virtual void on_dl_non_ue_associated_nrppa_transport_pdu(amf_index_t amf_index, const byte_buffer& nrppa_pdu) = 0;
+
+  /// \brief Notify about the reception of a Broadcast Session Setup Request.
+  /// \param[in] request The received Broadcast Session Setup Request.
+  /// \returns The Broadcast Session Setup Response or the Broadcast Session Setup Failure.
+  virtual async_task<expected<ngap_broadcast_session_setup_response, ngap_broadcast_session_setup_failure>>
+  on_broadcast_session_setup_request(ngap_broadcast_session_setup_request& request) = 0;
 };
 
 /// Handle NGAP NAS Message procedures as defined in TS 38.413 section 8.6.

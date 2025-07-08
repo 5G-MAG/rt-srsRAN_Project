@@ -836,6 +836,19 @@ void cu_cp_impl::initialize_handover_ue_release_timer(
   ue->get_handover_ue_release_timer().run();
 }
 
+async_task<expected<ngap_broadcast_session_setup_response, ngap_broadcast_session_setup_failure>>
+  cu_cp_impl::handle_broadcast_session_setup_request(const ngap_broadcast_session_setup_request& request)
+{
+  // TODO (borieher): launch the broadcast_session_setup_routine
+  //return launch_async<broadcast_session_setup_routine>(request);
+
+  return launch_async(
+      [](coro_context<async_task<expected<ngap_broadcast_session_setup_response, ngap_broadcast_session_setup_failure>>>& ctx) {
+        CORO_BEGIN(ctx);
+        CORO_RETURN(ngap_broadcast_session_setup_response{});
+      });
+}
+
 // private
 
 void cu_cp_impl::handle_rrc_ue_creation(ue_index_t ue_index, rrc_ue_interface& rrc_ue)
