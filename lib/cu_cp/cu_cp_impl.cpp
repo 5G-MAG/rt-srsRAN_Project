@@ -67,6 +67,7 @@ static void assert_cu_cp_configuration_valid(const cu_cp_configuration& cfg)
 cu_cp_impl::cu_cp_impl(const cu_cp_configuration& config_) :
   cfg(config_),
   ue_mng(cfg),
+  mbs_mng(cfg),
   cell_meas_mng(cfg.mobility.meas_manager_config, cell_meas_mobility_notifier, ue_mng),
   du_db(du_repository_config{cfg,
                              *this,
@@ -836,6 +837,20 @@ void cu_cp_impl::initialize_handover_ue_release_timer(
   ue->get_handover_ue_release_timer().run();
 }
 
+mbs_index_t cu_cp_impl::handle_new_ngap_mbs_session(mbs_session_id_t mbs_session_id)
+{
+  // Create a new MBS session in the MBS manager.
+  mbs_index_t mbs_index = mbs_mng.add_mbs_session(mbs_session_id);
+
+  if (mbs_index == mbs_index_t::invalid) {
+    logger.warning("Failed to create CU-CP MBS Session");
+  } else {
+    logger.debug("Created new CU-CP MBS Session");
+  }
+
+  return mbs_index;
+}
+
 async_task<expected<ngap_broadcast_session_setup_response, ngap_broadcast_session_setup_failure>>
   cu_cp_impl::handle_broadcast_session_setup_request(const ngap_broadcast_session_setup_request& request)
 {
@@ -931,7 +946,8 @@ void cu_cp_impl::on_statistics_report_timer_expired()
   statistics_report_timer.run();
 }
 
-bool cu_cp_impl::schedule_common_async_task(async_task<void> task)
+bool cu_cp_impl::schedule_mbs_task(async_task<void> task)
 {
-  return common_task_sched.schedule_async_task(std::move(task));
+  //return common_task_sched.schedule_async_task(std::move(task));
+  return mbs_mng.schedule_mbs_task(std::move(task));
 }

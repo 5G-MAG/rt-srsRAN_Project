@@ -32,9 +32,9 @@ using namespace asn1::ngap;
 
 ngap_broadcast_session_setup_procedure::ngap_broadcast_session_setup_procedure(
     const ngap_broadcast_session_setup_request& request_,
-    ngap_cu_cp_notifier&                   cu_cp_notifier_,
-    ngap_message_notifier&                 amf_notifier_,
-    srslog::basic_logger&                  logger_) :
+    ngap_cu_cp_notifier&                        cu_cp_notifier_,
+    ngap_message_notifier&                      amf_notifier_,
+    srslog::basic_logger&                       logger_) :
   request(request_), cu_cp_notifier(cu_cp_notifier_), amf_notifier(amf_notifier_), logger(logger_)
 {
 }

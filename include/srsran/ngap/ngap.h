@@ -162,10 +162,10 @@ public:
   /// \returns True if the task was successfully scheduled, false otherwise.
   virtual bool schedule_async_task(ue_index_t ue_index, async_task<void> task) = 0;
 
-  /// \brief Request scheduling a common task.
+  /// \brief Request scheduling a common MBS Session associated task.
   /// \param[in] task The task to schedule.
   /// \returns True if the task was successfully scheduled, false otherwise.
-  virtual bool schedule_common_async_task(async_task<void> task) = 0;
+  virtual bool schedule_mbs_task(async_task<void> task) = 0;
 
   /// \brief Notify the CU-CP about a security context received in a handover request.
   /// \param[in] ue_index Index of the UE.
@@ -233,6 +233,11 @@ public:
   /// \param[in] amf_index The index of the AMF that received the NRPPa transport.
   /// \param[in] nrppa_pdu The NRPPa transport PDU.
   virtual void on_dl_non_ue_associated_nrppa_transport_pdu(amf_index_t amf_index, const byte_buffer& nrppa_pdu) = 0;
+
+  /// \brief Notifies the CU-CP about a new NGAP MBS Session.
+  /// \param[in] mbs_session_id The received MBS Session ID.
+  /// \returns The MBS index for the new NGAP MBS Session.
+  virtual mbs_index_t on_new_ngap_mbs_session(mbs_session_id_t mbs_session_id) = 0;
 
   /// \brief Notify about the reception of a Broadcast Session Setup Request.
   /// \param[in] request The received Broadcast Session Setup Request.

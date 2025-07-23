@@ -599,6 +599,8 @@ inline bool fill_ngap_broadcast_session_setup_request(ngap_broadcast_session_set
   // Fill NID.
   if (asn1_request->mbs_session_id.nid_present) {
     request.mbs_session_id.nid = uint_to_nid(asn1_request->mbs_session_id.nid.to_number());
+  } else {
+    request.mbs_session_id.nid = std::nullopt;
   }
 
   // Fill s-NSSAI.

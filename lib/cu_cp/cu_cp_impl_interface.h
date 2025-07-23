@@ -59,10 +59,10 @@ public:
   /// \returns True if the task was successfully scheduled, false otherwise.
   virtual bool schedule_ue_task(ue_index_t ue_index, async_task<void> task) = 0;
 
-  /// \brief Schedule a common task.
+  /// \brief Schedule a common MBS Session associated task.
   /// \param[in] task The task to schedule.
   /// \returns True if the task was successfully scheduled, false otherwise.
-  virtual bool schedule_common_async_task(async_task<void> task) = 0;
+  virtual bool schedule_mbs_task(async_task<void> task) = 0;
 };
 
 /// Interface for the NGAP notifier to communicate with the CU-CP.
@@ -134,6 +134,10 @@ public:
   /// \brief Handle N2 AMF connection drop.
   /// \param[in] amf_index The index of the dropped AMF.
   virtual void handle_n2_disconnection(amf_index_t amf_index) = 0;
+
+  /// \brief Handle the creation of a new NGAP MBS Session. This will add the NGAP adapters to the MBS manager.
+  /// \returns mbs_index The index of the MBS Session.
+  virtual mbs_index_t handle_new_ngap_mbs_session(mbs_session_id_t mbs_session_id) = 0;
 
   /// \brief Handle the reception of a Broadcast Session Setup Request.
   /// \param[in] request The received Broadcast Session Setup Request.

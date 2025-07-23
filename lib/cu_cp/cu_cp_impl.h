@@ -37,6 +37,7 @@
 #include "du_processor/du_processor_repository.h"
 #include "ngap_repository.h"
 #include "ue_manager/ue_manager_impl.h"
+#include "mbs_manager/mbs_manager_impl.h"
 #include "srsran/cu_cp/cu_configurator.h"
 #include "srsran/cu_cp/cu_cp_configuration.h"
 #include "srsran/cu_cp/cu_cp_types.h"
@@ -127,6 +128,7 @@ public:
   void handle_dl_ue_associated_nrppa_transport_pdu(ue_index_t ue_index, const byte_buffer& nrppa_pdu) override;
   void handle_dl_non_ue_associated_nrppa_transport_pdu(amf_index_t amf_index, const byte_buffer& nrppa_pdu) override;
   void handle_n2_disconnection(amf_index_t amf_index) override;
+  mbs_index_t handle_new_ngap_mbs_session(mbs_session_id_t mbs_session_id) override;
   async_task<expected<ngap_broadcast_session_setup_response, ngap_broadcast_session_setup_failure>>
   handle_broadcast_session_setup_request(const ngap_broadcast_session_setup_request& request) override;
 
@@ -193,7 +195,7 @@ private:
 
   // cu_cp_task_scheduler_handler.
   bool schedule_ue_task(ue_index_t ue_index, async_task<void> task) override;
-  bool schedule_common_async_task(async_task<void> task) override;
+  bool schedule_mbs_task(async_task<void> task) override;
 
   void on_statistics_report_timer_expired();
 
@@ -205,6 +207,9 @@ private:
   // Components.
   // UE manager.
   ue_manager ue_mng;
+
+  // MBS manager.
+  mbs_manager mbs_mng;
 
   // Cell measurement manager.
   cell_meas_manager cell_meas_mng;

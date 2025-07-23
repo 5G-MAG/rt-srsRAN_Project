@@ -27,6 +27,7 @@
 #include "ngap_error_indication_helper.h"
 #include "procedures/ngap_transaction_manager.h"
 #include "ue_context/ngap_ue_context.h"
+#include "mbs_session_context/ngap_mbs_session_context.h"
 #include "srsran/asn1/ngap/ngap.h"
 #include "srsran/ngap/gateways/n2_connection_client.h"
 #include "srsran/ngap/ngap.h"
@@ -226,6 +227,9 @@ private:
 
   /// Repository of UE Contexts.
   ngap_ue_context_list ue_ctxt_list;
+
+  /// Repository of MBS Session Contexts.
+  ngap_mbs_session_context_list mbs_session_ctxt_list;
 
   std::unordered_map<ue_index_t, error_indication_request_t> stored_error_indications;
 

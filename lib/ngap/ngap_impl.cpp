@@ -53,6 +53,7 @@ ngap_impl::ngap_impl(const ngap_configuration& ngap_cfg_,
                      task_executor&            ctrl_exec_) :
   logger(srslog::fetch_basic_logger("NGAP")),
   ue_ctxt_list(logger),
+  mbs_session_ctxt_list(logger),
   cu_cp_notifier(cu_cp_notifier_),
   timers(timers_),
   ctrl_exec(ctrl_exec_),
@@ -947,8 +948,35 @@ void ngap_impl::handle_broadcast_session_setup_request(const asn1::ngap::broadca
     return;
   }
 
-  // Start routine from the common task scheduler
-  cu_cp_notifier.schedule_common_async_task(launch_async<ngap_broadcast_session_setup_procedure>(
+  // Check if NGAP MBS Session context already exists
+  if (mbs_session_ctxt_list.contains(broadcast_session_setup_req.mbs_session_id)) {
+    logger.warning("Dropping Broadcast Session Setup Request. NGAP MBS Session context exists");
+    //send_error_indication(tx_pdu_notifier, logger, {}, {}, ngap_cause_radio_network_t::unspecified);
+    return;
+  }
+
+  // Create new CU-CP MBS Session object
+  mbs_index_t mbs_index;
+  mbs_index = cu_cp_notifier.on_new_ngap_mbs_session(broadcast_session_setup_req.mbs_session_id);
+
+  if (mbs_index == mbs_index_t::invalid) {
+    logger.warning("NGAP MBS Session creation failed");
+    //return make_unexpected(rrc->get_rrc_reject());
+    return;
+  }
+
+  // Add new NGAP MBS Session context
+  if (mbs_session_ctxt_list.add_mbs_session_context(mbs_index, broadcast_session_setup_req.mbs_session_id) == nullptr) {
+    logger.warning("NGAP Broadcast Session Setup failed. Cause: NGAP MBS Session context already exists");
+    // send_ngap_broadcast_session_setup_failure?
+  }
+
+  // Add the mbs_index to the NGAP Broadcast Session Setup Request message
+  ngap_mbs_session_context& mbs_session_ctx = mbs_session_ctxt_list[mbs_index];
+  broadcast_session_setup_req.mbs_index = mbs_session_ctx.mbs_ids.mbs_index;
+
+  // Start routine from the MBS Session task scheduler
+  cu_cp_notifier.schedule_mbs_task(launch_async<ngap_broadcast_session_setup_procedure>(
     broadcast_session_setup_req, cu_cp_notifier, tx_pdu_notifier, logger));
 }
 

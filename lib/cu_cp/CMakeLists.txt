@@ -67,6 +67,8 @@ set(SOURCES
       ue_manager/ue_manager_impl.cpp
       ue_manager/ue_task_scheduler_impl.cpp
       paging/paging_message_handler.cpp
+      mbs_manager/cu_cp_mbs_session_impl.cpp
+      mbs_manager/mbs_manager_impl.cpp
 )
 
 add_library(srsran_cu_cp STATIC ${SOURCES})

@@ -68,9 +68,9 @@ public:
     return cu_cp_handler->schedule_ue_task(ue_index, std::move(task));
   }
 
-  bool schedule_common_async_task(async_task<void> task) override
+  bool schedule_mbs_task(async_task<void> task) override
   {
-    return cu_cp_handler->schedule_common_async_task(std::move(task));
+    return cu_cp_handler->schedule_mbs_task(std::move(task));
   }
 
   bool on_handover_request_received(ue_index_t ue_index, security::security_context sec_ctxt) override
@@ -148,6 +148,12 @@ public:
   {
     srsran_assert(cu_cp_handler != nullptr, "CU-CP NGAP handler must not be nullptr");
     cu_cp_handler->handle_n2_disconnection(amf_index);
+  }
+
+  mbs_index_t on_new_ngap_mbs_session(mbs_session_id_t mbs_session_id) override
+  {
+    srsran_assert(cu_cp_handler != nullptr, "CU-CP NGAP handler must not be nullptr");
+    return cu_cp_handler->handle_new_ngap_mbs_session(mbs_session_id);
   }
 
   async_task<expected<ngap_broadcast_session_setup_response, ngap_broadcast_session_setup_failure>>
