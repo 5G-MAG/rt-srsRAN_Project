@@ -30,7 +30,7 @@
 
 namespace srsran {
 
-// NOTE (borieher): Move TAI definition to srsran/ran/tai.h in upstream srsRAN.
+// NOTE (borieher): Move TAI definition to srsran/ran/tai.h in upstream srsRAN or use cu_cp_tai?
 /// \brief TAI.
 /// \remark See 3GPP TS 38.413, 9.3.3.11 - TAI.
 struct tai_t {
@@ -81,8 +81,20 @@ constexpr inline nid_t uint_to_nid(uint64_t idx)
 /// \brief MBS Session ID.
 /// \remark See 3GPP TS 38.413, 9.3.1.206 - MBS Session ID.
 struct mbs_session_id_t {
-  tmgi_t                tmgi;
-  std::optional<nid_t>  nid;
+public:
+  tmgi_t                tmgi = tmgi_t::invalid;
+  std::optional<nid_t>  nid = std::nullopt;
+
+  bool operator==(const mbs_session_id_t& other) const {
+    return tmgi == other.tmgi && nid == other.nid;
+  }
+
+  bool operator<(const mbs_session_id_t& other) const {
+    if (tmgi != other.tmgi) {
+      return tmgi < other.tmgi;
+    }
+    return nid < other.nid;
+  }
 };
 
 /// \remark See 3GPP TS 23.003, 30.3 - Area Session ID.
@@ -105,6 +117,22 @@ constexpr inline area_session_id_t uint_to_area_session_id(uint32_t idx)
   return static_cast<area_session_id_t>(idx);
 }
 
-struct mbs_config {};
+struct mbs_config {
+  unsigned max_nof_mbs_sessions = 25;
+};
 
 } // namespace srsran
+
+namespace std {
+
+template <>
+struct hash<srsran::mbs_session_id_t> {
+  size_t operator()(const srsran::mbs_session_id_t& s) const noexcept {
+    size_t h1 = std::hash<uint64_t>{}(static_cast<uint64_t>(s.tmgi));
+    size_t h2 = s.nid.has_value() ? std::hash<uint64_t>{}(static_cast<uint64_t>(*s.nid)) : 0;
+    return h1 ^ (h2 << 1);
+  }
+};
+
+} // namespace std
+

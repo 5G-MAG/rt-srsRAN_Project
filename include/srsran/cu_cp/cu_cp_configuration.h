@@ -34,6 +34,7 @@
 #include "srsran/rrc/rrc_ue_config.h"
 #include "srsran/support/async/async_task.h"
 #include "srsran/support/executors/task_executor.h"
+#include "srsran/ran/mbs.h"
 #include <chrono>
 
 namespace srsran {
@@ -153,6 +154,8 @@ struct cu_cp_configuration {
   service_params services;
   /// PDCP metrics notifier.
   pdcp_metrics_notifier* pdcp_metric_notifier = nullptr;
+  /// MBS-specific parameters.
+  mbs_config mbs;
 };
 
 } // namespace srs_cu_cp

@@ -58,6 +58,8 @@ const uint16_t MAX_NOF_CU_UPS = 65535;
 const uint64_t MAX_NOF_CU_UES = 4294967295; // 2^32 - 1
 /// Maximum number of AMFs supported by CU-CP (implementation-defined).
 const uint16_t MAX_NOF_AMFS = 65535;
+/// Maximum number of MBS Sessions supported by CU-CP (implementation-defined).
+const uint64_t MAX_NOF_CU_MBS = 16777215; // 2^24 - 1
 
 /// \brief ue_index internally used to identify the UE CU-CP-wide.
 /// \remark The ue_index is derived from the maximum number of DUs and the maximum number of UEs per DU.
@@ -133,6 +135,22 @@ constexpr inline amf_index_t uint_to_amf_index(std::underlying_type_t<amf_index_
 constexpr inline std::underlying_type_t<amf_index_t> amf_index_to_uint(amf_index_t amf_index)
 {
   return static_cast<std::underlying_type_t<amf_index_t>>(amf_index);
+}
+
+/// \brief mbs_index internally used to identify the MBS Session CU-CP-wide.
+/// \remark The mbs_index is derived from the maximum number E1AP IDs in the CU-CP.
+enum class mbs_index_t : uint64_t { min = 0, max = MAX_NOF_CU_MBS - 1, invalid = MAX_NOF_CU_MBS };
+
+/// Convert mbs_index type to integer.
+inline uint64_t mbs_index_to_uint(mbs_index_t index)
+{
+  return static_cast<uint64_t>(index);
+}
+
+/// Convert integer to mbs_index type.
+inline mbs_index_t uint_to_mbs_index(std::underlying_type_t<mbs_index_t> index)
+{
+  return static_cast<mbs_index_t>(index);
 }
 
 /// QoS Configuration, i.e. 5QI and the associated PDCP
