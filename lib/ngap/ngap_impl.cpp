@@ -972,8 +972,8 @@ void ngap_impl::handle_broadcast_session_setup_request(const asn1::ngap::broadca
   }
 
   // Add the mbs_index to the NGAP Broadcast Session Setup Request message
-  ngap_mbs_session_context& mbs_session_ctx = mbs_session_ctxt_list[mbs_index];
-  broadcast_session_setup_req.mbs_index = mbs_session_ctx.mbs_ids.mbs_index;
+  ngap_mbs_session_context& mbs_session_ctxt = mbs_session_ctxt_list[mbs_index];
+  broadcast_session_setup_req.mbs_index = mbs_session_ctxt.mbs_ids.mbs_index;
 
   // Start routine from the MBS Session task scheduler
   cu_cp_notifier.schedule_mbs_task(launch_async<ngap_broadcast_session_setup_procedure>(
