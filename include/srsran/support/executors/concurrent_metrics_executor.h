@@ -23,6 +23,7 @@
 #pragma once
 
 #include "srsran/adt/mpmc_queue.h"
+#include "srsran/srslog/srslog.h"
 #include "srsran/support/executors/detail/task_executor_utils.h"
 #include "srsran/support/executors/task_executor.h"
 #include "srsran/support/rtsan.h"
@@ -164,6 +165,8 @@ private:
       (void)free_tasks->try_push(task_idx);
     });
     if (!success) {
+      task = {};
+      (void)free_tasks->try_push(task_idx);
       logger.debug("Unsuccessful execution of handle metrics.");
     }
   }

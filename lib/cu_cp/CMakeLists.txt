@@ -27,6 +27,7 @@ set(SOURCES
       cu_cp_factory.cpp
       cu_cp_impl.cpp
       cu_configurator_impl.cpp
+      cu_cp_executor_mapper.cpp
       cu_cp_controller/cu_cp_controller.cpp
       cu_cp_controller/amf_connection_manager.cpp
       cu_cp_controller/du_connection_manager.cpp
