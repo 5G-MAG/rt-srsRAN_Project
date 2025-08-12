@@ -20,24 +20,24 @@
  *
  */
 
-#include "mbs_manager_impl.h"
+#include "mbs_session_manager_impl.h"
 
 using namespace srsran;
 using namespace srs_cu_cp;
 
-mbs_manager::mbs_manager(const cu_cp_configuration& cu_cp_cfg) :
+mbs_session_manager::mbs_session_manager(const cu_cp_configuration& cu_cp_cfg) :
   max_nof_mbs_sessions(cu_cp_cfg.mbs.max_nof_mbs_sessions)
 {
 }
 
 // common
 
-void mbs_manager::stop()
+void mbs_session_manager::stop()
 {
   mbs_common_task_sched.stop();
 }
 
-void mbs_manager::remove_mbs_session(mbs_index_t mbs_index)
+void mbs_session_manager::remove_mbs_session(mbs_index_t mbs_index)
 {
   if (mbs_index == mbs_index_t::invalid) {
     logger.warning("Can't remove MBS Session with invalid MBS index");
@@ -68,7 +68,7 @@ void mbs_manager::remove_mbs_session(mbs_index_t mbs_index)
   logger.debug("MBS Session removed");
 }
 
-mbs_index_t mbs_manager::get_mbs_index(mbs_session_id_t mbs_session_id)
+mbs_index_t mbs_session_manager::get_mbs_index(mbs_session_id_t mbs_session_id)
 {
   if (mbs_session_id_to_mbs_index.find(mbs_session_id) != mbs_session_id_to_mbs_index.end()) {
     return mbs_session_id_to_mbs_index.at(mbs_session_id);
@@ -77,7 +77,7 @@ mbs_index_t mbs_manager::get_mbs_index(mbs_session_id_t mbs_session_id)
   return mbs_index_t::invalid;
 }
 
-cu_cp_mbs_session* mbs_manager::find_mbs_session(mbs_index_t mbs_index)
+cu_cp_mbs_session* mbs_session_manager::find_mbs_session(mbs_index_t mbs_index)
 {
   if (mbs_sessions.find(mbs_index) != mbs_sessions.end()) {
     return &mbs_sessions.at(mbs_index);
@@ -87,7 +87,7 @@ cu_cp_mbs_session* mbs_manager::find_mbs_session(mbs_index_t mbs_index)
 
 // ngap
 
-mbs_index_t mbs_manager::add_mbs_session(mbs_session_id_t mbs_session_id)
+mbs_index_t mbs_session_manager::add_mbs_session(mbs_session_id_t mbs_session_id)
 {
   if (mbs_sessions.size() == max_nof_mbs_sessions) {
     logger.warning(
@@ -137,7 +137,7 @@ mbs_index_t mbs_manager::add_mbs_session(mbs_session_id_t mbs_session_id)
 
 // private functions
 
-mbs_index_t mbs_manager::allocate_mbs_index()
+mbs_index_t mbs_session_manager::allocate_mbs_index()
 {
   // return invalid when no MBS index is available
   if (mbs_sessions.size() == max_nof_mbs_sessions) {

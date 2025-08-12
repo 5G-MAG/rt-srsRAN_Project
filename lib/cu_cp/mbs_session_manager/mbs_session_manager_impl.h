@@ -48,10 +48,10 @@ private:
   fifo_async_task_scheduler main_ctrl_loop;
 };
 
-class mbs_manager
+class mbs_session_manager
 {
 public:
-  explicit mbs_manager(const cu_cp_configuration& cu_cp_cfg);
+  explicit mbs_session_manager(const cu_cp_configuration& cu_cp_cfg);
 
   // common
 
@@ -84,8 +84,6 @@ public:
   bool schedule_mbs_task(async_task<void> task) {
     return mbs_common_task_sched.schedule_async_task(std::move(task));
   }
-
-  // du processor
 
 protected:
   mbs_index_t next_mbs_index = mbs_index_t::min;

@@ -56,6 +56,7 @@ set(SOURCES
       routines/ue_removal_routine.cpp
       routines/ue_transaction_info_release_routine.cpp
       routines/ue_amf_context_release_request_routine.cpp
+      routines/broadcast_session_setup_routine.cpp
       routines/mobility/mobility_helpers.cpp
       routines/mobility/intra_cu_handover_routine.cpp
       routines/mobility/intra_cu_handover_target_routine.cpp
@@ -67,8 +68,8 @@ set(SOURCES
       ue_manager/ue_manager_impl.cpp
       ue_manager/ue_task_scheduler_impl.cpp
       paging/paging_message_handler.cpp
-      mbs_manager/cu_cp_mbs_session_impl.cpp
-      mbs_manager/mbs_manager_impl.cpp
+      mbs_session_manager/cu_cp_mbs_session_impl.cpp
+      mbs_session_manager/mbs_session_manager_impl.cpp
 )
 
 add_library(srsran_cu_cp STATIC ${SOURCES})

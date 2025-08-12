@@ -37,7 +37,7 @@
 #include "du_processor/du_processor_repository.h"
 #include "ngap_repository.h"
 #include "ue_manager/ue_manager_impl.h"
-#include "mbs_manager/mbs_manager_impl.h"
+#include "mbs_session_manager/mbs_session_manager_impl.h"
 #include "srsran/cu_cp/cu_configurator.h"
 #include "srsran/cu_cp/cu_cp_configuration.h"
 #include "srsran/cu_cp/cu_cp_types.h"
@@ -208,8 +208,8 @@ private:
   // UE manager.
   ue_manager ue_mng;
 
-  // MBS manager.
-  mbs_manager mbs_mng;
+  // MBS Session manager.
+  mbs_session_manager mbs_session_mng;
 
   // Cell measurement manager.
   cell_meas_manager cell_meas_mng;
