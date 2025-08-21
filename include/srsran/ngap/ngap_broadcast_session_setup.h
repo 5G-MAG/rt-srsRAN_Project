@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "srsran/cu_cp/cu_cp_types.h"
 #include "srsran/ngap/ngap_types.h"
 #include "srsran/ran/mbs.h"
 #include "srsran/ran/s_nssai.h"
@@ -33,6 +34,7 @@ namespace srsran {
 namespace srs_cu_cp {
 
 struct ngap_broadcast_session_setup_request {
+  mbs_index_t mbs_index = mbs_index_t::invalid;
   //mbs_session_id (M)
   mbs_session_id_t mbs_session_id;
   //s_nssai (M)
@@ -40,7 +42,7 @@ struct ngap_broadcast_session_setup_request {
   //mbs_service_area (M)
   ngap_mbs_service_area mbs_service_area;
   //mbs_session_setup_request_transfer (M)
-  byte_buffer mbs_session_setup_request_transfer;
+  ngap_mbs_session_setup_or_modification_request_transfer mbs_session_setup_request_transfer;
 };
 
 struct ngap_broadcast_session_setup_response {

@@ -76,12 +76,12 @@ struct ngap_mbs_service_area_information_item {
   ngap_mbs_service_area_information mbs_service_area_information;
 };
 
-struct ngap_location_independent {
+struct ngap_mbs_service_area_location_independent {
   //mbs_service_area_information (M)
   ngap_mbs_service_area_information mbs_service_area_information;
 };
 
-struct ngap_location_dependent {
+struct ngap_mbs_service_area_location_dependent {
   //mbs_service_area_information_list (1)
   std::vector<ngap_mbs_service_area_information_item> mbs_service_area_information_list;
 };
@@ -89,17 +89,97 @@ struct ngap_location_dependent {
 /// \brief MBS Service Area.
 /// \remark See 3GPP TS 38.413, 9.3.1.208 - MBS Service Area.
 struct ngap_mbs_service_area {
-  ngap_mbs_service_area() : choice(ngap_location_independent{}) {}
-  ngap_mbs_service_area(const ngap_location_independent& val) : choice(val) {}
-  ngap_mbs_service_area(const ngap_location_dependent& val) : choice(val) {}
+  ngap_mbs_service_area() : choice(ngap_mbs_service_area_location_dependent{}) {}
+  ngap_mbs_service_area(const ngap_mbs_service_area_location_independent& val) : choice(val) {}
+  ngap_mbs_service_area(const ngap_mbs_service_area_location_dependent& val) : choice(val) {}
 
-  bool is_locationdependent() const { return std::holds_alternative<ngap_location_dependent>(choice); }
+  bool is_locationdependent() const { return std::holds_alternative<ngap_mbs_service_area_location_dependent>(choice); }
 
-  ngap_location_independent get_locationindependent() { return std::get<ngap_location_independent>(choice); }
-  ngap_location_dependent get_locationdependent() { return std::get<ngap_location_dependent>(choice); }
+  ngap_mbs_service_area_location_independent get_locationindependent() { return std::get<ngap_mbs_service_area_location_independent>(choice); }
+  ngap_mbs_service_area_location_dependent get_locationdependent() { return std::get<ngap_mbs_service_area_location_dependent>(choice); }
 
 private:
-  std::variant<ngap_location_independent, ngap_location_dependent> choice;
+  std::variant<ngap_mbs_service_area_location_independent, ngap_mbs_service_area_location_dependent> choice;
+};
+
+struct ngap_shared_ngu_multicast_tnl_information {
+  //ip_multicast_address (M)
+  transport_layer_address ip_multicast_address;
+  //ip_source_address (M)
+  transport_layer_address ip_source_address;
+  //gtp_teid_at_5gc (M)
+  gtpu_teid_t gtp_teid_at_5gc;
+};
+
+struct ngap_mbs_session_tnl_information_5gc_item {
+  //mbs_area_session_id (M)
+  area_session_id_t mbs_area_session_id;
+  //shared_ngu_multicast_tnl_information (M)
+  ngap_shared_ngu_multicast_tnl_information shared_ngu_multicast_tnl_information;
+};
+
+struct ngap_mbs_session_tnl_info_5gc_location_independent {
+  //shared_ngu_multicast_tnl_information (M)
+  ngap_shared_ngu_multicast_tnl_information shared_ngu_multicast_tnl_information;
+};
+
+struct ngap_mbs_session_tnl_info_5gc_location_dependent {
+  //mbs_session_tnl_information_5gc_list (1)
+  std::vector<ngap_mbs_session_tnl_information_5gc_item> mbs_session_tnl_information_5gc_list;
+};
+
+/// \brief MBS Session TNL Information 5GC.
+/// \remark See 3GPP TS 38.413, 9.3.2.15 - MBS Session TNL Information 5GC.
+struct ngap_mbs_session_tnl_information_5gc {
+  ngap_mbs_session_tnl_information_5gc() : choice(ngap_mbs_session_tnl_info_5gc_location_dependent{}) {}
+  ngap_mbs_session_tnl_information_5gc(const ngap_mbs_session_tnl_info_5gc_location_independent& val) : choice(val) {}
+  ngap_mbs_session_tnl_information_5gc(const ngap_mbs_session_tnl_info_5gc_location_dependent& val) : choice(val) {}
+
+  bool is_locationdependent() const { return std::holds_alternative<ngap_mbs_session_tnl_info_5gc_location_dependent>(choice); }
+
+  ngap_mbs_session_tnl_info_5gc_location_independent get_locationindependent() { return std::get<ngap_mbs_session_tnl_info_5gc_location_independent>(choice); }
+  ngap_mbs_session_tnl_info_5gc_location_dependent get_locationdependent() { return std::get<ngap_mbs_session_tnl_info_5gc_location_dependent>(choice); }
+
+private:
+  std::variant<ngap_mbs_session_tnl_info_5gc_location_independent, ngap_mbs_session_tnl_info_5gc_location_dependent> choice;
+};
+
+/// \brief QoS Flow Level QoS Parameters.
+/// \remark See 3GPP TS 38.413, 9.3.1.12 - QoS Flow Level QoS Parameters.
+struct ngap_qos_flow_level_qos_params {
+  //qos_characteristics (M)
+  qos_characteristics qos_desc;
+  //allocation_and_retention_priority (M)
+  alloc_and_retention_priority allocation_and_retention_priority;
+  //gbr_qos_flow_information (O)
+  std::optional<gbr_qos_flow_information> gbr_qos_flow_info;
+  //reflective_qos_attribute (O)
+
+  //additional_qos_flow_information (O)
+
+  //qos_monitoring_request (O)
+
+  //qos_monitoring_reporting_frequency (O)
+};
+
+/// \brief MBS QoS Flows To Be Setup List.
+/// \remark See 3GPP TS 38.413, 9.3.1.236 - MBS QoS Flows To Be Setup List.
+struct ngap_mbs_qos_flows_setup_request_item {
+  //mbs_qos_flow_identifier (M)
+  qos_flow_id_t mbs_qos_flow_identifier = qos_flow_id_t::invalid;
+  //mbs_qos_flow_level_qos_parameters (M)
+  ngap_qos_flow_level_qos_params mbs_qos_flow_level_qos_parameters;
+};
+
+/// \brief MBS Session Setup or Modification Request Transfer.
+/// \remark See 3GPP TS 38.413, 9.3.5.3 - MBS Session Setup or Modification Request Transfer.
+struct ngap_mbs_session_setup_or_modification_request_transfer {
+  //mbs_session_tnl_information_5gc (O)
+  std::optional<ngap_mbs_session_tnl_information_5gc> mbs_session_tnl_information_5gc;
+  //mbs_qos_flows_to_be_setup_or_modified_list (M)
+  std::vector<ngap_mbs_qos_flows_setup_request_item> mbs_qos_flows_to_be_setup_or_modified_list;
+  //mbs_session_fsa_id_list (0..maxnoofMBSFSAs)
+  std::vector<fsa_id_t> mbs_session_fsa_id_list;
 };
 
 } // namespace srs_cu_cp
