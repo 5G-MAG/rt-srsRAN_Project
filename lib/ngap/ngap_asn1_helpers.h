@@ -603,13 +603,13 @@ inline bool fill_ngap_broadcast_session_setup_request(ngap_broadcast_session_set
     request.mbs_session_id.nid = std::nullopt;
   }
 
-  // Fill s-NSSAI.
+  // Fill S-NSSAI.
   request.s_nssai = ngap_asn1_to_s_nssai(asn1_request->s_nssai);
 
   // Fill MBS Service Area.
   if (asn1_request->mbs_service_area.type() ==
       asn1::ngap::mbs_service_area_c::types::locationindependent) {
-    ngap_location_independent locationindependent = {};
+    ngap_mbs_service_area_location_independent locationindependent = {};
 
     for (const auto& nr_cgi_item : asn1_request->mbs_service_area.locationindependent().mbs_service_area_cell_list) {
       locationindependent.mbs_service_area_information.mbs_service_area_cell_list.push_back(ngap_asn1_to_nr_cgi(nr_cgi_item));
@@ -626,8 +626,8 @@ inline bool fill_ngap_broadcast_session_setup_request(ngap_broadcast_session_set
     request.mbs_service_area = ngap_mbs_service_area{locationindependent};
 
   } else if (asn1_request->mbs_service_area.type() ==
-             asn1::ngap::mbs_service_area_c::types::locationdependent) {
-    ngap_location_dependent locationdependent = {};
+              asn1::ngap::mbs_service_area_c::types::locationdependent) {
+    ngap_mbs_service_area_location_dependent locationdependent = {};
 
     for (const auto& locationdependent_item : asn1_request->mbs_service_area.locationdependent()) {
       ngap_mbs_service_area_information_item mbs_service_area_information_item;
@@ -657,13 +657,122 @@ inline bool fill_ngap_broadcast_session_setup_request(ngap_broadcast_session_set
   }
 
   // Fill MBS Session Setup Request Transfer.
-  if (!asn1_request->mbs_session_setup_request_transfer.empty()) {
-    if (!request.mbs_session_setup_request_transfer.resize(asn1_request->mbs_session_setup_request_transfer.size())) {
-      return false;
+  asn1::ngap::mbs_session_setup_or_mod_request_transfer_s asn1_mbs_setup_request_transfer;
+  asn1::cbit_ref bref(asn1_request->mbs_session_setup_request_transfer);
+
+  if (asn1_mbs_setup_request_transfer.unpack(bref) != asn1::SRSASN_SUCCESS) {
+    srslog::fetch_basic_logger("NGAP").error("Couldn't unpack MBS Session Setup Request Transfer PDU.");
+    return false;
+  }
+
+  // Fill MBS Session TNL Informantion 5GC.
+  if (asn1_mbs_setup_request_transfer->mbs_session_tnl_info5_gc_present) {
+    if (asn1_mbs_setup_request_transfer->mbs_session_tnl_info5_gc.type() ==
+        asn1::ngap::mbs_session_tnl_info5_gc_c::types::locationindependent) {
+      ngap_mbs_session_tnl_info_5gc_location_independent locationindependent = {};
+
+      locationindependent.shared_ngu_multicast_tnl_information.ip_multicast_address =
+        transport_layer_address::create_from_bitstring(asn1_mbs_setup_request_transfer->mbs_session_tnl_info5_gc.locationindependent().ip_multicast_address.to_string());
+
+      locationindependent.shared_ngu_multicast_tnl_information.ip_source_address =
+        transport_layer_address::create_from_bitstring(asn1_mbs_setup_request_transfer->mbs_session_tnl_info5_gc.locationindependent().ip_source_address.to_string());
+
+      locationindependent.shared_ngu_multicast_tnl_information.gtp_teid_at_5gc =
+        int_to_gtpu_teid(asn1_mbs_setup_request_transfer->mbs_session_tnl_info5_gc.locationindependent().gtp_teid.to_number());
+
+      request.mbs_session_setup_request_transfer.mbs_session_tnl_information_5gc.emplace(locationindependent);
+    } else if (asn1_mbs_setup_request_transfer->mbs_session_tnl_info5_gc.type() ==
+                asn1::ngap::mbs_session_tnl_info5_gc_c::types::locationdependent) {
+      ngap_mbs_session_tnl_info_5gc_location_dependent locationdependent = {};
+
+      for (const auto& locationdependent_item : asn1_mbs_setup_request_transfer->mbs_session_tnl_info5_gc.locationdependent()) {
+        ngap_mbs_session_tnl_information_5gc_item mbs_session_tnl_information_5gc_item;
+
+        area_session_id_t mbs_area_session_id = uint_to_area_session_id(locationdependent_item.mbs_area_session_id);
+
+        mbs_session_tnl_information_5gc_item.mbs_area_session_id = mbs_area_session_id;
+
+        mbs_session_tnl_information_5gc_item.shared_ngu_multicast_tnl_information.ip_multicast_address =
+        transport_layer_address::create_from_bitstring(locationdependent_item.shared_ngu_multicast_tnl_info.ip_multicast_address.to_string());
+
+        mbs_session_tnl_information_5gc_item.shared_ngu_multicast_tnl_information.ip_source_address =
+        transport_layer_address::create_from_bitstring(locationdependent_item.shared_ngu_multicast_tnl_info.ip_source_address.to_string());
+
+        mbs_session_tnl_information_5gc_item.shared_ngu_multicast_tnl_information.gtp_teid_at_5gc =
+        int_to_gtpu_teid(locationdependent_item.shared_ngu_multicast_tnl_info.gtp_teid.to_number());
+
+        locationdependent.mbs_session_tnl_information_5gc_list.push_back(mbs_session_tnl_information_5gc_item);
+      }
+
+      request.mbs_session_setup_request_transfer.mbs_session_tnl_information_5gc.emplace(locationdependent);
     }
-    std::copy(asn1_request->mbs_session_setup_request_transfer.begin(),
-              asn1_request->mbs_session_setup_request_transfer.end(),
-              request.mbs_session_setup_request_transfer.begin());
+  }
+
+  // Fill MBS QoS Flows To Be Setup List.
+  for (const auto& asn1_mbs_qos_flow_item : asn1_mbs_setup_request_transfer->mbs_qos_flows_to_be_setup_mod_list) {
+    ngap_mbs_qos_flows_setup_request_item mbs_qos_flows_item;
+
+    // Fill QoS Flow Identifier.
+    mbs_qos_flows_item.mbs_qos_flow_identifier = uint_to_qos_flow_id(asn1_mbs_qos_flow_item.mb_sqos_flow_id);
+
+    // Fill QoS Flow Level QoS Parameters.
+    // Fill QoS Characteristics.
+    if (asn1_mbs_qos_flow_item.mb_sqos_flow_level_qos_params.qos_characteristics.type() ==
+        asn1::ngap::qos_characteristics_c::types::dyn5qi) {
+      dyn_5qi_descriptor dyn_5qi = {};
+      if (asn1_mbs_qos_flow_item.mb_sqos_flow_level_qos_params.qos_characteristics.dyn5qi().five_qi_present) {
+        dyn_5qi.five_qi =
+          uint_to_five_qi(asn1_mbs_qos_flow_item.mb_sqos_flow_level_qos_params.qos_characteristics.dyn5qi().five_qi);
+
+        mbs_qos_flows_item.mbs_qos_flow_level_qos_parameters.qos_desc = dyn_5qi;
+      }
+
+      // TODO (borieher): Add more values
+
+    } else if (asn1_mbs_qos_flow_item.mb_sqos_flow_level_qos_params.qos_characteristics.type() ==
+               asn1::ngap::qos_characteristics_c::types::non_dyn5qi) {
+      non_dyn_5qi_descriptor non_dyn_5qi = {};
+      non_dyn_5qi.five_qi =
+          uint_to_five_qi(asn1_mbs_qos_flow_item.mb_sqos_flow_level_qos_params.qos_characteristics.non_dyn5qi().five_qi);
+
+      mbs_qos_flows_item.mbs_qos_flow_level_qos_parameters.qos_desc = non_dyn_5qi;
+
+      // TODO (borieher): Add more optional values
+    }
+
+    // Fill Allocation and Retention Priority.
+    mbs_qos_flows_item.mbs_qos_flow_level_qos_parameters.allocation_and_retention_priority.prio_level_arp =
+        asn1_mbs_qos_flow_item.mb_sqos_flow_level_qos_params.alloc_and_retention_prio.prio_level_arp;
+    mbs_qos_flows_item.mbs_qos_flow_level_qos_parameters.allocation_and_retention_priority.may_trigger_preemption =
+        asn1_mbs_qos_flow_item.mb_sqos_flow_level_qos_params.alloc_and_retention_prio.pre_emption_cap.value ==
+        asn1::ngap::pre_emption_cap_opts::may_trigger_pre_emption;
+    mbs_qos_flows_item.mbs_qos_flow_level_qos_parameters.allocation_and_retention_priority.is_preemptable =
+        asn1_mbs_qos_flow_item.mb_sqos_flow_level_qos_params.alloc_and_retention_prio.pre_emption_vulnerability.value ==
+        asn1::ngap::pre_emption_vulnerability_opts::pre_emptable;
+
+    // Fill GBR QoS Flow Information.
+    if (asn1_mbs_qos_flow_item.mb_sqos_flow_level_qos_params.gbr_qos_info_present) {
+      auto& gbr = mbs_qos_flows_item.mbs_qos_flow_level_qos_parameters.gbr_qos_flow_info.emplace();
+      gbr.max_br_dl = asn1_mbs_qos_flow_item.mb_sqos_flow_level_qos_params.gbr_qos_info.max_flow_bit_rate_dl;
+      gbr.max_br_ul = asn1_mbs_qos_flow_item.mb_sqos_flow_level_qos_params.gbr_qos_info.max_flow_bit_rate_ul;
+      gbr.gbr_dl = asn1_mbs_qos_flow_item.mb_sqos_flow_level_qos_params.gbr_qos_info.guaranteed_flow_bit_rate_dl;
+      gbr.gbr_ul = asn1_mbs_qos_flow_item.mb_sqos_flow_level_qos_params.gbr_qos_info.guaranteed_flow_bit_rate_ul;
+      if (asn1_mbs_qos_flow_item.mb_sqos_flow_level_qos_params.gbr_qos_info.max_packet_loss_rate_dl_present) {
+        gbr.max_packet_loss_rate_dl = asn1_mbs_qos_flow_item.mb_sqos_flow_level_qos_params.gbr_qos_info.max_packet_loss_rate_dl;
+      }
+      if (asn1_mbs_qos_flow_item.mb_sqos_flow_level_qos_params.gbr_qos_info.max_packet_loss_rate_ul_present) {
+        gbr.max_packet_loss_rate_ul = asn1_mbs_qos_flow_item.mb_sqos_flow_level_qos_params.gbr_qos_info.max_packet_loss_rate_ul;
+      }
+    }
+
+    request.mbs_session_setup_request_transfer.mbs_qos_flows_to_be_setup_or_modified_list.push_back(mbs_qos_flows_item);
+  }
+
+  // Fill MBS Session FSA ID List.
+  if (asn1_mbs_setup_request_transfer->mbs_session_fsa_id_list_present) {
+    for (const auto& fsa_id : asn1_mbs_setup_request_transfer->mbs_session_fsa_id_list) {
+      request.mbs_session_setup_request_transfer.mbs_session_fsa_id_list.push_back(uint_to_fsa_id(fsa_id.to_number()));
+    }
   }
 
   return true;
