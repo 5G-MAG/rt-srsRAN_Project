@@ -95,7 +95,7 @@ mbs_index_t mbs_session_manager::add_mbs_session(mbs_session_id_t mbs_session_id
         max_nof_mbs_sessions);
     fmt::print("CU-CP MBS Session creation failed. Cause: Maximum number of MBS Sessions supported by the CU-CP ({}) has been reached. "
                "To increase the number of supported "
-               "MBS Sessions change the \"--max_nof_mbs_sessions\" in the CU-CP configuration\n",
+               "MBS Sessions change the \"--max_nof_mbs_sessions\" in the MBS configuration\n",
                max_nof_mbs_sessions);
     return mbs_index_t::invalid;
   }

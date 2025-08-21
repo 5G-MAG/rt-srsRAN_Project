@@ -103,7 +103,7 @@ private:
       next_mbs_index = uint_to_mbs_index(mbs_index_to_uint(next_mbs_index) + 1);
     }
   }
-  srslog::basic_logger& logger = srslog::fetch_basic_logger("CU-MBSMNG");
+  srslog::basic_logger& logger = srslog::fetch_basic_logger("CU-CP-MBSMNG");
   const unsigned        max_nof_mbs_sessions;
 
   // Common task scheduler for MBS Sessions.
