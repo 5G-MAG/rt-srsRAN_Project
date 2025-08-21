@@ -27,6 +27,7 @@
 #include <variant>
 #include "srsran/ran/plmn_identity.h"
 #include "srsran/ran/tac.h"
+#include "srsran/ran/pci.h"
 
 namespace srsran {
 
@@ -117,8 +118,42 @@ constexpr inline area_session_id_t uint_to_area_session_id(uint32_t idx)
   return static_cast<area_session_id_t>(idx);
 }
 
+/// \remark See 3GPP TS 23.003, 30.4 - Frequency Selection Area ID.
+/// Note from 3GPP TS 38.413, 9.3.5.3 - MBS Frequency Selection Area ID ::= OCTET STRING (SIZE (3)).
+static constexpr uint32_t INVALID_FSA_ID = ((uint32_t)1 << 24);
+
+/// \brief Frequency Selection Area ID.
+/// \remark See 3GPP TS 23.003, 30.4 - Frequency Selection Area ID.
+enum class fsa_id_t : uint32_t { min = 0, max = INVALID_FSA_ID - 1, invalid = INVALID_FSA_ID };
+
+/// Convert Frequency Selection Area ID type to integer.
+constexpr inline uint32_t fsa_id_to_uint(fsa_id_t fsa_id)
+{
+  return static_cast<uint32_t>(fsa_id);
+}
+
+/// Convert integer to Frequency Selection Area ID type.
+constexpr inline fsa_id_t uint_to_fsa_id(uint32_t idx)
+{
+  return static_cast<fsa_id_t>(idx);
+}
+
+/// \brief MBS-NeighbourCell-r17.
+/// \remark See 3GPP TS 38.331, 6.3.6 - MBS information elements, MBS-NeighbourCell-r17.
+struct mbs_neighbour_cell_item {
+  pci_t phys_cell_id;
+  unsigned carrier_freq;
+};
+
+/// Stores all the MBS-related cell configuration
+struct mbs_cell_config {
+  // MBS-NeighbourCellList-r17
+  std::vector<mbs_neighbour_cell_item> mbs_neighbour_cell_list;
+};
+
 struct mbs_config {
   unsigned max_nof_mbs_sessions = 25;
+  mbs_cell_config cell_config;
 };
 
 } // namespace srsran
