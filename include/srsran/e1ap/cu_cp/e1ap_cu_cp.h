@@ -68,6 +68,14 @@ public:
   virtual async_task<void> handle_bearer_context_release_command(const e1ap_bearer_context_release_command& msg) = 0;
 };
 
+/// Handle E1AP MBS procedures as defined in TS 37.483 section 8.6.
+class e1ap_mbs_session_context_manager
+{
+public:
+  virtual ~e1ap_mbs_session_context_manager() = default;
+
+};
+
 struct bearer_creation_complete_message {
   ue_index_t ue_index;
 };
@@ -150,6 +158,7 @@ class e1ap_interface : public e1ap_message_handler,
                        public e1ap_event_handler,
                        public e1ap_connection_manager,
                        public e1ap_bearer_context_manager,
+                       public e1ap_mbs_session_context_manager,
                        public e1ap_ue_handler,
                        public e1ap_bearer_context_removal_handler,
                        public e1ap_statistics_handler

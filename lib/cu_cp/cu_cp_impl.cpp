@@ -864,14 +864,16 @@ mbs_index_t cu_cp_impl::handle_new_ngap_mbs_session(mbs_session_id_t mbs_session
 async_task<expected<ngap_broadcast_session_setup_response, ngap_broadcast_session_setup_failure>>
   cu_cp_impl::handle_broadcast_session_setup_request(const ngap_broadcast_session_setup_request& request)
 {
-  // TODO (borieher): launch the broadcast_session_setup_routine
-  //return launch_async<broadcast_session_setup_routine>(request);
+  cu_cp_mbs_session* mbs_session = mbs_session_mng.find_mbs_session(request.mbs_index);
 
-  return launch_async(
-      [](coro_context<async_task<expected<ngap_broadcast_session_setup_response, ngap_broadcast_session_setup_failure>>>& ctx) {
-        CORO_BEGIN(ctx);
-        CORO_RETURN(ngap_broadcast_session_setup_response{});
-      });
+  srsran_assert(mbs_session != nullptr, "Could not find CU-CP MBS Session");
+  srsran_assert(cu_up_db.find_cu_up_processor(uint_to_cu_up_index(0)) != nullptr,
+                "cu_up_index={}: could not find CU-UP",
+                uint_to_cu_up_index(0));
+  return launch_async<broadcast_session_setup_routine>(
+      request,
+      cu_up_db.find_cu_up_processor(uint_to_cu_up_index(0))->get_e1ap_mbs_session_context_manager(),
+      logger);
 }
 
 // private

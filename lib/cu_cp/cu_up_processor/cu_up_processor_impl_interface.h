@@ -68,6 +68,10 @@ public:
   /// \brief Get the E1AP statistic interface.
   /// \return The E1AP statistic interface of the CU-UP processor object.
   virtual e1ap_statistics_handler& get_e1ap_statistics_handler() = 0;
+
+  /// \brief Get the E1AP MBS Session context manager interface.
+  /// \return The E1AP MBS Session context manager interface of the CU-UP processor object.
+  virtual e1ap_mbs_session_context_manager& get_e1ap_mbs_session_context_manager() = 0;
 };
 
 /// Methods used by CU-UP processor to notify about CU-UP specific events.

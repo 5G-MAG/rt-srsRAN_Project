@@ -24,6 +24,7 @@
 
 #include "procedures/e1ap_transaction_manager.h"
 #include "ue_context/e1ap_cu_cp_ue_context.h"
+#include "mbs_session_context/e1ap_cu_cp_mbs_session_context.h"
 #include "srsran/asn1/e1ap/e1ap.h"
 #include "srsran/e1ap/cu_cp/e1ap_configuration.h"
 #include "srsran/e1ap/cu_cp/e1ap_cu_cp.h"
@@ -56,6 +57,10 @@ public:
   async_task<e1ap_bearer_context_modification_response>
   handle_bearer_context_modification_request(const e1ap_bearer_context_modification_request& request) override;
   async_task<void> handle_bearer_context_release_command(const e1ap_bearer_context_release_command& command) override;
+
+  // e1ap_mbs_session_context_manager functions
+  virtual async_task<expected<e1ap_bc_bearer_context_setup_response, e1ap_bc_bearer_context_setup_failure>>
+  handle_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& request) override;
 
   // e1ap_message_handler functions
   void handle_message(const e1ap_message& msg) override;
@@ -117,6 +122,9 @@ private:
 
   /// Repository of UE Contexts.
   e1ap_ue_context_list ue_ctxt_list;
+
+  /// Repository of MBS Session Contexts.
+  e1ap_mbs_session_context_list mbs_session_ctxt_list;
 
   e1ap_transaction_manager ev_mng;
 
