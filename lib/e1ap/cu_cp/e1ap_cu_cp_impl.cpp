@@ -27,6 +27,7 @@
 #include "procedures/bearer_context_modification_procedure.h"
 #include "procedures/bearer_context_release_procedure.h"
 #include "procedures/bearer_context_setup_procedure.h"
+#include "procedures/bc_bearer_context_setup_procedure.h"
 #include "srsran/asn1/e1ap/e1ap.h"
 #include "srsran/ran/cause/e1ap_cause.h"
 
@@ -229,14 +230,8 @@ e1ap_cu_cp_impl::handle_bc_bearer_context_setup_request(e1ap_bc_bearer_context_s
 
   fill_asn1_bc_bearer_context_setup_request(bc_bearer_context_setup_request, request);
 
-  // TODO (borieher): launch the bc_bearer_context_setup_procedure
-  //return launch_async<bc_bearer_context_setup_procedure>(request);
-
-  return launch_async(
-    [](coro_context<async_task<expected<e1ap_bc_bearer_context_setup_response, e1ap_bc_bearer_context_setup_failure>>>& ctx) {
-      CORO_BEGIN(ctx);
-      CORO_RETURN(e1ap_bc_bearer_context_setup_response{});
-    });
+  return launch_async<bc_bearer_context_setup_procedure>(
+      e1ap_cfg, e1ap_msg, mbs_session_ctxt.mbs_session_ev_mng, mbs_session_ctxt_list, pdu_notifier, logger);
 }
 
 void e1ap_cu_cp_impl::handle_message(const e1ap_message& msg)
@@ -365,13 +360,22 @@ void e1ap_cu_cp_impl::handle_bearer_context_inactivity_notification(
 
 void e1ap_cu_cp_impl::handle_successful_outcome(const asn1::e1ap::successful_outcome_s& outcome)
 {
-  using successful_types                         = asn1::e1ap::e1ap_elem_procs_o::successful_outcome_c::types_opts;
-  std::optional<gnb_cu_cp_ue_e1ap_id_t> cu_ue_id = get_gnb_cu_cp_ue_e1ap_id(outcome);
+  using successful_types                           = asn1::e1ap::e1ap_elem_procs_o::successful_outcome_c::types_opts;
+  std::optional<gnb_cu_cp_ue_e1ap_id_t> cu_ue_id   = get_gnb_cu_cp_ue_e1ap_id(outcome);
+  std::optional<gnb_cu_cp_mbs_e1ap_id_t> cu_mbs_id = get_gnb_cu_cp_mbs_e1ap_id(outcome);
 
   if (cu_ue_id.has_value()) {
     if (not ue_ctxt_list.contains(*cu_ue_id)) {
       logger.warning("cu_ue={}: Discarding received \"{}\". Cause: UE was not found.",
                      fmt::underlying(*cu_ue_id),
+                     outcome.value.type().to_string());
+      return;
+    }
+  }
+
+  if (cu_mbs_id.has_value()) {
+    if (not mbs_session_ctxt_list.contains(*cu_mbs_id)) {
+      logger.warning("Discarding received \"{}\". Cause: MBS Session was not found.",
                      outcome.value.type().to_string());
       return;
     }
@@ -387,6 +391,10 @@ void e1ap_cu_cp_impl::handle_successful_outcome(const asn1::e1ap::successful_out
     case successful_types::bearer_context_release_complete: {
       ue_ctxt_list[*cu_ue_id].bearer_ev_mng.context_release_complete.set(
           outcome.value.bearer_context_release_complete());
+    } break;
+    case successful_types::bc_bearer_context_setup_resp: {
+      mbs_session_ctxt_list[*cu_mbs_id].mbs_session_ev_mng.bc_bearer_context_setup_outcome.set(
+          outcome.value.bc_bearer_context_setup_resp());
     } break;
     default:
       // Handle successful outcomes with transaction id
@@ -405,13 +413,22 @@ void e1ap_cu_cp_impl::handle_successful_outcome(const asn1::e1ap::successful_out
 
 void e1ap_cu_cp_impl::handle_unsuccessful_outcome(const asn1::e1ap::unsuccessful_outcome_s& outcome)
 {
-  using unsuccessful_types                       = asn1::e1ap::e1ap_elem_procs_o::unsuccessful_outcome_c::types_opts;
-  std::optional<gnb_cu_cp_ue_e1ap_id_t> cu_ue_id = get_gnb_cu_cp_ue_e1ap_id(outcome);
+  using unsuccessful_types                         = asn1::e1ap::e1ap_elem_procs_o::unsuccessful_outcome_c::types_opts;
+  std::optional<gnb_cu_cp_ue_e1ap_id_t> cu_ue_id   = get_gnb_cu_cp_ue_e1ap_id(outcome);
+  std::optional<gnb_cu_cp_mbs_e1ap_id_t> cu_mbs_id = get_gnb_cu_cp_mbs_e1ap_id(outcome);
 
   if (cu_ue_id.has_value()) {
     if (not ue_ctxt_list.contains(*cu_ue_id)) {
       logger.warning("cu_ue={}: Discarding received \"{}\". Cause: UE was not found.",
                      fmt::underlying(*cu_ue_id),
+                     outcome.value.type().to_string());
+      return;
+    }
+  }
+
+  if (cu_mbs_id.has_value()) {
+    if (not mbs_session_ctxt_list.contains(*cu_mbs_id)) {
+      logger.warning("Discarding received \"{}\". Cause: MBS Session was not found.",
                      outcome.value.type().to_string());
       return;
     }
@@ -423,6 +440,10 @@ void e1ap_cu_cp_impl::handle_unsuccessful_outcome(const asn1::e1ap::unsuccessful
     } break;
     case unsuccessful_types::bearer_context_mod_fail: {
       ue_ctxt_list[*cu_ue_id].bearer_ev_mng.context_modification_outcome.set(outcome.value.bearer_context_mod_fail());
+    } break;
+    case unsuccessful_types::bc_bearer_context_setup_fail: {
+      mbs_session_ctxt_list[*cu_mbs_id].mbs_session_ev_mng.bc_bearer_context_setup_outcome.set(
+          outcome.value.bc_bearer_context_setup_fail());
     } break;
     default:
       // Handle unsuccessful outcomes with transaction id

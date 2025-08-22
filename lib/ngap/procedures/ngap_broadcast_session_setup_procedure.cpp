@@ -52,9 +52,6 @@ void ngap_broadcast_session_setup_procedure::operator()(coro_context<async_task<
     send_broadcast_session_setup_failure(broadcast_session_setup_routine_outcome.error());
     logger.error("\"{}\" failed", name());
   } else {
-    // NOTE (borieher): Fill the TMGI in the response, should be done on the broadcast_session_setup_routine_outcome
-    broadcast_session_setup_routine_outcome.value().mbs_session_id.tmgi = request.mbs_session_id.tmgi;
-
     send_broadcast_session_setup_response(broadcast_session_setup_routine_outcome.value());
     logger.debug("\"{}\" finished successfully", name());
   }

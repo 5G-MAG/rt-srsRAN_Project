@@ -27,6 +27,7 @@
 #include "srsran/asn1/e1ap/e1ap_pdu_contents.h"
 #include "srsran/e1ap/common/e1ap_types.h"
 #include "srsran/support/error_handling.h"
+#include "srsran/ran/mbs.h"
 
 namespace srsran {
 
@@ -297,6 +298,136 @@ inline std::optional<gnb_cu_up_ue_e1ap_id_t> get_gnb_cu_up_ue_e1ap_id(const asn1
       return get_gnb_cu_up_ue_e1ap_id(pdu.successful_outcome());
     case e1ap_pdu_c::types_opts::unsuccessful_outcome:
       return get_gnb_cu_up_ue_e1ap_id(pdu.unsuccessful_outcome());
+    default:
+      break;
+  }
+  return std::nullopt;
+}
+
+// Same functions but for the gNB-CU-CP MBS ID and gNB-CU-UP MBS ID.
+
+// gNB-CU-CP MBS ID
+inline std::optional<gnb_cu_cp_mbs_e1ap_id_t>
+get_gnb_cu_cp_mbs_e1ap_id(const asn1::e1ap::init_msg_s& init_msg)
+{
+  using init_msg_type = asn1::e1ap::e1ap_elem_procs_o::init_msg_c::types_opts;
+  switch (init_msg.value.type()) {
+    case init_msg_type::bc_bearer_context_setup_request:
+      return (gnb_cu_cp_mbs_e1ap_id_t)init_msg.value.bc_bearer_context_setup_request()->gnb_cu_cp_mbs_e1ap_id;
+    case init_msg_type::bc_bearer_context_mod_request:
+      return (gnb_cu_cp_mbs_e1ap_id_t)init_msg.value.bc_bearer_context_mod_request()->gnb_cu_cp_mbs_e1ap_id;
+    default:
+      break;
+  }
+  return std::nullopt;
+}
+
+inline std::optional<gnb_cu_cp_mbs_e1ap_id_t>
+get_gnb_cu_cp_mbs_e1ap_id(const asn1::e1ap::successful_outcome_s& success_outcome)
+{
+  using namespace asn1::e1ap;
+  using success_msg_type = e1ap_elem_procs_o::successful_outcome_c::types_opts;
+  switch (success_outcome.value.type().value) {
+    case success_msg_type::bc_bearer_context_setup_resp:
+      return (gnb_cu_cp_mbs_e1ap_id_t)success_outcome.value.bc_bearer_context_setup_resp()->gnb_cu_cp_mbs_e1ap_id;
+    case success_msg_type::bc_bearer_context_mod_resp:
+      return (gnb_cu_cp_mbs_e1ap_id_t)success_outcome.value.bc_bearer_context_mod_resp()->gnb_cu_cp_mbs_e1ap_id;
+    default:
+      break;
+  }
+  return std::nullopt;
+}
+
+inline std::optional<gnb_cu_cp_mbs_e1ap_id_t>
+get_gnb_cu_cp_mbs_e1ap_id(const asn1::e1ap::unsuccessful_outcome_s& unsuccessful_outcome)
+{
+  using namespace asn1::e1ap;
+  using unsuccess_msg_type = e1ap_elem_procs_o::unsuccessful_outcome_c::types_opts;
+  switch (unsuccessful_outcome.value.type().value) {
+    case unsuccess_msg_type::bc_bearer_context_setup_fail:
+      return (gnb_cu_cp_mbs_e1ap_id_t)unsuccessful_outcome.value.bc_bearer_context_setup_fail()->gnb_cu_cp_mbs_e1ap_id;
+    case unsuccess_msg_type::bc_bearer_context_mod_fail:
+      return (gnb_cu_cp_mbs_e1ap_id_t)unsuccessful_outcome.value.bc_bearer_context_mod_fail()->gnb_cu_cp_mbs_e1ap_id;
+    default:
+      break;
+  }
+  return std::nullopt;
+}
+
+inline std::optional<gnb_cu_cp_mbs_e1ap_id_t>
+get_gnb_cu_cp_mbs_e1ap_id(const asn1::e1ap::e1ap_pdu_c& pdu)
+{
+  using namespace asn1::e1ap;
+  switch (pdu.type().value) {
+    case e1ap_pdu_c::types_opts::init_msg:
+      return get_gnb_cu_cp_mbs_e1ap_id(pdu.init_msg());
+    case e1ap_pdu_c::types_opts::successful_outcome:
+      return get_gnb_cu_cp_mbs_e1ap_id(pdu.successful_outcome());
+    case e1ap_pdu_c::types_opts::unsuccessful_outcome:
+      return get_gnb_cu_cp_mbs_e1ap_id(pdu.unsuccessful_outcome());
+    default:
+      break;
+  }
+  return std::nullopt;
+}
+
+// gNB-CU-UP MBS ID
+inline std::optional<gnb_cu_up_mbs_e1ap_id_t>
+get_gnb_cu_up_mbs_e1ap_id(const asn1::e1ap::init_msg_s& init_msg)
+{
+  using init_msg_type = asn1::e1ap::e1ap_elem_procs_o::init_msg_c::types_opts;
+  switch (init_msg.value.type()) {
+    case init_msg_type::bc_bearer_context_mod_request:
+      return (gnb_cu_up_mbs_e1ap_id_t)init_msg.value.bc_bearer_context_mod_request()->gnb_cu_up_mbs_e1ap_id;
+    default:
+      break;
+  }
+  return std::nullopt;
+}
+
+inline std::optional<gnb_cu_up_mbs_e1ap_id_t>
+get_gnb_cu_up_mbs_e1ap_id(const asn1::e1ap::successful_outcome_s& success_outcome)
+{
+  using namespace asn1::e1ap;
+  using success_msg_type = e1ap_elem_procs_o::successful_outcome_c::types_opts;
+  switch (success_outcome.value.type().value) {
+    case success_msg_type::bc_bearer_context_setup_resp:
+      return (gnb_cu_up_mbs_e1ap_id_t)success_outcome.value.bc_bearer_context_setup_resp()->gnb_cu_up_mbs_e1ap_id;
+    case success_msg_type::bc_bearer_context_mod_resp:
+      return (gnb_cu_up_mbs_e1ap_id_t)success_outcome.value.bc_bearer_context_mod_resp()->gnb_cu_up_mbs_e1ap_id;
+    default:
+      break;
+  }
+  return std::nullopt;
+}
+
+inline std::optional<gnb_cu_up_mbs_e1ap_id_t>
+get_gnb_cu_up_mbs_e1ap_id(const asn1::e1ap::unsuccessful_outcome_s& unsuccessful_outcome)
+{
+  using namespace asn1::e1ap;
+  using unsuccess_msg_type = e1ap_elem_procs_o::unsuccessful_outcome_c::types_opts;
+  switch (unsuccessful_outcome.value.type().value) {
+    case unsuccess_msg_type::bc_bearer_context_setup_fail:
+      return (gnb_cu_up_mbs_e1ap_id_t)unsuccessful_outcome.value.bc_bearer_context_setup_fail()->gnb_cu_up_mbs_e1ap_id;
+    case unsuccess_msg_type::bc_bearer_context_mod_fail:
+      return (gnb_cu_up_mbs_e1ap_id_t)unsuccessful_outcome.value.bc_bearer_context_mod_fail()->gnb_cu_up_mbs_e1ap_id;
+    default:
+      break;
+  }
+  return std::nullopt;
+}
+
+inline std::optional<gnb_cu_up_mbs_e1ap_id_t>
+get_gnb_cu_up_mbs_e1ap_id(const asn1::e1ap::e1ap_pdu_c& pdu)
+{
+  using namespace asn1::e1ap;
+  switch (pdu.type().value) {
+    case e1ap_pdu_c::types_opts::init_msg:
+      return get_gnb_cu_up_mbs_e1ap_id(pdu.init_msg());
+    case e1ap_pdu_c::types_opts::successful_outcome:
+      return get_gnb_cu_up_mbs_e1ap_id(pdu.successful_outcome());
+    case e1ap_pdu_c::types_opts::unsuccessful_outcome:
+      return get_gnb_cu_up_mbs_e1ap_id(pdu.unsuccessful_outcome());
     default:
       break;
   }

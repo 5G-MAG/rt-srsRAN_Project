@@ -49,6 +49,20 @@ private:
   e1ap_mbs_session_context_manager&    e1ap_mbs_session_ctxt_mng;
   srslog::basic_logger&                logger;
 
+  bool fill_e1ap_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& e1ap_request);
+
+  ngap_broadcast_session_setup_response
+  handle_bc_bearer_context_setup_response(const e1ap_bc_bearer_context_setup_response& msg);
+
+  ngap_broadcast_session_setup_failure
+  handle_bc_bearer_context_setup_failure(const e1ap_bc_bearer_context_setup_failure& msg);
+
+  // (sub-)routine requests
+  e1ap_bc_bearer_context_setup_request bc_bearer_context_setup_request;
+
+  // (sub-)routine results
+  expected<e1ap_bc_bearer_context_setup_response, e1ap_bc_bearer_context_setup_failure> bc_bearer_context_setup_procedure_outcome;
+
   // final routine result
   ngap_broadcast_session_setup_response resp_msg;
   ngap_broadcast_session_setup_failure fail_msg;
