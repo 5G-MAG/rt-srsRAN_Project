@@ -175,6 +175,9 @@ void e1ap_cu_up_impl::handle_initiating_message(const asn1::e1ap::init_msg_s& ms
     case asn1::e1ap::e1ap_elem_procs_o::init_msg_c::types_opts::options::bearer_context_release_cmd: {
       handle_bearer_context_release_command(msg.value.bearer_context_release_cmd());
     } break;
+    case asn1::e1ap::e1ap_elem_procs_o::init_msg_c::types_opts::options::bc_bearer_context_setup_request: {
+      handle_bc_bearer_context_setup_request(msg.value.bc_bearer_context_setup_request());
+    } break;
     default:
       logger.error("Initiating message of type {} is not supported", msg.value.type().to_string());
   }
@@ -314,6 +317,12 @@ void e1ap_cu_up_impl::handle_bearer_context_release_command(const asn1::e1ap::be
   cu_up_notifier.on_schedule_ue_async_task(
       ue_index,
       launch_async<bearer_context_release_procedure>(ue_index, msg, *pdu_notifier, cu_up_notifier, metrics, logger));
+}
+
+void e1ap_cu_up_impl::handle_bc_bearer_context_setup_request(const asn1::e1ap::bc_bearer_context_setup_request_s& msg)
+{
+  logger.info("Received BC Bearer Context Setup Request on the CU-UP");
+
 }
 
 void e1ap_cu_up_impl::handle_successful_outcome(const asn1::e1ap::successful_outcome_s& outcome)

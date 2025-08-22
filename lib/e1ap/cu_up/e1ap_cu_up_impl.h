@@ -99,6 +99,11 @@ private:
   /// \param[in] msg The Bearer Context Release Command.
   void handle_bearer_context_release_command(const asn1::e1ap::bearer_context_release_cmd_s& msg);
 
+  /// \brief Notify about the reception of a BC Bearer Context Setup Request message.
+  /// This starts the MBS Session context creation at the MBS manager and E1AP CU-UP.
+  /// \param[in] msg The BC Bearer Context Setup message.
+  void handle_bc_bearer_context_setup_request(const asn1::e1ap::bc_bearer_context_setup_request_s& msg);
+
   /// \brief Notify about the reception of an successful outcome.
   /// \param[in] msg The received successful outcome message.
   void handle_successful_outcome(const asn1::e1ap::successful_outcome_s& outcome);
