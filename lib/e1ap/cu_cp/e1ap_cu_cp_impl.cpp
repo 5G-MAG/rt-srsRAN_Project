@@ -51,6 +51,7 @@ e1ap_cu_cp_impl::e1ap_cu_cp_impl(const e1ap_configuration&      e1ap_cfg_,
   ctrl_exec(ctrl_exec_),
   timers(timer_factory{timers_, ctrl_exec_}),
   ue_ctxt_list(timers, max_nof_supported_ues_, logger),
+  mbs_session_ctxt_list(timers, logger),
   ev_mng(timers)
 {
 }
@@ -187,6 +188,55 @@ e1ap_cu_cp_impl::handle_bearer_context_release_command(const e1ap_bearer_context
 
   return launch_async<bearer_context_release_procedure>(
       e1ap_cfg, e1ap_msg, command.ue_index, ue_ctxt_list, pdu_notifier);
+}
+
+async_task<expected<e1ap_bc_bearer_context_setup_response, e1ap_bc_bearer_context_setup_failure>>
+e1ap_cu_cp_impl::handle_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& request)
+{
+  // Allocate gNB-CU-CP MBS E1AP ID.
+  gnb_cu_cp_mbs_e1ap_id_t gnb_cu_cp_mbs_e1ap_id = mbs_session_ctxt_list.allocate_gnb_cu_cp_mbs_e1ap_id();
+
+  if (gnb_cu_cp_mbs_e1ap_id == gnb_cu_cp_mbs_e1ap_id_t::invalid) {
+    logger.warning("No gNB-CU-CP MBS E1AP ID available");
+    return launch_async([](coro_context<async_task<expected<e1ap_bc_bearer_context_setup_response, e1ap_bc_bearer_context_setup_failure>>>& ctx) mutable {
+      CORO_BEGIN(ctx);
+      e1ap_bc_bearer_context_setup_failure fail;
+      fail.gnb_cu_cp_mbs_e1ap_id = gnb_cu_cp_mbs_e1ap_id_t::invalid;
+      fail.cause                 = cause_misc_t::unspecified;
+      CORO_RETURN(make_unexpected(fail));
+    });
+  }
+
+  // Add new E1AP MBS Session context.
+  if (mbs_session_ctxt_list.add_mbs_session_context(request.mbs_index, gnb_cu_cp_mbs_e1ap_id) == nullptr) {
+    logger.warning("E1AP BC Bearer Context Setup failed. Cause: E1AP MBS Session context already exists");
+    return launch_async([](coro_context<async_task<expected<e1ap_bc_bearer_context_setup_response, e1ap_bc_bearer_context_setup_failure>>>& ctx) mutable {
+      CORO_BEGIN(ctx);
+      e1ap_bc_bearer_context_setup_failure fail;
+      fail.gnb_cu_cp_mbs_e1ap_id = gnb_cu_cp_mbs_e1ap_id_t::invalid;
+      fail.cause                 = cause_misc_t::unspecified;
+      CORO_RETURN(make_unexpected(fail));
+    });
+  }
+
+  e1ap_mbs_session_context& mbs_session_ctxt = mbs_session_ctxt_list[gnb_cu_cp_mbs_e1ap_id];
+  request.gnb_cu_cp_mbs_e1ap_id = mbs_session_ctxt.mbs_ids.cu_cp_mbs_e1ap_id;
+
+  e1ap_message e1ap_msg;
+  e1ap_msg.pdu.set_init_msg();
+  e1ap_msg.pdu.init_msg().load_info_obj(ASN1_E1AP_ID_BC_BEARER_CONTEXT_SETUP);
+  auto& bc_bearer_context_setup_request = e1ap_msg.pdu.init_msg().value.bc_bearer_context_setup_request();
+
+  fill_asn1_bc_bearer_context_setup_request(bc_bearer_context_setup_request, request);
+
+  // TODO (borieher): launch the bc_bearer_context_setup_procedure
+  //return launch_async<bc_bearer_context_setup_procedure>(request);
+
+  return launch_async(
+    [](coro_context<async_task<expected<e1ap_bc_bearer_context_setup_response, e1ap_bc_bearer_context_setup_failure>>>& ctx) {
+      CORO_BEGIN(ctx);
+      CORO_RETURN(e1ap_bc_bearer_context_setup_response{});
+    });
 }
 
 void e1ap_cu_cp_impl::handle_message(const e1ap_message& msg)

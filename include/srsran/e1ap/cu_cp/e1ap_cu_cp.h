@@ -26,6 +26,7 @@
 #include "srsran/e1ap/common/e1_setup_messages.h"
 #include "srsran/e1ap/common/e1ap_common.h"
 #include "srsran/e1ap/cu_cp/e1ap_cu_cp_bearer_context_update.h"
+#include "srsran/e1ap/cu_cp/e1ap_cu_cp_bc_bearer_context_setup.h"
 #include "srsran/support/async/async_task.h"
 
 namespace srsran {
@@ -74,6 +75,11 @@ class e1ap_mbs_session_context_manager
 public:
   virtual ~e1ap_mbs_session_context_manager() = default;
 
+  /// \brief Initiates the BC Bearer Context Setup procedure as per TS 37.483 section 8.6.1.1.
+  /// \param[in] request The BC Bearer Context Setup Request message to transmit.
+  /// \return The BC Bearer Context Setup Response or the BC Bearer Context Setup Failure.
+  virtual async_task<expected<e1ap_bc_bearer_context_setup_response, e1ap_bc_bearer_context_setup_failure>>
+  handle_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& request) = 0;
 };
 
 struct bearer_creation_complete_message {

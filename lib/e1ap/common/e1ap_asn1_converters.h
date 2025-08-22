@@ -1100,6 +1100,109 @@ inline void e1ap_asn1_to_cell_group_info(std::vector<e1ap_cell_group_info_item>&
   }
 }
 
+/// \brief Converts E1AP ASN.1 type to an \c e1ap_qos_flow_level_qos_params type.
+/// \param asn1_qos_flow_level_qos_params E1AP ASN.1 object.
+/// \return The e1ap_qos_flow_level_qos_params object where the result of the conversion is stored.
+inline e1ap_qos_flow_level_qos_params
+e1ap_asn1_to_qos_flow_level_qos_params(asn1::e1ap::qos_flow_level_qos_params_s asn1_qos_flow_level_qos_params)
+{
+  // Fill QoS Flow Level QoS Parameters (M).
+  e1ap_qos_flow_level_qos_params qos_flow_level_qos_params;
+
+  // Fill QoS Characteristics (M).
+  if (asn1_qos_flow_level_qos_params.qos_characteristics.type() ==
+      asn1::e1ap::qos_characteristics_c::types_opts::dyn_5qi) {
+    const auto& asn1_dyn_5qi = asn1_qos_flow_level_qos_params.qos_characteristics.dyn_5qi();
+
+    dyn_5qi_descriptor dyn_5qi;
+    dyn_5qi.qos_prio_level      = qos_prio_level_t{asn1_dyn_5qi.qos_prio_level};
+    dyn_5qi.packet_delay_budget = asn1_dyn_5qi.packet_delay_budget;
+    dyn_5qi.per.exponent        = asn1_dyn_5qi.packet_error_rate.per_exponent;
+    dyn_5qi.per.scalar          = asn1_dyn_5qi.packet_error_rate.per_scalar;
+
+    if (asn1_dyn_5qi.five_qi_present) {
+      dyn_5qi.five_qi = uint_to_five_qi(asn1_dyn_5qi.five_qi);
+    }
+    if (asn1_dyn_5qi.delay_crit_present) {
+      dyn_5qi.is_delay_critical =
+          asn1_dyn_5qi.delay_crit.value == asn1::e1ap::dyn_5qi_descriptor_s::delay_crit_opts::delay_crit;
+    }
+    if (asn1_dyn_5qi.averaging_win_present) {
+      dyn_5qi.averaging_win = asn1_dyn_5qi.averaging_win;
+    }
+    if (asn1_dyn_5qi.max_data_burst_volume_present) {
+      dyn_5qi.max_data_burst_volume = asn1_dyn_5qi.max_data_burst_volume;
+    }
+
+    qos_flow_level_qos_params.qos_desc = dyn_5qi;
+  } else {
+    const auto& asn1_non_dyn_5qi = asn1_qos_flow_level_qos_params.qos_characteristics.non_dyn_5qi();
+
+    non_dyn_5qi_descriptor non_dyn_5qi;
+    non_dyn_5qi.five_qi = uint_to_five_qi(asn1_non_dyn_5qi.five_qi);
+    if (asn1_non_dyn_5qi.qos_prio_level_present) {
+      non_dyn_5qi.qos_prio_level = qos_prio_level_t{asn1_non_dyn_5qi.qos_prio_level};
+    }
+    if (asn1_non_dyn_5qi.averaging_win_present) {
+      non_dyn_5qi.averaging_win = asn1_non_dyn_5qi.averaging_win;
+    }
+    if (asn1_non_dyn_5qi.max_data_burst_volume_present) {
+      non_dyn_5qi.max_data_burst_volume = asn1_non_dyn_5qi.max_data_burst_volume;
+    }
+
+    qos_flow_level_qos_params.qos_desc = non_dyn_5qi;
+  }
+
+  // Fill NG-RAN Allocation and Retention Priority (M).
+  qos_flow_level_qos_params.ng_ran_alloc_retention.prio_level_arp =
+      asn1_qos_flow_level_qos_params.ngra_nalloc_retention_prio.prio_level;
+  qos_flow_level_qos_params.ng_ran_alloc_retention.may_trigger_preemption =
+      asn1_qos_flow_level_qos_params.ngra_nalloc_retention_prio.pre_emption_cap.value ==
+      asn1::e1ap::pre_emption_cap_opts::may_trigger_pre_emption;
+  qos_flow_level_qos_params.ng_ran_alloc_retention.is_preemptable =
+      asn1_qos_flow_level_qos_params.ngra_nalloc_retention_prio.pre_emption_vulnerability.value ==
+      asn1::e1ap::pre_emption_vulnerability_opts::pre_emptable;
+
+  // Fill GBR QoS Flow Information (O).
+  if (asn1_qos_flow_level_qos_params.gbr_qos_flow_info_present) {
+    gbr_qos_flow_information gbr_qos_flow_info;
+    gbr_qos_flow_info.max_br_dl = asn1_qos_flow_level_qos_params.gbr_qos_flow_info.max_flow_bit_rate_dl;
+    gbr_qos_flow_info.max_br_ul = asn1_qos_flow_level_qos_params.gbr_qos_flow_info.max_flow_bit_rate_ul;
+    gbr_qos_flow_info.gbr_dl = asn1_qos_flow_level_qos_params.gbr_qos_flow_info.guaranteed_flow_bit_rate_dl;
+    gbr_qos_flow_info.gbr_ul = asn1_qos_flow_level_qos_params.gbr_qos_flow_info.guaranteed_flow_bit_rate_ul;
+    if (asn1_qos_flow_level_qos_params.gbr_qos_flow_info.max_packet_loss_rate_dl_present) {
+      gbr_qos_flow_info.max_packet_loss_rate_dl = asn1_qos_flow_level_qos_params.gbr_qos_flow_info.max_packet_loss_rate_dl;
+    }
+    if (asn1_qos_flow_level_qos_params.gbr_qos_flow_info.max_packet_loss_rate_ul_present) {
+      gbr_qos_flow_info.max_packet_loss_rate_ul = asn1_qos_flow_level_qos_params.gbr_qos_flow_info.max_packet_loss_rate_ul;
+    }
+
+    qos_flow_level_qos_params.gbr_qos_flow_info = gbr_qos_flow_info;
+  }
+
+  // Fill Reflective QoS Attribute (O).
+  if (asn1_qos_flow_level_qos_params.reflective_qos_attribute_present) {
+    qos_flow_level_qos_params.reflective_qos_attribute = asn1::enum_to_bool(asn1_qos_flow_level_qos_params.reflective_qos_attribute);
+  }
+
+  // Fill Additional QoS Flow Information (O).
+  if (asn1_qos_flow_level_qos_params.add_qos_info_present) {
+    qos_flow_level_qos_params.add_qos_info = asn1::enum_to_bool(asn1_qos_flow_level_qos_params.add_qos_info);
+  }
+
+  // Fill Paging Policy Index (O).
+  if (asn1_qos_flow_level_qos_params.paging_policy_idx_present) {
+    qos_flow_level_qos_params.paging_policy_ind = asn1_qos_flow_level_qos_params.paging_policy_idx;
+  }
+
+  // Fill Reflective QoS indication (O).
+  if (asn1_qos_flow_level_qos_params.reflective_qos_ind_present) {
+    qos_flow_level_qos_params.reflective_qos_ind = asn1::enum_to_bool(asn1_qos_flow_level_qos_params.reflective_qos_ind);
+  }
+
+  return qos_flow_level_qos_params;
+}
+
 /// \brief Convert E1AP ASN.1 QoS Flow Map Info to \c slotted_id_vector<qos_flow_id_t, e1ap_qos_flow_qos_param_item>
 /// type.
 inline void e1ap_asn1_to_flow_map_info(slotted_id_vector<qos_flow_id_t, e1ap_qos_flow_qos_param_item>& flow_map_info,
@@ -1108,106 +1211,9 @@ inline void e1ap_asn1_to_flow_map_info(slotted_id_vector<qos_flow_id_t, e1ap_qos
   for (const auto& asn1_flow_map_item : ans1_flow_map_list) {
     e1ap_qos_flow_qos_param_item flow_map_item;
     flow_map_item.qos_flow_id = uint_to_qos_flow_id(asn1_flow_map_item.qos_flow_id);
+
     // Fill QoS flow level params.
-
-    // Fill QoS characteristics.
-    if (asn1_flow_map_item.qos_flow_level_qos_params.qos_characteristics.type() ==
-        asn1::e1ap::qos_characteristics_c::types_opts::dyn_5qi) {
-      const auto& asn1_dyn_5qi = asn1_flow_map_item.qos_flow_level_qos_params.qos_characteristics.dyn_5qi();
-
-      dyn_5qi_descriptor dyn_5qi;
-      dyn_5qi.qos_prio_level      = qos_prio_level_t{asn1_dyn_5qi.qos_prio_level};
-      dyn_5qi.packet_delay_budget = asn1_dyn_5qi.packet_delay_budget;
-      dyn_5qi.per.exponent        = asn1_dyn_5qi.packet_error_rate.per_exponent;
-      dyn_5qi.per.scalar          = asn1_dyn_5qi.packet_error_rate.per_scalar;
-
-      if (asn1_dyn_5qi.five_qi_present) {
-        dyn_5qi.five_qi = uint_to_five_qi(asn1_dyn_5qi.five_qi);
-      }
-      if (asn1_dyn_5qi.delay_crit_present) {
-        dyn_5qi.is_delay_critical =
-            asn1_dyn_5qi.delay_crit.value == asn1::e1ap::dyn_5qi_descriptor_s::delay_crit_opts::delay_crit;
-      }
-      if (asn1_dyn_5qi.averaging_win_present) {
-        dyn_5qi.averaging_win = asn1_dyn_5qi.averaging_win;
-      }
-      if (asn1_dyn_5qi.max_data_burst_volume_present) {
-        dyn_5qi.max_data_burst_volume = asn1_dyn_5qi.max_data_burst_volume;
-      }
-
-      flow_map_item.qos_flow_level_qos_params.qos_desc = dyn_5qi;
-    } else {
-      const auto& asn1_non_dyn_5qi = asn1_flow_map_item.qos_flow_level_qos_params.qos_characteristics.non_dyn_5qi();
-
-      non_dyn_5qi_descriptor non_dyn_5qi;
-      non_dyn_5qi.five_qi = uint_to_five_qi(asn1_non_dyn_5qi.five_qi);
-      if (asn1_non_dyn_5qi.qos_prio_level_present) {
-        non_dyn_5qi.qos_prio_level = qos_prio_level_t{asn1_non_dyn_5qi.qos_prio_level};
-      }
-      if (asn1_non_dyn_5qi.averaging_win_present) {
-        non_dyn_5qi.averaging_win = asn1_non_dyn_5qi.averaging_win;
-      }
-      if (asn1_non_dyn_5qi.max_data_burst_volume_present) {
-        non_dyn_5qi.max_data_burst_volume = asn1_non_dyn_5qi.max_data_burst_volume;
-      }
-
-      flow_map_item.qos_flow_level_qos_params.qos_desc = non_dyn_5qi;
-    }
-
-    // Fill NR RAN alloc retention prio.
-    flow_map_item.qos_flow_level_qos_params.ng_ran_alloc_retention.prio_level_arp =
-        asn1_flow_map_item.qos_flow_level_qos_params.ngra_nalloc_retention_prio.prio_level;
-    flow_map_item.qos_flow_level_qos_params.ng_ran_alloc_retention.may_trigger_preemption =
-        asn1_flow_map_item.qos_flow_level_qos_params.ngra_nalloc_retention_prio.pre_emption_cap.value ==
-        asn1::e1ap::pre_emption_cap_opts::may_trigger_pre_emption;
-    flow_map_item.qos_flow_level_qos_params.ng_ran_alloc_retention.is_preemptable =
-        asn1_flow_map_item.qos_flow_level_qos_params.ngra_nalloc_retention_prio.pre_emption_vulnerability.value ==
-        asn1::e1ap::pre_emption_vulnerability_opts::pre_emptable;
-
-    // Fill GBR QoS flow info.
-    if (asn1_flow_map_item.qos_flow_level_qos_params.gbr_qos_flow_info_present) {
-      gbr_qos_flow_information gbr_qos_flow_info;
-      gbr_qos_flow_info.max_br_dl = asn1_flow_map_item.qos_flow_level_qos_params.gbr_qos_flow_info.max_flow_bit_rate_dl;
-      gbr_qos_flow_info.max_br_ul = asn1_flow_map_item.qos_flow_level_qos_params.gbr_qos_flow_info.max_flow_bit_rate_ul;
-      gbr_qos_flow_info.gbr_dl =
-          asn1_flow_map_item.qos_flow_level_qos_params.gbr_qos_flow_info.guaranteed_flow_bit_rate_dl;
-      gbr_qos_flow_info.gbr_ul =
-          asn1_flow_map_item.qos_flow_level_qos_params.gbr_qos_flow_info.guaranteed_flow_bit_rate_ul;
-      if (asn1_flow_map_item.qos_flow_level_qos_params.gbr_qos_flow_info.max_packet_loss_rate_dl_present) {
-        gbr_qos_flow_info.max_packet_loss_rate_dl =
-            asn1_flow_map_item.qos_flow_level_qos_params.gbr_qos_flow_info.max_packet_loss_rate_dl;
-      }
-      if (asn1_flow_map_item.qos_flow_level_qos_params.gbr_qos_flow_info.max_packet_loss_rate_ul_present) {
-        gbr_qos_flow_info.max_packet_loss_rate_ul =
-            asn1_flow_map_item.qos_flow_level_qos_params.gbr_qos_flow_info.max_packet_loss_rate_ul;
-      }
-
-      flow_map_item.qos_flow_level_qos_params.gbr_qos_flow_info = gbr_qos_flow_info;
-    }
-
-    // Fill reflective QoS attribute.
-    if (asn1_flow_map_item.qos_flow_level_qos_params.reflective_qos_attribute_present) {
-      flow_map_item.qos_flow_level_qos_params.reflective_qos_attribute =
-          asn1::enum_to_bool(asn1_flow_map_item.qos_flow_level_qos_params.reflective_qos_attribute);
-    }
-
-    // Fill add QoS info.
-    if (asn1_flow_map_item.qos_flow_level_qos_params.add_qos_info_present) {
-      flow_map_item.qos_flow_level_qos_params.add_qos_info =
-          asn1::enum_to_bool(asn1_flow_map_item.qos_flow_level_qos_params.add_qos_info);
-    }
-
-    // Fill paging policy indication.
-    if (asn1_flow_map_item.qos_flow_level_qos_params.paging_policy_idx_present) {
-      flow_map_item.qos_flow_level_qos_params.paging_policy_ind =
-          asn1_flow_map_item.qos_flow_level_qos_params.paging_policy_idx;
-    }
-
-    // Fill reflective QoS indication.
-    if (asn1_flow_map_item.qos_flow_level_qos_params.reflective_qos_ind_present) {
-      flow_map_item.qos_flow_level_qos_params.reflective_qos_ind =
-          asn1::enum_to_bool(asn1_flow_map_item.qos_flow_level_qos_params.reflective_qos_ind);
-    }
+    flow_map_item.qos_flow_level_qos_params = e1ap_asn1_to_qos_flow_level_qos_params(asn1_flow_map_item.qos_flow_level_qos_params);
 
     // Fill QoS flow map indication.
     if (asn1_flow_map_item.qos_flow_map_ind_present) {
@@ -1486,6 +1492,193 @@ inline bool asn1_to_pdu_session_type(pdu_session_type_t&                   pdu_s
       return false;
   }
   return true;
+}
+
+/// \brief Converts E1AP ASN.1 type to an \c e1ap_mbs_ngu_information_at_5gc type.
+/// \param asn1_mbs_ngu_info_at_5gc E1AP ASN.1 object.
+/// \return The e1ap_mbs_ngu_information_at_5gc object where the result of the conversion is stored.
+inline e1ap_mbs_ngu_information_at_5gc asn1_to_mbs_ngu_info_at_5gc(asn1::e1ap::mb_sn_gu_info_at5_gc_c asn1_mbs_ngu_info_at_5gc)
+{
+  e1ap_mbs_ngu_information_at_5gc mbs_ngu_info_at_5gc;
+
+  // NOTE (borieher): It only has Multicast type
+  if (asn1_mbs_ngu_info_at_5gc.type() == asn1::e1ap::mb_sn_gu_info_at5_gc_c::types::multicast) {
+    const auto& multicast_choice = asn1_mbs_ngu_info_at_5gc.multicast();
+    // Fill IP Multicast Address (M).
+    mbs_ngu_info_at_5gc.ip_multicast_address.create_from_string(multicast_choice.ipmc_address.to_string());
+
+    // Fill IP Source Address (M).
+    mbs_ngu_info_at_5gc.ip_source_address.create_from_string(multicast_choice.ipsource_address.to_string());
+
+    // Fill GTP DL TEID (M).
+    mbs_ngu_info_at_5gc.gtp_dl_teid = int_to_gtpu_teid(multicast_choice.gtp_dl_teid.to_number());
+  }
+
+  return mbs_ngu_info_at_5gc;
+}
+
+/// \brief Convert \c e1ap_mbs_ngu_information_at_5gc type to E1AP ASN.1 MBS NG-U Information at 5GC.
+/// \param mbs_ngu_info_at_5gc The e1ap_mbs_ngu_information_at_5gc type.
+/// \return The E1AP ASN.1 MBS NG-U Information at 5GC.
+inline asn1::e1ap::mb_sn_gu_info_at5_gc_c mbs_ngu_info_at_5gc_to_asn1(e1ap_mbs_ngu_information_at_5gc mbs_ngu_info_at_5gc)
+{
+  asn1::e1ap::mb_sn_gu_info_at5_gc_c asn1_mbs_ngu_info_at_5gc;
+
+  // NOTE (borieher): Multicast is the only option in the spec
+  asn1_mbs_ngu_info_at_5gc.set_multicast();
+
+  // Fill IP Multicast Address (M).
+  asn1_mbs_ngu_info_at_5gc.multicast().ipmc_address.from_string(mbs_ngu_info_at_5gc.ip_multicast_address.to_bitstring());
+
+  // Fill IP Source Address (M).
+  asn1_mbs_ngu_info_at_5gc.multicast().ipsource_address.from_string(mbs_ngu_info_at_5gc.ip_source_address.to_bitstring());
+
+  // Fill GTP DL TEID (M).
+  asn1_mbs_ngu_info_at_5gc.multicast().gtp_dl_teid.from_number(mbs_ngu_info_at_5gc.gtp_dl_teid.value());
+
+  return asn1_mbs_ngu_info_at_5gc;
+}
+
+/// \brief Convert \c e1ap_requested_action_for_available_shared_ngu_termination type to E1AP ASN.1 MRequested Action for Available Shared NG-U Termination.
+/// \param req_act_for_avail_shared_ngu_termination The e1ap_requested_action_for_available_shared_ngu_termination type.
+/// \return The E1AP ASN.1 Requested Action for Available Shared NG-U Termination.
+inline asn1::e1ap::requested_action4_avail_ngu_termination_e requested_action_for_available_shared_ngu_termination_to_asn1(
+    e1ap_requested_action_for_available_shared_ngu_termination req_act_for_avail_shared_ngu_termination)
+{
+  asn1::e1ap::requested_action4_avail_ngu_termination_e asn1_req_act_for_avail_shared_ngu_termination;
+
+  switch(req_act_for_avail_shared_ngu_termination) {
+    case e1ap_requested_action_for_available_shared_ngu_termination::apply_available_config:
+      asn1_req_act_for_avail_shared_ngu_termination = asn1::e1ap::requested_action4_avail_ngu_termination_e::apply_available_cfg;
+      break;
+    case e1ap_requested_action_for_available_shared_ngu_termination::apply_requested_config:
+      asn1_req_act_for_avail_shared_ngu_termination = asn1::e1ap::requested_action4_avail_ngu_termination_e::apply_requested_cfg;
+      break;
+    case e1ap_requested_action_for_available_shared_ngu_termination::apply_available_config_if_same_as_requested:
+      asn1_req_act_for_avail_shared_ngu_termination = asn1::e1ap::requested_action4_avail_ngu_termination_e::apply_available_cfg_if_same_as_requested;
+      break;
+    default:
+      asn1_req_act_for_avail_shared_ngu_termination = asn1::e1ap::requested_action4_avail_ngu_termination_e::nulltype;
+  }
+
+  return asn1_req_act_for_avail_shared_ngu_termination;
+}
+
+/// \brief Converts E1AP ASN.1 type to an \c mbs_session_id_t type.
+/// \param asn1_mbs_session_id E1AP ASN.1 object.
+/// \return The mbs_session_id_t object where the result of the conversion is stored.
+inline mbs_session_id_t e1ap_asn1_to_mbs_session_id(asn1::e1ap::global_mbs_session_id_s asn1_mbs_session_id)
+{
+  // Fill MBS Session ID (M).
+  mbs_session_id_t mbs_session_id;
+  // Fill TMGI (M).
+  mbs_session_id.tmgi = uint_to_tmgi(asn1_mbs_session_id.tmgi.to_number());
+
+  // Fill NID (O).
+  if (asn1_mbs_session_id.nid_present) {
+    mbs_session_id.nid = uint_to_nid(asn1_mbs_session_id.nid.to_number());
+  }
+
+  return mbs_session_id;
+}
+
+/// \brief Converts type \c mbs_session_id_t to an E1AP ASN.1 type.
+/// \param mbs_session_id mbs_session_id_t object.
+/// \return The E1AP ASN.1 object where the result of the conversion is stored.
+inline asn1::e1ap::global_mbs_session_id_s mbs_session_id_to_e1ap_asn1(mbs_session_id_t mbs_session_id)
+{
+  // Fill MBS Session ID (M).
+  asn1::e1ap::global_mbs_session_id_s asn1_mbs_session_id;
+  // Fill TMGI (M).
+  asn1_mbs_session_id.tmgi.from_number(tmgi_to_uint(mbs_session_id.tmgi));
+
+  // Fill NID (O).
+  if (mbs_session_id.nid.has_value()) {
+    asn1_mbs_session_id.nid_present = true;
+    asn1_mbs_session_id.nid.from_number(nid_to_uint(mbs_session_id.nid.value()));
+  }
+
+  return asn1_mbs_session_id;
+}
+
+/// \brief Convert \c e1ap_bc_bearer_context_f1u_tnl_info_at_cu type to E1AP ASN.1 BC Bearer Context F1-U TNL Info at CU.
+/// \param bc_bearer_context_f1u_tnl_info_at_cu The e1ap_bc_bearer_context_f1u_tnl_info_at_cu type.
+/// \return The E1AP ASN.1 BC Bearer Context F1-U TNL Info at CU.
+inline asn1::e1ap::bc_bearer_context_f1_u_tnl_infoat_cu_c bc_bearer_context_f1u_tnl_info_at_cu_to_asn1(e1ap_bc_bearer_context_f1u_tnl_info_at_cu bc_bearer_context_f1u_tnl_info_at_cu)
+{
+  asn1::e1ap::bc_bearer_context_f1_u_tnl_infoat_cu_c asn1_bc_bearer_context_f1u_tnl_info_at_cu;
+
+  // Fill location dependent
+  if (bc_bearer_context_f1u_tnl_info_at_cu.is_locationdependent()) {
+    asn1_bc_bearer_context_f1u_tnl_info_at_cu.set_locationdependent();
+    for (const auto& locationdependent_item : bc_bearer_context_f1u_tnl_info_at_cu.get_locationdependent().location_dependent_mbs_f1u_information_at_cu) {
+      asn1::e1ap::location_dependent_mbsf1_u_info_at_cu_item_s asn1_locationdependent_item;
+
+      // Fill MBS Area Session ID (M).
+      asn1_locationdependent_item.mbs_area_session_id = area_session_id_to_uint(locationdependent_item.mbs_area_session_id);
+
+      // Fill MBS F1-U Information at CU (M).
+      // NOTE (borieher): GTP Tunnel is the only option in the spec
+      up_transport_layer_info_to_asn1(asn1_locationdependent_item.mbs_f1u_info_at_cu, locationdependent_item.mbs_f1u_information_at_cu);
+
+      asn1_bc_bearer_context_f1u_tnl_info_at_cu.locationdependent().push_back(asn1_locationdependent_item);
+    }
+  // Fill location independent
+  } else {
+    auto& asn1_locationindependent = asn1_bc_bearer_context_f1u_tnl_info_at_cu.set_locationindependent();
+    const auto& locationindependent = bc_bearer_context_f1u_tnl_info_at_cu.get_locationindependent();
+
+    // Fill MBS F1-U Information at CU (M).
+    // NOTE (borieher): GTP Tunnel is the only option in the spec
+    up_transport_layer_info_to_asn1(asn1_locationindependent.mbs_f1u_info_at_cu, locationindependent.mbs_f1u_information_at_cu);
+  }
+
+  return asn1_bc_bearer_context_f1u_tnl_info_at_cu;
+}
+
+/// \brief Converts E1AP ASN.1 type to an \c e1ap_bc_bearer_context_f1u_tnl_info_at_cu type.
+/// \param asn1_bc_bearer_context_f1u_tnl_info_at_cu E1AP ASN.1 object.
+/// \return The e1ap_bc_bearer_context_f1u_tnl_info_at_cu object where the result of the conversion is stored.
+inline e1ap_bc_bearer_context_f1u_tnl_info_at_cu asn1_to_bc_bearer_context_f1u_tnl_info_at_cu(asn1::e1ap::bc_bearer_context_f1_u_tnl_infoat_cu_c asn1_bc_bearer_context_f1u_tnl_info_at_cu)
+{
+  // Fill BC Bearer Context F1-U TNL Info at CU (M).
+  e1ap_bc_bearer_context_f1u_tnl_info_at_cu bc_bearer_context_f1u_tnl_info_at_cu;
+
+  // Fill location dependent
+  if (asn1_bc_bearer_context_f1u_tnl_info_at_cu.type() ==
+      asn1::e1ap::bc_bearer_context_f1_u_tnl_infoat_cu_c::types::locationdependent) {
+    const auto& asn1_locationdependent = asn1_bc_bearer_context_f1u_tnl_info_at_cu.locationdependent();
+    e1ap_bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent locationdependent = {};
+
+    for (const auto& asn1_locationdependent_item : asn1_locationdependent) {
+      e1ap_bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item locationdependent_item;
+
+      // Fill MBS Area Session ID (M).
+      locationdependent_item.mbs_area_session_id = uint_to_area_session_id(asn1_locationdependent_item.mbs_area_session_id);
+
+      // Fill MBS F1-U Information at CU (M).
+      locationdependent_item.mbs_f1u_information_at_cu =
+          asn1_to_up_transport_layer_info(asn1_locationdependent_item.mbs_f1u_info_at_cu);
+
+      locationdependent.location_dependent_mbs_f1u_information_at_cu.push_back(locationdependent_item);
+
+      bc_bearer_context_f1u_tnl_info_at_cu = e1ap_bc_bearer_context_f1u_tnl_info_at_cu{locationdependent};
+    }
+
+  // Fill location independent
+  } else if (asn1_bc_bearer_context_f1u_tnl_info_at_cu.type() ==
+             asn1::e1ap::bc_bearer_context_f1_u_tnl_infoat_cu_c::types::locationindependent) {
+    const auto& asn1_locationindependent = asn1_bc_bearer_context_f1u_tnl_info_at_cu.set_locationindependent();
+    e1ap_bc_bearer_ctxt_f1u_tnl_at_cu_location_independent locationindependent = {};
+
+    // Fill MBS F1-U Information at CU (M).
+    locationindependent.mbs_f1u_information_at_cu =
+      asn1_to_up_transport_layer_info(asn1_locationindependent.mbs_f1u_info_at_cu);
+
+    bc_bearer_context_f1u_tnl_info_at_cu = e1ap_bc_bearer_context_f1u_tnl_info_at_cu{locationindependent};
+  }
+
+  return bc_bearer_context_f1u_tnl_info_at_cu;
 }
 
 } // namespace srsran

@@ -31,19 +31,15 @@
 namespace srsran {
 namespace srs_cu_cp {
 
-inline void fill_asn1_qos_flow_info_item(asn1::e1ap::qos_flow_qos_param_item_s& asn1_qos_flow_info_item,
-                                         const e1ap_qos_flow_qos_param_item&    qos_flow_info_item)
+inline void fill_asn1_qos_flow_level_qos_params(asn1::e1ap::qos_flow_level_qos_params_s& asn1_qos_flow_level_qos_params,
+                                                const e1ap_qos_flow_level_qos_params&    qos_flow_level_qos_params)
 {
-  asn1_qos_flow_info_item.qos_flow_id = qos_flow_id_to_uint(qos_flow_info_item.qos_flow_id);
-
-  // Fill QoS flow level Qos params.
-  auto& qos_flow_level_params = qos_flow_info_item.qos_flow_level_qos_params;
-
+  // Fill QoS Characteristics (M).
   // Fill dynamic 5QI.
-  if (qos_flow_level_params.qos_desc.is_dyn_5qi()) {
-    auto& dynamic_5qi = qos_flow_level_params.qos_desc.get_dyn_5qi();
-    asn1_qos_flow_info_item.qos_flow_level_qos_params.qos_characteristics.set_dyn_5qi();
-    auto& asn1_dynamic_5qi = asn1_qos_flow_info_item.qos_flow_level_qos_params.qos_characteristics.dyn_5qi();
+  if (qos_flow_level_qos_params.qos_desc.is_dyn_5qi()) {
+    auto& dynamic_5qi = qos_flow_level_qos_params.qos_desc.get_dyn_5qi();
+    asn1_qos_flow_level_qos_params.qos_characteristics.set_dyn_5qi();
+    auto& asn1_dynamic_5qi = asn1_qos_flow_level_qos_params.qos_characteristics.dyn_5qi();
 
     asn1_dynamic_5qi.qos_prio_level                 = dynamic_5qi.qos_prio_level.value();
     asn1_dynamic_5qi.packet_delay_budget            = dynamic_5qi.packet_delay_budget;
@@ -68,9 +64,9 @@ inline void fill_asn1_qos_flow_info_item(asn1::e1ap::qos_flow_qos_param_item_s& 
       asn1_dynamic_5qi.max_data_burst_volume         = dynamic_5qi.max_data_burst_volume.value();
     }
   } else /* Fill non dynamic 5QI. */ {
-    auto& non_dynamic_5qi = qos_flow_level_params.qos_desc.get_nondyn_5qi();
-    asn1_qos_flow_info_item.qos_flow_level_qos_params.qos_characteristics.set_non_dyn_5qi();
-    auto& asn1_non_dynamic_5qi = asn1_qos_flow_info_item.qos_flow_level_qos_params.qos_characteristics.non_dyn_5qi();
+    auto& non_dynamic_5qi = qos_flow_level_qos_params.qos_desc.get_nondyn_5qi();
+    asn1_qos_flow_level_qos_params.qos_characteristics.set_non_dyn_5qi();
+    auto& asn1_non_dynamic_5qi = asn1_qos_flow_level_qos_params.qos_characteristics.non_dyn_5qi();
 
     asn1_non_dynamic_5qi.five_qi = five_qi_to_uint(non_dynamic_5qi.five_qi);
 
@@ -88,68 +84,78 @@ inline void fill_asn1_qos_flow_info_item(asn1::e1ap::qos_flow_qos_param_item_s& 
     }
   }
 
-  // Fill NG RAN alloc retention prio.
-  asn1_qos_flow_info_item.qos_flow_level_qos_params.ngra_nalloc_retention_prio.prio_level =
-      qos_flow_level_params.ng_ran_alloc_retention.prio_level_arp.value();
-  asn1_qos_flow_info_item.qos_flow_level_qos_params.ngra_nalloc_retention_prio.pre_emption_cap.value =
-      qos_flow_level_params.ng_ran_alloc_retention.may_trigger_preemption
+  // Fill NG-RAN Allocation and Retention Priority (M).
+  asn1_qos_flow_level_qos_params.ngra_nalloc_retention_prio.prio_level =
+      qos_flow_level_qos_params.ng_ran_alloc_retention.prio_level_arp.value();
+  asn1_qos_flow_level_qos_params.ngra_nalloc_retention_prio.pre_emption_cap.value =
+      qos_flow_level_qos_params.ng_ran_alloc_retention.may_trigger_preemption
           ? asn1::e1ap::pre_emption_cap_opts::may_trigger_pre_emption
           : asn1::e1ap::pre_emption_cap_opts::shall_not_trigger_pre_emption;
-  asn1_qos_flow_info_item.qos_flow_level_qos_params.ngra_nalloc_retention_prio.pre_emption_vulnerability.value =
-      qos_flow_level_params.ng_ran_alloc_retention.is_preemptable
+  asn1_qos_flow_level_qos_params.ngra_nalloc_retention_prio.pre_emption_vulnerability.value =
+      qos_flow_level_qos_params.ng_ran_alloc_retention.is_preemptable
           ? asn1::e1ap::pre_emption_vulnerability_opts::pre_emptable
           : asn1::e1ap::pre_emption_vulnerability_opts::not_pre_emptable;
 
-  // Fill GBR QoS flow info.
-  if (qos_flow_level_params.gbr_qos_flow_info.has_value()) {
-    asn1_qos_flow_info_item.qos_flow_level_qos_params.gbr_qos_flow_info_present = true;
-    asn1_qos_flow_info_item.qos_flow_level_qos_params.gbr_qos_flow_info.max_flow_bit_rate_dl =
-        qos_flow_level_params.gbr_qos_flow_info.value().max_br_dl;
-    asn1_qos_flow_info_item.qos_flow_level_qos_params.gbr_qos_flow_info.max_flow_bit_rate_ul =
-        qos_flow_level_params.gbr_qos_flow_info.value().max_br_ul;
-    asn1_qos_flow_info_item.qos_flow_level_qos_params.gbr_qos_flow_info.guaranteed_flow_bit_rate_dl =
-        qos_flow_level_params.gbr_qos_flow_info.value().gbr_dl;
-    asn1_qos_flow_info_item.qos_flow_level_qos_params.gbr_qos_flow_info.guaranteed_flow_bit_rate_ul =
-        qos_flow_level_params.gbr_qos_flow_info.value().gbr_ul;
-    if (qos_flow_level_params.gbr_qos_flow_info.value().max_packet_loss_rate_dl.has_value()) {
-      asn1_qos_flow_info_item.qos_flow_level_qos_params.gbr_qos_flow_info.max_packet_loss_rate_dl_present = true;
-      asn1_qos_flow_info_item.qos_flow_level_qos_params.gbr_qos_flow_info.max_packet_loss_rate_dl =
-          qos_flow_level_params.gbr_qos_flow_info.value().max_packet_loss_rate_dl.value();
+  // Fill GBR QoS Flow Information (O).
+  if (qos_flow_level_qos_params.gbr_qos_flow_info.has_value()) {
+    asn1_qos_flow_level_qos_params.gbr_qos_flow_info_present = true;
+    asn1_qos_flow_level_qos_params.gbr_qos_flow_info.max_flow_bit_rate_dl =
+        qos_flow_level_qos_params.gbr_qos_flow_info.value().max_br_dl;
+    asn1_qos_flow_level_qos_params.gbr_qos_flow_info.max_flow_bit_rate_ul =
+        qos_flow_level_qos_params.gbr_qos_flow_info.value().max_br_ul;
+    asn1_qos_flow_level_qos_params.gbr_qos_flow_info.guaranteed_flow_bit_rate_dl =
+        qos_flow_level_qos_params.gbr_qos_flow_info.value().gbr_dl;
+    asn1_qos_flow_level_qos_params.gbr_qos_flow_info.guaranteed_flow_bit_rate_ul =
+        qos_flow_level_qos_params.gbr_qos_flow_info.value().gbr_ul;
+    if (qos_flow_level_qos_params.gbr_qos_flow_info.value().max_packet_loss_rate_dl.has_value()) {
+      asn1_qos_flow_level_qos_params.gbr_qos_flow_info.max_packet_loss_rate_dl_present = true;
+      asn1_qos_flow_level_qos_params.gbr_qos_flow_info.max_packet_loss_rate_dl =
+          qos_flow_level_qos_params.gbr_qos_flow_info.value().max_packet_loss_rate_dl.value();
     }
-    if (qos_flow_level_params.gbr_qos_flow_info.value().max_packet_loss_rate_ul.has_value()) {
-      asn1_qos_flow_info_item.qos_flow_level_qos_params.gbr_qos_flow_info.max_packet_loss_rate_ul_present = true;
-      asn1_qos_flow_info_item.qos_flow_level_qos_params.gbr_qos_flow_info.max_packet_loss_rate_ul =
-          qos_flow_level_params.gbr_qos_flow_info.value().max_packet_loss_rate_ul.value();
+    if (qos_flow_level_qos_params.gbr_qos_flow_info.value().max_packet_loss_rate_ul.has_value()) {
+      asn1_qos_flow_level_qos_params.gbr_qos_flow_info.max_packet_loss_rate_ul_present = true;
+      asn1_qos_flow_level_qos_params.gbr_qos_flow_info.max_packet_loss_rate_ul =
+          qos_flow_level_qos_params.gbr_qos_flow_info.value().max_packet_loss_rate_ul.value();
     }
   }
 
-  // Fill reflective QoS attribute.
-  if (qos_flow_level_params.reflective_qos_attribute.has_value()) {
-    asn1_qos_flow_info_item.qos_flow_level_qos_params.reflective_qos_attribute_present = true;
-    asn1::bool_to_enum(asn1_qos_flow_info_item.qos_flow_level_qos_params.reflective_qos_attribute,
-                       qos_flow_level_params.reflective_qos_attribute.value());
+  // Fill Reflective QoS Attribute (O).
+  if (qos_flow_level_qos_params.reflective_qos_attribute.has_value()) {
+    asn1_qos_flow_level_qos_params.reflective_qos_attribute_present = true;
+    asn1::bool_to_enum(asn1_qos_flow_level_qos_params.reflective_qos_attribute,
+                       qos_flow_level_qos_params.reflective_qos_attribute.value());
   }
 
-  // Fill QoS info.
-  if (qos_flow_level_params.add_qos_info.has_value()) {
-    asn1_qos_flow_info_item.qos_flow_level_qos_params.add_qos_info_present = true;
-    asn1::bool_to_enum(asn1_qos_flow_info_item.qos_flow_level_qos_params.add_qos_info,
-                       qos_flow_level_params.add_qos_info.value());
+  // Fill Additional QoS Flow Information (O).
+  if (qos_flow_level_qos_params.add_qos_info.has_value()) {
+    asn1_qos_flow_level_qos_params.add_qos_info_present = true;
+    asn1::bool_to_enum(asn1_qos_flow_level_qos_params.add_qos_info,
+                       qos_flow_level_qos_params.add_qos_info.value());
   }
 
-  // Fill paging policy indication.
-  if (qos_flow_level_params.paging_policy_ind.has_value()) {
-    asn1_qos_flow_info_item.qos_flow_level_qos_params.paging_policy_idx_present = true;
-    asn1_qos_flow_info_item.qos_flow_level_qos_params.paging_policy_idx =
-        qos_flow_level_params.paging_policy_ind.value();
+  // Fill Paging Policy Index (O).
+  if (qos_flow_level_qos_params.paging_policy_ind.has_value()) {
+    asn1_qos_flow_level_qos_params.paging_policy_idx_present = true;
+    asn1_qos_flow_level_qos_params.paging_policy_idx =
+        qos_flow_level_qos_params.paging_policy_ind.value();
   }
 
-  // Fill reflective QoS indication.
-  if (qos_flow_level_params.reflective_qos_ind.has_value()) {
-    asn1_qos_flow_info_item.qos_flow_level_qos_params.reflective_qos_ind_present = true;
-    asn1::bool_to_enum(asn1_qos_flow_info_item.qos_flow_level_qos_params.reflective_qos_ind,
-                       qos_flow_level_params.reflective_qos_ind.value());
+  // Fill Reflective QoS indication (O).
+  if (qos_flow_level_qos_params.reflective_qos_ind.has_value()) {
+    asn1_qos_flow_level_qos_params.reflective_qos_ind_present = true;
+    asn1::bool_to_enum(asn1_qos_flow_level_qos_params.reflective_qos_ind,
+                       qos_flow_level_qos_params.reflective_qos_ind.value());
   }
+}
+
+inline void fill_asn1_qos_flow_info_item(asn1::e1ap::qos_flow_qos_param_item_s& asn1_qos_flow_info_item,
+                                         const e1ap_qos_flow_qos_param_item&    qos_flow_info_item)
+{
+  asn1_qos_flow_info_item.qos_flow_id = qos_flow_id_to_uint(qos_flow_info_item.qos_flow_id);
+
+  // Fill QoS flow level Qos params.
+  auto& qos_flow_level_params = qos_flow_info_item.qos_flow_level_qos_params;
+  fill_asn1_qos_flow_level_qos_params(asn1_qos_flow_info_item.qos_flow_level_qos_params, qos_flow_level_params);
 
   // Fill QoS flow map indication.
   if (qos_flow_info_item.qos_flow_map_ind.has_value()) {
@@ -999,6 +1005,205 @@ inline void fill_asn1_bearer_context_release_command(asn1::e1ap::bearer_context_
                                                      const e1ap_bearer_context_release_command& command)
 {
   asn1_command->cause = cause_to_asn1(command.cause);
+}
+
+inline void fill_asn1_bc_bearer_context_setup_request(asn1::e1ap::bc_bearer_context_setup_request_s& asn1_request,
+                                                      e1ap_bc_bearer_context_setup_request& request)
+{
+  // Fill gNB CU-CP MBS E1AP ID.
+  asn1_request->gnb_cu_cp_mbs_e1ap_id = gnb_cu_cp_mbs_e1ap_id_to_uint(request.gnb_cu_cp_mbs_e1ap_id);
+
+  // Fill Global MBS Session ID.
+  asn1_request->global_mbs_session_id = mbs_session_id_to_e1ap_asn1(request.global_mbs_session_id);
+
+  // Fill BC Bearer Context To Setup.
+  // Fill S-NSSAI.
+  asn1_request->bc_bearer_context_to_setup.snssai = snssai_to_e1ap_asn1(request.bc_bearer_context_to_setup.s_nssai);
+
+  // Fill BC Bearer Context NG-U TNL Info at 5GC.
+  if (request.bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_info_at_5gc.has_value()) {
+    asn1_request->bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_infoat5_gc_present = true;
+    // Fill location dependent
+    if (request.bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_info_at_5gc.value().is_locationdependent()) {
+      auto& asn1_locationdependent = asn1_request->bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_infoat5_gc.set_locationdependent();
+
+      for (const auto& locationdependent_item : request.bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_info_at_5gc.value().get_locationdependent().location_dependent_mbs_ngu_info_at_5gc) {
+        asn1::e1ap::location_dependent_mb_sn_gu_info_at5_gc_item_s asn1_locationdependent_item;
+
+        asn1_locationdependent_item.mbs_area_session_id = area_session_id_to_uint(locationdependent_item.mbs_area_session_id);
+        asn1_locationdependent_item.mbs_ngu_info_at5_gc = mbs_ngu_info_at_5gc_to_asn1(locationdependent_item.mbs_ngu_information_at_5gc);
+
+        asn1_locationdependent.push_back(asn1_locationdependent_item);
+      }
+    // Fill location independent
+    } else {
+      auto& asn1_locationindependent = asn1_request->bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_infoat5_gc.set_locationindependent();
+
+      const auto& locationdependent = request.bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_info_at_5gc.value().get_locationindependent().mbs_ngu_information_at_5gc;
+      asn1_locationindependent = mbs_ngu_info_at_5gc_to_asn1(locationdependent);
+    }
+  }
+
+  // Fill BC MRB To Setup List.
+  for (const auto& bc_mrb_to_setup_item : request.bc_bearer_context_to_setup.bc_mrb_to_setup_list) {
+    asn1::e1ap::bcmrb_setup_cfg_item_s asn1_bc_mrb_to_setup_item;
+
+    // Fill MRB ID.
+    asn1_bc_mrb_to_setup_item.mrb_id = mrb_id_to_uint(bc_mrb_to_setup_item.mrb_id);
+
+    // Fill MBS PDCP Configuration.
+    asn1_bc_mrb_to_setup_item.mbs_pdcp_cfg = pdcp_config_to_e1ap_asn1(bc_mrb_to_setup_item.mbs_pdcp_cfg);
+
+    // Fill MBS QoS Flows Information To Be Setup.
+    for (const auto& mbs_qos_flow_info_to_be_setup_item : bc_mrb_to_setup_item.mbs_qos_flow_info_to_be_setup) {
+      asn1::e1ap::qos_flow_qos_param_item_s asn1_mbs_qos_flow_info_to_be_setup_item;
+
+      fill_asn1_qos_flow_info_item(asn1_mbs_qos_flow_info_to_be_setup_item, mbs_qos_flow_info_to_be_setup_item);
+
+      asn1_bc_mrb_to_setup_item.qos_flow_qos_param_list.push_back(asn1_mbs_qos_flow_info_to_be_setup_item);
+    }
+
+    // Fill MRB QoS.
+    if (bc_mrb_to_setup_item.mrb_qos.has_value()) {
+      asn1_bc_mrb_to_setup_item.qos_flow_level_qos_params_present = true;
+      fill_asn1_qos_flow_level_qos_params( asn1_bc_mrb_to_setup_item.qos_flow_level_qos_params,
+          bc_mrb_to_setup_item.mrb_qos.value());
+    }
+
+    // F1-U TNL Info to Add List.
+    if (!bc_mrb_to_setup_item.f1u_tnl_info_to_add_list.empty()) {
+      // NOTE (borieher): This is an extension IE
+      asn1_bc_mrb_to_setup_item.ext = true;
+
+      asn1::protocol_ext_field_s<asn1::e1ap::bcmrb_setup_cfg_item_ext_ies_o> bc_mrb_setup_cfg_item_ext_ie;
+      bc_mrb_setup_cfg_item_ext_ie.set_item(asn1::e1ap::bcmrb_setup_cfg_item_ext_ies_o::ext_c::types_opts::f1_u_tnl_info_to_add_list);
+
+      auto& asn1_f1u_tnl_info_to_add_list = bc_mrb_setup_cfg_item_ext_ie->f1_u_tnl_info_to_add_list();
+
+      for (const auto& f1u_tnl_info_to_add_item : bc_mrb_to_setup_item.f1u_tnl_info_to_add_list) {
+        asn1::e1ap::f1_u_tnl_info_to_add_item_s asn1_f1u_tnl_info_to_add_item;
+
+        asn1_f1u_tnl_info_to_add_item.broadcast_f1_u_context_ref_e1.from_number(
+            e1ap_bc_f1u_context_reference_e1_to_uint(f1u_tnl_info_to_add_item));
+
+        asn1_f1u_tnl_info_to_add_list.push_back(asn1_f1u_tnl_info_to_add_item);
+      }
+
+      // Add extension IE to the list
+      asn1_bc_mrb_to_setup_item.ie_exts.push_back(bc_mrb_setup_cfg_item_ext_ie);
+    }
+  }
+
+  // Fill Requested Action for Available Shared NG-U Termination.
+  if (request.bc_bearer_context_to_setup.requested_action_for_available_shared_ngu_termination.has_value()) {
+    asn1_request->bc_bearer_context_to_setup.requested_action_present = true;
+    asn1_request->bc_bearer_context_to_setup.requested_action =
+      requested_action_for_available_shared_ngu_termination_to_asn1(request.bc_bearer_context_to_setup.requested_action_for_available_shared_ngu_termination.value());
+  }
+}
+
+inline void
+fill_e1ap_bc_bearer_context_setup_response(e1ap_bc_bearer_context_setup_response&            response,
+                                          const asn1::e1ap::bc_bearer_context_setup_resp_s&  asn1_response)
+{
+  // Fill gNB-CU-CP MBS E1AP ID (M).
+  response.gnb_cu_cp_mbs_e1ap_id = uint_to_gnb_cu_cp_mbs_e1ap_id(asn1_response->gnb_cu_cp_mbs_e1ap_id);
+
+  // Fill gNB-CU-UP MBS E1AP ID (M).
+  response.gnb_cu_up_mbs_e1ap_id = uint_to_gnb_cu_up_mbs_e1ap_id(asn1_response->gnb_cu_up_mbs_e1ap_id);
+
+  // Fill BC Bearer Context To Setup Response (M).
+  // TODO (borieher): Fill BC Bearer Context NG-U TNL Info at NG-RAN (O).
+
+  // Fill BC MRB Setup Response List <1..maxnoofMRBs>.
+  for (const auto& asn1_bc_mrb_setup_response_item : asn1_response->bc_bearer_context_to_setup_resp.bc_mrb_setup_resp_list) {
+    e1ap_bc_mrb_setup_response_item bc_mrb_setup_response_item;
+
+    // Fill MRB ID (M).
+    bc_mrb_setup_response_item.mrb_id = uint_to_mrb_id(asn1_bc_mrb_setup_response_item.mrb_id);
+
+    // Fill MBS QoS Flow Setup List (M).
+    for (const auto& asn1_mbs_qos_flow_setup_item : asn1_bc_mrb_setup_response_item.qosflow_setup) {
+      e1ap_qos_flow_item mbs_qos_flow_setup_item;
+
+      // Fill QoS Flow Identifier (M).
+      mbs_qos_flow_setup_item.qos_flow_id = uint_to_qos_flow_id(asn1_mbs_qos_flow_setup_item.qos_flow_id);
+
+      // TODO (borieher): Fill QoS Flow Mapping Indication (O).
+      // TODO (borieher): Fill Data Forwarding Source IP Address (O).
+
+      bc_mrb_setup_response_item.mbs_qos_flow_setup_list.push_back(mbs_qos_flow_setup_item);
+    }
+
+    // Fill MBS QoS Flow Failed List (O).
+    if (asn1_bc_mrb_setup_response_item.qosflow_failed.size() > 0) {
+      for (const auto& asn1_mbs_qos_flow_failed_item : asn1_bc_mrb_setup_response_item.qosflow_failed) {
+        e1ap_qos_flow_failed_item mbs_qos_flow_failed_item;
+
+        // Fill QoS Flow Identifier (M).
+        mbs_qos_flow_failed_item.qos_flow_id = uint_to_qos_flow_id(asn1_mbs_qos_flow_failed_item.qos_flow_id);
+
+        // Fill Cause (M).
+        mbs_qos_flow_failed_item.cause = asn1_to_cause(asn1_mbs_qos_flow_failed_item.cause);
+
+        bc_mrb_setup_response_item.mbs_qos_flow_failed_list.value().push_back(mbs_qos_flow_failed_item);
+      }
+    }
+
+    // Fill BC Bearer Context F1-U TNL Info at CU (M).
+    bc_mrb_setup_response_item.bc_bearer_context_f1u_tnl_info_at_cu =
+        asn1_to_bc_bearer_context_f1u_tnl_info_at_cu(asn1_bc_mrb_setup_response_item.bc_bearer_context_f1_u_tnl_infoat_cu);
+
+    // Extension IEs (O).
+    if (asn1_bc_mrb_setup_response_item.ext) {
+      for (const auto& asn1_bc_mrb_to_setup_item_ext_ie : asn1_bc_mrb_setup_response_item.ie_exts) {
+        switch (asn1_bc_mrb_to_setup_item_ext_ie.value().type()) {
+          // F1-U TNL Info Added List <0..1>.
+          case asn1::e1ap::bcmrb_setup_resp_list_item_ext_ies_o::ext_c::types::f1_u_tnl_info_added_list: {
+            const auto& asn1_f1u_tnl_info_added_list = asn1_bc_mrb_to_setup_item_ext_ie.value().f1_u_tnl_info_added_list();
+
+            if (asn1_f1u_tnl_info_added_list.size() > 0) {
+              for (const auto& asn1_f1u_tnl_info_added_item : asn1_f1u_tnl_info_added_list) {
+                e1ap_f1u_tnl_info_added_item f1u_tnl_info_added_item;
+
+                f1u_tnl_info_added_item.bc_f1u_context_reference_e1 = uint_to_e1ap_bc_f1u_context_reference_e1(
+                    asn1_f1u_tnl_info_added_item.broadcast_f1_u_context_ref_e1.to_number());
+
+                f1u_tnl_info_added_item.bc_bearer_context_f1u_tnl_info_at_cu =
+                    asn1_to_bc_bearer_context_f1u_tnl_info_at_cu(asn1_f1u_tnl_info_added_item.bc_bearer_context_f1_u_tnl_infoat_cu);
+
+                bc_mrb_setup_response_item.f1u_tnl_info_added_list.push_back(f1u_tnl_info_added_item);
+              }
+            }
+            break;
+          }
+          case asn1::e1ap::bcmrb_setup_resp_list_item_ext_ies_o::ext_c::types::nulltype: {
+            // TODO (borieher): Handle nulltype case
+            break;
+          }
+        }
+      }
+    }
+    response.bc_bearer_context_to_setup_response.bc_mrb_setup_response_list.push_back(bc_mrb_setup_response_item);
+  }
+
+  // Fill BC MRB Failed List <0..maxnoofMRBs>.
+  if (asn1_response->bc_bearer_context_to_setup_resp.bc_mrb_failed_list.size() > 0) {
+    for (const auto& asn1_bc_mrb_failed_item : asn1_response->bc_bearer_context_to_setup_resp.bc_mrb_failed_list) {
+      e1ap_bc_mrb_failed_item bc_mrb_failed_item;
+
+      // Fill MRB ID (M).
+      bc_mrb_failed_item.mrb_id = uint_to_mrb_id(asn1_bc_mrb_failed_item.mrb_id);
+
+      // Fill Cause (M).
+      bc_mrb_failed_item.cause = asn1_to_cause(asn1_bc_mrb_failed_item.cause);
+
+      response.bc_bearer_context_to_setup_response.bc_mrb_failed_list.push_back(bc_mrb_failed_item);
+    }
+  }
+
+  // TODO (borieher): Fill Available BC MRB Configuration (O).
+  // TODO (borieher): Fill Criticality Diagnostics (O).
 }
 
 } // namespace srs_cu_cp
