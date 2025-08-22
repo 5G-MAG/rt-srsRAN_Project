@@ -57,6 +57,10 @@ private:
   ngap_broadcast_session_setup_failure
   handle_bc_bearer_context_setup_failure(const e1ap_bc_bearer_context_setup_failure& msg);
 
+  // RRC helpers
+  byte_buffer get_packed_mtch_neighbour_cell_r17_ie();
+  byte_buffer get_packed_mrb_pdcp_config_broadcast_r17_ie();
+
   // (sub-)routine requests
   e1ap_bc_bearer_context_setup_request bc_bearer_context_setup_request;
 

@@ -21,6 +21,9 @@
  */
 
 #include "broadcast_session_setup_routine.h"
+#include "srsran/pdcp/pdcp_sn_size.h"
+#include "srsran/asn1/rrc_nr/rrc_nr.h"
+#include "srsran/asn1/asn1_utils.h"
 
 using namespace srsran;
 using namespace srsran::srs_cu_cp;
@@ -220,4 +223,44 @@ broadcast_session_setup_routine::handle_bc_bearer_context_setup_failure(const e1
   // TODO (borieher): Fill Criticality Diagnostics (O).
 
   return fail_msg;
+}
+
+// RRC helpers
+byte_buffer broadcast_session_setup_routine::get_packed_mtch_neighbour_cell_r17_ie()
+{
+  asn1::fixed_bitstring<8> mtch_neighbour_cell_r17;
+  byte_buffer   pdu{};
+  asn1::bit_ref bref{pdu};
+
+  // TODO (borieher): Grab the MBS-NeighbourCellList-r17
+
+  // NOTE (borieher): No MTCH neighbour cells
+  mtch_neighbour_cell_r17.from_number(0);
+
+  if (mtch_neighbour_cell_r17.pack(bref) == asn1::SRSASN_ERROR_ENCODE_FAIL) {
+    logger.error("Failed to pack mtch-NeighbourCell-r17 IE. Discarding it.");
+  }
+  return pdu;
+}
+
+byte_buffer broadcast_session_setup_routine::get_packed_mrb_pdcp_config_broadcast_r17_ie()
+{
+  struct asn1::rrc_nr::mrb_pdcp_cfg_broadcast_r17_s mrb_pdcp_cfg_broadcast_r17;
+  byte_buffer   pdu{};
+  asn1::bit_ref bref{pdu};
+
+  // PDCP configuration extracted from 3GPP TS 38.331 clause 9.1.1.7 - MTCH configuration for MBS broadcast
+  // If not set, the default value for pdcp_sn_size_dl_r17 is len18bits
+  mrb_pdcp_cfg_broadcast_r17.pdcp_sn_size_dl_r17_present = false;
+
+  // If not set, the default value for t_reordering_r17 is ms0
+  mrb_pdcp_cfg_broadcast_r17.t_reordering_r17_present = false;
+
+  // NOTE (borieher): Not using PDCP ROHC
+  mrb_pdcp_cfg_broadcast_r17.hdr_compress_r17.set_not_used();
+
+  if (mrb_pdcp_cfg_broadcast_r17.pack(bref) == asn1::SRSASN_ERROR_ENCODE_FAIL) {
+    logger.error("Failed to pack MRB-PDCP-ConfigBroadcast-r17 IE. Discarding it.");
+  }
+  return pdu;
 }
