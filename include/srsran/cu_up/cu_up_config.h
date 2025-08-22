@@ -32,6 +32,7 @@
 #include "srsran/pcap/dlt_pcap.h"
 #include "srsran/ran/gnb_cu_up_id.h"
 #include "srsran/support/timers.h"
+#include "srsran/ran/mbs.h"
 #include <map>
 
 namespace srsran {
@@ -74,6 +75,8 @@ struct cu_up_config {
   std::map<five_qi_t, cu_up_qos_config> qos;
   /// N3 configuration.
   n3_interface_config n3_cfg;
+  /// MBS configuration.
+  mbs_config mbs_cfg;
   /// Test mode configuration.
   cu_up_test_mode_config test_mode_cfg;
   /// gNodeB identifier.

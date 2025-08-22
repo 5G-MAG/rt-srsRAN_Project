@@ -28,6 +28,7 @@
 #include "srsran/e1ap/common/e1ap_common.h"
 #include "srsran/e1ap/common/e1ap_types.h"
 #include "srsran/e1ap/cu_up/e1ap_cu_up_bearer_context_update.h"
+#include "srsran/e1ap/cu_up/e1ap_cu_up_bc_bearer_context_setup.h"
 #include "srsran/support/async/async_task.h"
 
 namespace srsran {
@@ -85,8 +86,16 @@ public:
   virtual async_task<void>
   on_bearer_context_release_command_received(const e1ap_bearer_context_release_command& msg) = 0;
 
+  /// \brief Notifies the CU-UP about a new E1AP MBS Session.
+  /// \param[in] cu_cp_mbs_e1ap_id The received gNB CU-CP E1AP MBS ID.
+  /// \returns The MBS index for the new E1AP MBS Session.
+  virtual mbs_index_t on_new_e1ap_mbs_session(const gnb_cu_cp_mbs_e1ap_id_t cu_cp_mbs_e1ap_id) = 0;
+
   /// \brief Schedules async task on UE.
   virtual void on_schedule_ue_async_task(srs_cu_up::ue_index_t ue_index, async_task<void> task) = 0;
+
+  /// \brief Schedules an MBS common task.
+  virtual bool on_schedule_mbs_task(async_task<void> task) = 0;
 };
 
 /// \brief Interface to query statistics from the E1AP interface.

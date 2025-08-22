@@ -51,10 +51,22 @@ static ue_manager_dependencies generate_ue_manager_dependencies(const cu_up_mana
           logger};
 }
 
+static mbs_session_manager_config generate_mbs_session_manager_config(const n3_interface_config&  n3_config,
+                                                                      const mbs_config&           mbs_config)
+{
+  return {n3_config, mbs_config};
+}
+
+static mbs_session_manager_dependencies generate_mbs_session_manager_dependencies()
+{
+  return {};
+}
+
 cu_up_manager_impl::cu_up_manager_impl(const cu_up_manager_impl_config&       config,
                                        const cu_up_manager_impl_dependencies& dependencies) :
   qos(config.qos),
   n3_cfg(config.n3_cfg),
+  mbs_cfg(config.mbs_cfg),
   test_mode_cfg(config.test_mode_cfg),
   ngu_demux(dependencies.ngu_demux),
   exec_mapper(dependencies.exec_mapper),
@@ -64,6 +76,10 @@ cu_up_manager_impl::cu_up_manager_impl(const cu_up_manager_impl_config&       co
   /// > Create UE manager
   ue_mng = std::make_unique<ue_manager>(generate_ue_manager_config(n3_cfg, test_mode_cfg),
                                         generate_ue_manager_dependencies(dependencies, logger));
+
+  /// > Create MBS Session manager
+  mbs_session_mng = std::make_unique<mbs_session_manager>(generate_mbs_session_manager_config(n3_cfg, mbs_cfg),
+                                                          generate_mbs_session_manager_dependencies());
 }
 
 async_task<void> cu_up_manager_impl::stop()
@@ -79,6 +95,11 @@ void cu_up_manager_impl::schedule_cu_up_async_task(async_task<void> task)
 void cu_up_manager_impl::schedule_ue_async_task(ue_index_t ue_index, async_task<void> task)
 {
   ue_mng->schedule_ue_async_task(ue_index, std::move(task));
+}
+
+bool cu_up_manager_impl::schedule_mbs_task(async_task<void> task)
+{
+  return mbs_session_mng->schedule_mbs_task(std::move(task));
 }
 
 e1ap_bearer_context_setup_response
@@ -158,6 +179,22 @@ cu_up_manager_impl::handle_bearer_context_release_command(const e1ap_bearer_cont
   ue_ctxt->get_logger().log_debug("Received E1 Bearer Context Release Command");
 
   return ue_mng->remove_ue(msg.ue_index);
+}
+
+mbs_index_t cu_up_manager_impl::handle_new_e1ap_mbs_session()
+{
+  // Create a new MBS session in the MBS manager.
+  mbs_session_context_cfg mbs_session_cfg = {};
+  mbs_session_cfg.qos                     = qos;
+  mbs_session_context* mbs_session = mbs_session_mng->add_mbs_session(mbs_session_cfg);
+
+  if (mbs_session->get_index() == mbs_index_t::invalid) {
+    logger.warning("Failed to create CU-UP MBS Session");
+  } else {
+    logger.debug("Created new CU-UP MBS Session");
+  }
+
+  return mbs_session->get_index();
 }
 
 async_task<void> cu_up_manager_impl::enable_test_mode()

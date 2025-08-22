@@ -25,6 +25,7 @@
 #include "cu_up/e1ap_cu_up_metrics_collector.h"
 #include "e1ap_cu_up_connection_handler.h"
 #include "ue_context/e1ap_cu_up_ue_context.h"
+#include "mbs_session_context/e1ap_cu_up_mbs_session_context.h"
 #include "srsran/asn1/e1ap/e1ap.h"
 #include "srsran/e1ap/cu_up/e1ap_configuration.h"
 #include "srsran/e1ap/cu_up/e1ap_cu_up.h"
@@ -126,6 +127,9 @@ private:
 
   /// Repository of UE Contexts.
   e1ap_ue_context_list ue_ctxt_list;
+
+  /// Repository of MBS Session Contexts.
+  e1ap_mbs_session_context_list mbs_session_ctxt_list;
 
   std::unique_ptr<e1ap_event_manager> ev_mng;
 

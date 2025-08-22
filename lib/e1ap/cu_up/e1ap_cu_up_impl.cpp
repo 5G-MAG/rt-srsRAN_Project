@@ -65,6 +65,7 @@ e1ap_cu_up_impl::e1ap_cu_up_impl(const e1ap_configuration&    e1ap_cfg_,
   cu_up_exec(cu_up_exec_),
   connection_handler(e1_client_handler_, *this),
   ue_ctxt_list(logger),
+  mbs_session_ctxt_list(logger),
   ev_mng(std::make_unique<e1ap_event_manager>(timer_factory{timers, cu_up_exec})),
   metrics(e1ap_cfg.metrics_period.count())
 {
@@ -322,6 +323,50 @@ void e1ap_cu_up_impl::handle_bearer_context_release_command(const asn1::e1ap::be
 void e1ap_cu_up_impl::handle_bc_bearer_context_setup_request(const asn1::e1ap::bc_bearer_context_setup_request_s& msg)
 {
   logger.info("Received BC Bearer Context Setup Request on the CU-UP");
+
+  // Convert to common type
+  e1ap_bc_bearer_context_setup_request bc_bearer_context_setup_req;
+  if (!fill_e1ap_bc_bearer_context_setup_request(bc_bearer_context_setup_req, msg)) {
+    logger.error("Conversion of BC Bearer Context Setup Request failed");
+    // Send response.
+    //pdu_notifier->on_new_message(e1ap_msg);
+    return;
+  }
+
+  // Check if E1AP MBS Session context already exists
+  if (mbs_session_ctxt_list.contains(bc_bearer_context_setup_req.gnb_cu_cp_mbs_e1ap_id)) {
+    logger.warning("Dropping BC Bearer Context Session Setup Request. E1AP MBS Session context exists");
+    //send_error_indication(tx_pdu_notifier, logger, {}, {}, ngap_cause_radio_network_t::unspecified);
+    return;
+  }
+
+  // Create new CU-UP MBS Session object
+  mbs_index_t mbs_index;
+  mbs_index = cu_up_notifier.on_new_e1ap_mbs_session(bc_bearer_context_setup_req.gnb_cu_cp_mbs_e1ap_id);
+
+  if (mbs_index == mbs_index_t::invalid) {
+    logger.warning("E1AP MBS Session creation failed");
+    //return make_unexpected(rrc->get_rrc_reject());
+    return;
+  }
+
+  gnb_cu_up_mbs_e1ap_id_t cu_up_mbs_e1ap_id = mbs_session_ctxt_list.allocate_gnb_cu_up_mbs_e1ap_id();
+  if (cu_up_mbs_e1ap_id == gnb_cu_up_mbs_e1ap_id_t::invalid) {
+    logger.error("Sending BC Bearer Context Setup Failure. Cause: No CU-UP-MBS E1AP ID available");
+
+    // Send response.
+    //pdu_notifier->on_new_message(e1ap_msg);
+    return;
+  }
+
+  // Add new E1AP MBS Session context
+  if (mbs_session_ctxt_list.add_mbs_session_context(mbs_index, cu_up_mbs_e1ap_id,
+      bc_bearer_context_setup_req.gnb_cu_cp_mbs_e1ap_id) == nullptr) {
+    logger.warning("E1AP BC Bearer Context Setup failed. Cause: E1AP MBS Session context already exists");
+    // send_ngap_broadcast_session_setup_failure?
+  }
+
+  e1ap_mbs_session_context& mbs_session_ctxt = mbs_session_ctxt_list[mbs_index];
 
 }
 

@@ -25,10 +25,12 @@
 #include "adapters/gtpu_adapters.h"
 #include "ngu_session_manager.h"
 #include "ue_manager.h"
+#include "mbs_session_manager/mbs_session_manager.h"
 #include "srsran/cu_up/cu_up_config.h"
 #include "srsran/cu_up/cu_up_manager.h"
 #include "srsran/e1ap/cu_up/e1ap_cu_up.h"
 #include "srsran/gtpu/gtpu_teid_pool.h"
+#include "srsran/ran/mbs.h"
 #include <memory>
 
 namespace srsran::srs_cu_up {
@@ -37,6 +39,7 @@ namespace srsran::srs_cu_up {
 struct cu_up_manager_impl_config {
   std::map<five_qi_t, cu_up_qos_config> qos;
   n3_interface_config                   n3_cfg;
+  mbs_config                            mbs_cfg;
   cu_up_test_mode_config                test_mode_cfg;
 };
 
@@ -68,8 +71,11 @@ public:
 
   async_task<void> handle_bearer_context_release_command(const e1ap_bearer_context_release_command& msg) override;
 
+  mbs_index_t handle_new_e1ap_mbs_session() override;
+
   void schedule_cu_up_async_task(async_task<void> task);
   void schedule_ue_async_task(srs_cu_up::ue_index_t ue_index, async_task<void> task) override;
+  bool schedule_mbs_task(async_task<void> task) override;
 
   // cu_up_e1ap_connection_notifier
   void on_e1ap_connection_establish() override { e1ap_connected = true; }
@@ -90,6 +96,7 @@ private:
   std::map<five_qi_t, cu_up_qos_config> qos;
   const network_interface_config        net_cfg;
   const n3_interface_config             n3_cfg;
+  const mbs_config                      mbs_cfg;
   const cu_up_test_mode_config          test_mode_cfg;
   gtpu_demux&                           ngu_demux;
   cu_up_executor_mapper&                exec_mapper;
@@ -101,6 +108,7 @@ private:
   // Components
   std::atomic<bool>           e1ap_connected = {false};
   std::unique_ptr<ue_manager> ue_mng;
+  std::unique_ptr<mbs_session_manager> mbs_session_mng;
 
   unique_timer statistics_report_timer;
 

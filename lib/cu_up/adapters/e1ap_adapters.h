@@ -71,6 +71,25 @@ public:
     return cu_up_handler->handle_bearer_context_release_command(msg);
   }
 
+  mbs_index_t on_new_e1ap_mbs_session(const gnb_cu_cp_mbs_e1ap_id_t cu_cp_mbs_e1ap_id) override
+  {
+    if (cu_up_handler == nullptr) {
+      logger.warning("Could not handle BC Bearer Context Setup command, no CU-UP handler present");
+      return {}; // return BC Bearer Context Setup Failure
+    }
+
+    return cu_up_handler->handle_new_e1ap_mbs_session();
+  }
+
+  bool on_schedule_mbs_task(async_task<void> task) override
+  {
+    if (cu_up_handler == nullptr) {
+      logger.error("Could not schedule MBS task, no CU-UP handler present");
+      return false;
+    }
+    return cu_up_handler->schedule_mbs_task(std::move(task));
+  }
+
   void on_schedule_ue_async_task(srs_cu_up::ue_index_t ue_index, async_task<void> task) override
   {
     if (cu_up_handler == nullptr) {
