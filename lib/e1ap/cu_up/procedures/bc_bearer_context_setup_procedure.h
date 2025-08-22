@@ -1,0 +1,66 @@
+/*
+ * 5G-MAG Reference Tools
+ * Copyright (C) 2025 iTEAM UPV <borieher@iteam.upv.es>
+ *
+ * This file is part of srsRAN.
+ *
+ * srsRAN is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of
+ * the License, or (at your option) any later version.
+ *
+ * srsRAN is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * A copy of the GNU Affero General Public License can be found in
+ * the LICENSE file in the top-level directory of this distribution
+ * and at http://www.gnu.org/licenses/.
+ *
+ */
+
+#pragma once
+
+#include "srsran/e1ap/cu_up/e1ap_cu_up.h"
+#include "srsran/asn1/e1ap/e1ap.h"
+#include "srsran/e1ap/common/e1ap_message.h"
+#include "srsran/e1ap/common/e1ap_common.h"
+#include "cu_up/mbs_session_context/e1ap_cu_up_mbs_session_context.h"
+#include "srsran/support/async/async_task.h"
+
+namespace srsran {
+namespace srs_cu_up {
+
+/// \brief This class handles the E1AP BC Bearer Context Setup Procedure, as per TS 37.483 8.6.1.1.
+class bc_bearer_context_setup_procedure
+{
+public:
+  bc_bearer_context_setup_procedure(const e1ap_bc_bearer_context_setup_request& request_,
+                                    e1ap_mbs_session_context&                   mbs_session_ctxt_,
+                                    e1ap_message_notifier&                      pdu_notifier_,
+                                    srslog::basic_logger&                       logger_);
+
+  void operator()(coro_context<async_task<void>>& ctx);
+
+  static const char* name() { return "E1AP CU-UP BC Bearer Context Setup Procedure"; }
+
+private:
+  bool fill_e1ap_bc_bearer_context_setup_response();
+
+  /// Send BC Bearer Context Setup Response to CU-CP.
+  void send_bc_bearer_context_setup_response();
+
+  /// Send BC Bearer Context Setup Failure to CU-CP.
+  void send_bc_bearer_context_setup_failure();
+
+  e1ap_bc_bearer_context_setup_request          request;
+  e1ap_bc_bearer_context_setup_response         response;
+  e1ap_bc_bearer_context_setup_failure          failure;
+  e1ap_mbs_session_context&                     mbs_session_ctxt;
+  e1ap_message_notifier&                        pdu_notifier;
+  srslog::basic_logger&                         logger;
+};
+
+} // namespace srs_cu_up
+} // namespace srsran

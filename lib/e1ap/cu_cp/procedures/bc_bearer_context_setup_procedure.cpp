@@ -43,8 +43,14 @@ void bc_bearer_context_setup_procedure::operator()(coro_context<async_task<expec
 
   logger.debug("\"{}\" initialized", name());
 
+  // Subscribe to respective publisher to receive BC Bearer Context Setup Response/Failure message.
+  transaction_sink.subscribe_to(ev_mng.bc_bearer_context_setup_outcome, e1ap_cfg.proc_timeout);
+
   // Send command to CU-UP.
   send_bc_bearer_context_setup_request();
+
+  // Await response.
+  CORO_AWAIT(transaction_sink);
 
   // Handle response from CU-UP and return bearer index.
   CORO_RETURN(handle_bc_bearer_context_setup_outcome());
@@ -61,6 +67,32 @@ void bc_bearer_context_setup_procedure::send_bc_bearer_context_setup_request()
 expected<e1ap_bc_bearer_context_setup_response, e1ap_bc_bearer_context_setup_failure>
 bc_bearer_context_setup_procedure::handle_bc_bearer_context_setup_outcome()
 {
-  e1ap_bc_bearer_context_setup_response response;
-  return response;
+  if (transaction_sink.successful()) {
+    logger.info("Received BC Bearer Context Setup Response on the CU-CP");
+    e1ap_bc_bearer_context_setup_response response;
+    const asn1::e1ap::bc_bearer_context_setup_resp_s& asn1_resp = transaction_sink.response();
+
+    fill_e1ap_bc_bearer_context_setup_response(response, asn1_resp);
+
+    return response;
+  } else if (transaction_sink.failed()) {
+    logger.info("Received BC Bearer Context Setup Failure on the CU-CP");
+    e1ap_bc_bearer_context_setup_failure failure;
+    const asn1::e1ap::bc_bearer_context_setup_fail_s asn1_fail = transaction_sink.failure();
+
+    //fill_e1ap_bc_bearer_context_setup_failure(failure, asn1_fail);
+    failure.gnb_cu_cp_mbs_e1ap_id = uint_to_gnb_cu_cp_mbs_e1ap_id(asn1_fail->gnb_cu_cp_mbs_e1ap_id);
+    failure.gnb_cu_up_mbs_e1ap_id = uint_to_gnb_cu_up_mbs_e1ap_id(asn1_fail->gnb_cu_up_mbs_e1ap_id);
+
+    return make_unexpected(failure);
+  } else {
+    logger.warning("E1AP BC Bearer Context Setup Response timeout");
+    e1ap_bc_bearer_context_setup_failure failure;
+    request.pdu.init_msg().load_info_obj(ASN1_E1AP_ID_BC_BEARER_CONTEXT_SETUP);
+    auto& bc_bearer_context_setup_request = request.pdu.init_msg().value.bc_bearer_context_setup_request();
+    failure.gnb_cu_cp_mbs_e1ap_id = uint_to_gnb_cu_cp_mbs_e1ap_id(bc_bearer_context_setup_request->gnb_cu_cp_mbs_e1ap_id);
+
+    logger.error("\"{}\" failed", name());
+    return make_unexpected(failure);
+  }
 }

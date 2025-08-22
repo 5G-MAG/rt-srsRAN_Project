@@ -25,6 +25,7 @@
 #include "cu_up/procedures/bearer_context_modification_procedure.h"
 #include "cu_up/procedures/bearer_context_release_procedure.h"
 #include "cu_up/procedures/e1ap_cu_up_event_manager.h"
+#include "cu_up/procedures/bc_bearer_context_setup_procedure.h"
 #include "e1ap_cu_up_asn1_helpers.h"
 #include "procedures/e1ap_cu_up_setup_procedure.h"
 #include "srsran/e1ap/common/e1ap_message.h"
@@ -368,6 +369,9 @@ void e1ap_cu_up_impl::handle_bc_bearer_context_setup_request(const asn1::e1ap::b
 
   e1ap_mbs_session_context& mbs_session_ctxt = mbs_session_ctxt_list[mbs_index];
 
+  // Start procedure from the MBS Session task scheduler
+  cu_up_notifier.on_schedule_mbs_task(launch_async<bc_bearer_context_setup_procedure>(
+    bc_bearer_context_setup_req, mbs_session_ctxt, *pdu_notifier, logger));
 }
 
 void e1ap_cu_up_impl::handle_successful_outcome(const asn1::e1ap::successful_outcome_s& outcome)
