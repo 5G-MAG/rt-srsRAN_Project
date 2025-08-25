@@ -118,6 +118,8 @@ bool broadcast_session_setup_routine::fill_e1ap_bc_bearer_context_setup_request(
           locationdependent_item.shared_ngu_multicast_tnl_information.ip_source_address;
         bc_bearer_ctxt_ngu_tnl_info_at_5gc_location_dependent_item.mbs_ngu_information_at_5gc.gtp_dl_teid =
           locationdependent_item.shared_ngu_multicast_tnl_information.gtp_teid_at_5gc;
+
+        locationdependent.location_dependent_mbs_ngu_info_at_5gc.push_back(bc_bearer_ctxt_ngu_tnl_info_at_5gc_location_dependent_item);
       }
 
       e1ap_request.bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_info_at_5gc.emplace(locationdependent);
