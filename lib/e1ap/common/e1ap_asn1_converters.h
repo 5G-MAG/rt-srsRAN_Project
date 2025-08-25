@@ -1505,10 +1505,10 @@ inline e1ap_mbs_ngu_information_at_5gc asn1_to_mbs_ngu_info_at_5gc(asn1::e1ap::m
   if (asn1_mbs_ngu_info_at_5gc.type() == asn1::e1ap::mb_sn_gu_info_at5_gc_c::types::multicast) {
     const auto& multicast_choice = asn1_mbs_ngu_info_at_5gc.multicast();
     // Fill IP Multicast Address (M).
-    mbs_ngu_info_at_5gc.ip_multicast_address.create_from_string(multicast_choice.ipmc_address.to_string());
+    mbs_ngu_info_at_5gc.ip_multicast_address.create_from_bitstring(multicast_choice.ipmc_address.to_string());
 
     // Fill IP Source Address (M).
-    mbs_ngu_info_at_5gc.ip_source_address.create_from_string(multicast_choice.ipsource_address.to_string());
+    mbs_ngu_info_at_5gc.ip_source_address.create_from_bitstring(multicast_choice.ipsource_address.to_string());
 
     // Fill GTP DL TEID (M).
     mbs_ngu_info_at_5gc.gtp_dl_teid = int_to_gtpu_teid(multicast_choice.gtp_dl_teid.to_number());
