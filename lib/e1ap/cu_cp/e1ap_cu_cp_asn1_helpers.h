@@ -1092,6 +1092,8 @@ inline void fill_asn1_bc_bearer_context_setup_request(asn1::e1ap::bc_bearer_cont
       // Add extension IE to the list
       asn1_bc_mrb_to_setup_item.ie_exts.push_back(bc_mrb_setup_cfg_item_ext_ie);
     }
+
+    asn1_request->bc_bearer_context_to_setup.bc_mrb_to_setup_list.push_back(asn1_bc_mrb_to_setup_item);
   }
 
   // Fill Requested Action for Available Shared NG-U Termination.
