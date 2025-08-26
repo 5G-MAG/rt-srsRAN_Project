@@ -41,6 +41,8 @@ void bc_bearer_context_setup_procedure::operator()(coro_context<async_task<void>
 
   logger.debug("\"{}\" initialized", name());
 
+  // TODO (borieher): Perform Multicast join here with the E1AP information
+
   // Process the E1AP BC Bearer Context Setup Request and create the E1AP BC Bearer Context Setup Response
   fill_e1ap_bc_bearer_context_setup_response();
 
@@ -78,8 +80,7 @@ bool bc_bearer_context_setup_procedure::fill_e1ap_bc_bearer_context_setup_respon
       bc_mrb_setup_response_item.mbs_qos_flow_setup_list.push_back(mbs_qos_flow_setup_item);
     }
 
-    // Fill MBS QoS Flow Failed List (O).
-    // TODO (borieher)
+    // TODO (borieher): Fill MBS QoS Flow Failed List (O).
 
     // NOTE (borieher): Right now filling BC Bearer Context F1-U TNL Info at CU (M) with the last value.
     // Fill BC Bearer Context F1-U TNL Info at CU (M).
@@ -98,18 +99,18 @@ bool bc_bearer_context_setup_procedure::fill_e1ap_bc_bearer_context_setup_respon
 
             for (const auto& locationdependent_item : request.bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_info_at_5gc.value()
                 .get_locationdependent().location_dependent_mbs_ngu_info_at_5gc) {
-                e1ap_bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item;
+              e1ap_bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item;
 
-                bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item.mbs_area_session_id = locationdependent_item.mbs_area_session_id;
+              bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item.mbs_area_session_id = locationdependent_item.mbs_area_session_id;
 
-                // TODO (borieher): Remove hardcoded values
-                up_transport_layer_info mbs_f1u_information_at_cu;
-                mbs_f1u_information_at_cu.tp_address = transport_layer_address::create_from_string("1.1.1.1");
-                mbs_f1u_information_at_cu.gtp_teid = int_to_gtpu_teid(1111);
+              // TODO (borieher): Remove hardcoded values
+              up_transport_layer_info mbs_f1u_information_at_cu;
+              mbs_f1u_information_at_cu.tp_address = transport_layer_address::create_from_string("1.1.1.1");
+              mbs_f1u_information_at_cu.gtp_teid = int_to_gtpu_teid(1111);
 
-                bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item.mbs_f1u_information_at_cu = mbs_f1u_information_at_cu;
+              bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item.mbs_f1u_information_at_cu = mbs_f1u_information_at_cu;
 
-                locationdependent.location_dependent_mbs_f1u_information_at_cu.push_back(bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item);
+              locationdependent.location_dependent_mbs_f1u_information_at_cu.push_back(bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item);
             }
 
             f1u_tnl_info_added_item.bc_bearer_context_f1u_tnl_info_at_cu = locationdependent;
@@ -135,6 +136,8 @@ bool bc_bearer_context_setup_procedure::fill_e1ap_bc_bearer_context_setup_respon
         bc_mrb_setup_response_item.bc_bearer_context_f1u_tnl_info_at_cu = f1u_tnl_info_added_item.bc_bearer_context_f1u_tnl_info_at_cu;
       }
     }
+
+    response.bc_bearer_context_to_setup_response.bc_mrb_setup_response_list.push_back(bc_mrb_setup_response_item);
   }
 
   // Fill BC MRB Failed List <0..maxnoofMRBs>.

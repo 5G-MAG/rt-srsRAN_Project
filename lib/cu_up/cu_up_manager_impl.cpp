@@ -84,6 +84,7 @@ cu_up_manager_impl::cu_up_manager_impl(const cu_up_manager_impl_config&       co
 
 async_task<void> cu_up_manager_impl::stop()
 {
+  //mbs_session_mng->stop();
   return ue_mng->stop();
 }
 

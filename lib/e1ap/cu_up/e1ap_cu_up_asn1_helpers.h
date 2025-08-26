@@ -957,7 +957,7 @@ inline bool fill_e1ap_bc_bearer_context_setup_request(e1ap_bc_bearer_context_set
     }
 
     // Extension IEs (O).
-    if (asn1_bc_mrb_to_setup_item.ext) {
+    if (asn1_bc_mrb_to_setup_item.ie_exts.size() > 0) {
       for (const auto& asn1_bc_mrb_to_setup_item_ext_ie : asn1_bc_mrb_to_setup_item.ie_exts) {
         switch (asn1_bc_mrb_to_setup_item_ext_ie.value().type()) {
           // F1-U TNL Info to Add List <0..1>
@@ -981,6 +981,8 @@ inline bool fill_e1ap_bc_bearer_context_setup_request(e1ap_bc_bearer_context_set
         }
       }
     }
+
+    request.bc_bearer_context_to_setup.bc_mrb_to_setup_list.push_back(bc_mrb_to_setup_item);
   }
 
   // Fill Requested Action for Available Shared NG-U Termination (O).
@@ -1002,7 +1004,7 @@ inline void fill_asn1_bc_bearer_context_setup_response(asn1::e1ap::bc_bearer_con
   asn1_response->gnb_cu_up_mbs_e1ap_id = gnb_cu_up_mbs_e1ap_id_to_uint(response.gnb_cu_up_mbs_e1ap_id);
 
   // Fill BC Bearer Context To Setup Response (M).
-  // TODO (borieher): Fill BC Bearer Context NG-U TNL Info at NG-RAN (O).
+  // NOTE (borieher): We do not use BC Bearer Context NG-U TNL Info at NG-RAN (O).
 
   // Fill BC MRB Setup Response List <1..maxnoofMRBs>.
   for (const auto& bc_mrb_response_item : response.bc_bearer_context_to_setup_response.bc_mrb_setup_response_list) {
@@ -1048,11 +1050,9 @@ inline void fill_asn1_bc_bearer_context_setup_response(asn1::e1ap::bc_bearer_con
     if (!bc_mrb_response_item.f1u_tnl_info_added_list.empty()) {
       // Adding an extension IE
       asn1_bc_mrb_response_item.ext = true;
-      asn1::protocol_ext_field_s<asn1::e1ap::bcmrb_setup_resp_list_item_ext_ies_o> ext_ie;
-      ext_ie.set_item(asn1::e1ap::bcmrb_setup_resp_list_item_ext_ies_o::idx_to_id(
-                      asn1::e1ap::bcmrb_setup_resp_list_item_ext_ies_o::ext_c::types::f1_u_tnl_info_added_list));
 
-      auto& asn1_f1u_tnl_info_added_list = ext_ie.value().f1_u_tnl_info_added_list();
+      asn1::protocol_ext_field_s<asn1::e1ap::bcmrb_setup_resp_list_item_ext_ies_o> bc_mrb_setup_response_item_ext_ie;
+      auto& asn1_f1u_tnl_info_added_list = bc_mrb_setup_response_item_ext_ie.value().f1_u_tnl_info_added_list();
 
       for (const auto& f1u_tnl_info_added_item : bc_mrb_response_item.f1u_tnl_info_added_list) {
         asn1::e1ap::f1_u_tnl_info_added_item_s asn1_f1u_tnl_info_added_item;
@@ -1068,8 +1068,10 @@ inline void fill_asn1_bc_bearer_context_setup_response(asn1::e1ap::bc_bearer_con
         asn1_f1u_tnl_info_added_list.push_back(asn1_f1u_tnl_info_added_item);
       }
 
-      asn1_bc_mrb_response_item.ie_exts.push_back(ext_ie);
+      asn1_bc_mrb_response_item.ie_exts.push_back(bc_mrb_setup_response_item_ext_ie);
     }
+
+    asn1_response->bc_bearer_context_to_setup_resp.bc_mrb_setup_resp_list.push_back(asn1_bc_mrb_response_item);
   }
 
   // Fill BC MRB Failed List <0..maxnoofMRBs>.
@@ -1082,6 +1084,8 @@ inline void fill_asn1_bc_bearer_context_setup_response(asn1::e1ap::bc_bearer_con
 
       // Fill Cause (M).
       asn1_bc_mrb_failed_item.cause = cause_to_asn1(bc_mrb_failed_item.cause);
+
+      asn1_response->bc_bearer_context_to_setup_resp.bc_mrb_failed_list.push_back(asn1_bc_mrb_failed_item);
     }
   }
 
