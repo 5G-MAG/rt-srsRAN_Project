@@ -1075,13 +1075,11 @@ inline void fill_asn1_bc_bearer_context_setup_request(asn1::e1ap::bc_bearer_cont
       // NOTE (borieher): This is an extension IE
       asn1_bc_mrb_to_setup_item.ext = true;
 
-      asn1::protocol_ext_field_s<asn1::e1ap::bcmrb_setup_cfg_item_ext_ies_o> bc_mrb_setup_cfg_item_ext_ie;
-      bc_mrb_setup_cfg_item_ext_ie.set_item(asn1::e1ap::bcmrb_setup_cfg_item_ext_ies_o::ext_c::types_opts::f1_u_tnl_info_to_add_list);
-
-      auto& asn1_f1u_tnl_info_to_add_list = bc_mrb_setup_cfg_item_ext_ie->f1_u_tnl_info_to_add_list();
+      asn1::protocol_ext_field_s<asn1::e1ap::bcmrb_setup_cfg_item_ext_ies_o> bc_mrb_to_setup_item_ext_ie;
+      auto& asn1_f1u_tnl_info_to_add_list = bc_mrb_to_setup_item_ext_ie.value().f1_u_tnl_info_to_add_list();
 
       for (const auto& f1u_tnl_info_to_add_item : bc_mrb_to_setup_item.f1u_tnl_info_to_add_list) {
-        asn1::e1ap::f1_u_tnl_info_to_add_item_s asn1_f1u_tnl_info_to_add_item;
+        asn1::e1ap::f1_u_tnl_info_to_add_item_s asn1_f1u_tnl_info_to_add_item{};
 
         asn1_f1u_tnl_info_to_add_item.broadcast_f1_u_context_ref_e1.from_number(
             e1ap_bc_f1u_context_reference_e1_to_uint(f1u_tnl_info_to_add_item));
@@ -1090,7 +1088,7 @@ inline void fill_asn1_bc_bearer_context_setup_request(asn1::e1ap::bc_bearer_cont
       }
 
       // Add extension IE to the list
-      asn1_bc_mrb_to_setup_item.ie_exts.push_back(bc_mrb_setup_cfg_item_ext_ie);
+      asn1_bc_mrb_to_setup_item.ie_exts.push_back(bc_mrb_to_setup_item_ext_ie);
     }
 
     asn1_request->bc_bearer_context_to_setup.bc_mrb_to_setup_list.push_back(asn1_bc_mrb_to_setup_item);

@@ -62,11 +62,8 @@ void broadcast_session_setup_routine::operator()(
       fail_msg = handle_bc_bearer_context_setup_failure(bc_bearer_context_setup_procedure_outcome.error());
       CORO_EARLY_RETURN(make_unexpected(fail_msg));
     } else {
-      // TODO (borieher): Perform Multicast join here at the CU-UP with the E1AP information
-
+      // NOTE (borieher): This shouldn't return the NGAP response yet
       resp_msg = handle_bc_bearer_context_setup_response(bc_bearer_context_setup_procedure_outcome.value());
-
-      // How do I get the mbs_session_id from the gnb_cu_cp_mbs_e1ap_id_t?
     }
   }
 
@@ -146,7 +143,7 @@ bool broadcast_session_setup_routine::fill_e1ap_bc_bearer_context_setup_request(
   // TODO: Allow mapping more than 1 QoS Flow to the same MRB, currently 1 QoS Flow <-> 1 MRB
   // A pre-processing of the QoS Flows will be needed for that
   for (const auto& mbs_qos_flow_to_be_setup_item : request.mbs_session_setup_request_transfer.mbs_qos_flows_to_be_setup_or_modified_list) {
-    e1ap_bc_mrb_setup_config bc_mrb_setup_config;
+    e1ap_bc_mrb_setup_config bc_mrb_to_setup_item;
 
     // Fill MRB ID.
     // TODO: Remove this hardcoded MRB ID value
@@ -162,7 +159,7 @@ bool broadcast_session_setup_routine::fill_e1ap_bc_bearer_context_setup_request(
       mbs_pdcp_cfg.rlc_mod = pdcp_rlc_mode::um;                 // UM RLC mode
       mbs_pdcp_cfg.pdcp_sn_size_ul = pdcp_sn_size::size18bits;  // No UL PDCP SN size for MBS, workaround
 
-      bc_mrb_setup_config.mbs_pdcp_cfg = mbs_pdcp_cfg;
+      bc_mrb_to_setup_item.mbs_pdcp_cfg = mbs_pdcp_cfg;
     }
 
     // NOTE (borieher): More than one QoS flow could be mapped to the same MRB. For now each flow has its own MRB.
@@ -177,20 +174,20 @@ bool broadcast_session_setup_routine::fill_e1ap_bc_bearer_context_setup_request(
       qos_param_item.qos_flow_level_qos_params.gbr_qos_flow_info.emplace(mbs_qos_flow_to_be_setup_item.mbs_qos_flow_level_qos_parameters.gbr_qos_flow_info.value());
     }
 
-    bc_mrb_setup_config.mbs_qos_flow_info_to_be_setup.push_back(qos_param_item);
+    bc_mrb_to_setup_item.mbs_qos_flow_info_to_be_setup.push_back(qos_param_item);
 
     // Fill MRB QoS (O).
-    // If more than 1 QoS Flow is mapped to this MRB
-    if (bc_mrb_setup_config.mbs_qos_flow_info_to_be_setup.size() > 1) {
-      bc_mrb_setup_config.mrb_qos.emplace(qos_param_item.qos_flow_level_qos_params);
-    }
+    // TODO (borieher): If more than 1 QoS Flow is mapped to this MRB
+    //if (bc_mrb_setup_config.mbs_qos_flow_info_to_be_setup.size() > 1) {
+    bc_mrb_to_setup_item.mrb_qos.emplace(qos_param_item.qos_flow_level_qos_params);
+    //}
 
     // Fill F1-U TNL Info to Add List <0..1>.
     // TODO (borieher): Remove hardcoded value
     e1ap_bc_f1u_context_reference_e1 bc_f1u_context_reference_e1 = e1ap_bc_f1u_context_reference_e1::min;
-    bc_mrb_setup_config.f1u_tnl_info_to_add_list.push_back(bc_f1u_context_reference_e1);
+    bc_mrb_to_setup_item.f1u_tnl_info_to_add_list.push_back(bc_f1u_context_reference_e1);
 
-    e1ap_request.bc_bearer_context_to_setup.bc_mrb_to_setup_list.push_back(bc_mrb_setup_config);
+    e1ap_request.bc_bearer_context_to_setup.bc_mrb_to_setup_list.push_back(bc_mrb_to_setup_item);
   }
 
   // Fill Requested Action for Available Shared NG-U Termination (O).

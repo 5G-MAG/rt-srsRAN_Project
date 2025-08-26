@@ -74,6 +74,8 @@ bc_bearer_context_setup_procedure::handle_bc_bearer_context_setup_outcome()
 
     fill_e1ap_bc_bearer_context_setup_response(response, asn1_resp);
 
+    logger.debug("\"{}\" finalized", name());
+
     return response;
   } else if (transaction_sink.failed()) {
     logger.info("Received BC Bearer Context Setup Failure on the CU-CP");
@@ -83,6 +85,8 @@ bc_bearer_context_setup_procedure::handle_bc_bearer_context_setup_outcome()
     //fill_e1ap_bc_bearer_context_setup_failure(failure, asn1_fail);
     failure.gnb_cu_cp_mbs_e1ap_id = uint_to_gnb_cu_cp_mbs_e1ap_id(asn1_fail->gnb_cu_cp_mbs_e1ap_id);
     failure.gnb_cu_up_mbs_e1ap_id = uint_to_gnb_cu_up_mbs_e1ap_id(asn1_fail->gnb_cu_up_mbs_e1ap_id);
+
+    logger.debug("\"{}\" finalized", name());
 
     return make_unexpected(failure);
   } else {
