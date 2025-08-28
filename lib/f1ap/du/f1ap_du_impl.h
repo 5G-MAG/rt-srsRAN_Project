@@ -112,6 +112,9 @@ private:
   /// \brief Handle UE CONTEXT MODIFICATION REQUEST as per TS38.473, Section 8.3.4.
   void handle_ue_context_modification_request(const asn1::f1ap::ue_context_mod_request_s& msg);
 
+  /// \brief Handle Broadcast Context Setup Request as per TS 38.473, Section 8.14.1.
+  void handle_broadcast_context_setup_request(const asn1::f1ap::broadcast_context_setup_request_s& msg);
+
   /// \brief Handle DL RRC Message Transfer as per TS38.473, Section 8.4.2.2.
   void handle_dl_rrc_message_transfer(const asn1::f1ap::dl_rrc_msg_transfer_s& msg);
 

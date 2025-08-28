@@ -205,6 +205,21 @@ void f1ap_du_impl::handle_ue_context_release_command(const asn1::f1ap::ue_contex
       .schedule_async_task(launch_async<f1ap_du_ue_context_release_procedure>(msg, ues));
 }
 
+void f1ap_du_impl::handle_broadcast_context_setup_request(const asn1::f1ap::broadcast_context_setup_request_s& msg)
+{
+  logger.info("Received Broadcast Context Setup Request on the DU");
+
+  f1ap_message f1ap_msg;
+  f1ap_msg.pdu.set_successful_outcome().load_info_obj(ASN1_F1AP_ID_BROADCAST_CONTEXT_SETUP);
+  auto& broadcast_context_setup_resp = f1ap_msg.pdu.successful_outcome().value.broadcast_context_setup_resp();
+
+  broadcast_context_setup_resp->gnb_cu_mbs_f1ap_id = msg->gnb_cu_mbs_f1ap_id;
+
+  logger.info("Sending Broadcast Context Setup Response from the DU");
+  // Send message to CU.
+  tx_pdu_notifier->on_new_message(f1ap_msg);
+}
+
 void f1ap_du_impl::handle_ue_context_modification_request(const asn1::f1ap::ue_context_mod_request_s& msg)
 {
   gnb_du_ue_f1ap_id_t gnb_du_ue_f1ap_id = int_to_gnb_du_ue_f1ap_id(msg->gnb_du_ue_f1ap_id);
@@ -409,6 +424,9 @@ void f1ap_du_impl::handle_initiating_message(const init_msg_s& msg)
       break;
     case msg_types::ue_context_release_cmd:
       handle_ue_context_release_command(msg.value.ue_context_release_cmd());
+      break;
+    case msg_types::broadcast_context_setup_request:
+      handle_broadcast_context_setup_request(msg.value.broadcast_context_setup_request());
       break;
     case msg_types::paging:
       handle_paging_request(msg.value.paging());
