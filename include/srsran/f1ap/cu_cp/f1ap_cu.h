@@ -32,8 +32,10 @@
 #include "srsran/f1ap/cu_cp/f1ap_du_context.h"
 #include "srsran/f1ap/cu_cp/f1ap_nrppa_msg_handling.h"
 #include "srsran/f1ap/cu_cp/f1ap_rrc_msg_transfer_handling.h"
+#include "srsran/f1ap/cu_cp/f1ap_cu_broadcast_context_setup.h"
 #include "srsran/f1ap/f1ap_message_handler.h"
 #include "srsran/f1ap/f1ap_ue_id_types.h"
+#include "srsran/f1ap/f1ap_mbs_types.h"
 #include "srsran/ran/rb_id.h"
 #include "srsran/support/async/async_task.h"
 
@@ -75,6 +77,19 @@ public:
   /// \param[in] old_ue_index Old index of the UE.
   /// \return True if both the new and old UE exist, false otherwise.
   virtual bool handle_ue_id_update(ue_index_t ue_index, ue_index_t old_ue_index) = 0;
+};
+
+/// Handle F1AP NR MBS procedures as defined in TS 38.473 section 8.14.
+class f1ap_mbs_session_context_manager
+{
+  public:
+  virtual ~f1ap_mbs_session_context_manager() = default;
+
+  /// \brief Initiates the Broadcast Context Setup procedure as per TS 38.473 section 8.14.1.
+  /// \param[in] request The Broadcast Context Setup Request message to transmit.
+  /// \return The Broadcast Context Setup Response or the Broadcast Context Setup Failure.
+  virtual async_task<expected<f1ap_broadcast_context_setup_response, f1ap_broadcast_context_setup_failure>>
+  handle_broadcast_context_setup_request(const f1ap_broadcast_context_setup_request& request) = 0;
 };
 
 /// Handle F1AP paging procedures as defined in TS 38.473 section 8.7.
@@ -186,6 +201,7 @@ public:
 class f1ap_cu : public f1ap_message_handler,
                 public f1ap_rrc_message_handler,
                 public f1ap_ue_context_manager,
+                public f1ap_mbs_session_context_manager,
                 public f1ap_statistics_handler,
                 public f1ap_paging_manager,
                 public f1ap_ue_context_removal_handler,
@@ -202,6 +218,7 @@ public:
   virtual f1ap_message_handler&              get_f1ap_message_handler()              = 0;
   virtual f1ap_rrc_message_handler&          get_f1ap_rrc_message_handler()          = 0;
   virtual f1ap_ue_context_manager&           get_f1ap_ue_context_manager()           = 0;
+  virtual f1ap_mbs_session_context_manager&  get_f1ap_mbs_session_context_manager()  = 0;
   virtual f1ap_statistics_handler&           get_f1ap_statistics_handler()           = 0;
   virtual f1ap_paging_manager&               get_f1ap_paging_manager()               = 0;
   virtual f1ap_ue_context_removal_handler&   get_f1ap_ue_context_removal_handler()   = 0;

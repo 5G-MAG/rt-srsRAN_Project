@@ -31,9 +31,11 @@ using namespace srsran::srs_cu_cp;
 broadcast_session_setup_routine::broadcast_session_setup_routine(
     const ngap_broadcast_session_setup_request& request_,
     e1ap_mbs_session_context_manager&           e1ap_mbs_session_ctxt_mng_,
+    f1ap_mbs_session_context_manager&           f1ap_mbs_session_ctxt_mng_,
     srslog::basic_logger&                       logger_) :
     request(request_),
     e1ap_mbs_session_ctxt_mng(e1ap_mbs_session_ctxt_mng_),
+    f1ap_mbs_session_ctxt_mng(f1ap_mbs_session_ctxt_mng_),
     logger(logger_)
 {
 }
@@ -47,6 +49,8 @@ void broadcast_session_setup_routine::operator()(
 
   // Prepare E1AP BC Bearer Context Setup Request and call E1AP notifier.
   {
+    // TODO (borieher): Function to check MBS Session Setup Request Transfer -> MBS QoS Flows To Be Setup or Modified List and map to MRBs
+
     if (!fill_e1ap_bc_bearer_context_setup_request(bc_bearer_context_setup_request)) {
       logger.error("{}\" failed to fill E1AP BC Bearer Context Setup Request", name());
       CORO_EARLY_RETURN(make_unexpected(fail_msg));
@@ -69,9 +73,26 @@ void broadcast_session_setup_routine::operator()(
 
   // Prepare F1AP Broadcast Context Setup Request and call F1AP notifier.
   {
+    if (!fill_f1ap_broadcast_context_setup_request(broadcast_context_setup_request)) {
+      logger.error("{}\" failed to fill F1AP Broadcast Context Setup Request", name());
+      CORO_EARLY_RETURN(make_unexpected(fail_msg));
+    }
+
     // TODO (borieher): Send F1AP Broadcast Context Setup Request to each DU involved
+    CORO_AWAIT_VALUE(broadcast_context_setup_procedure_outcome,
+        f1ap_mbs_session_ctxt_mng.handle_broadcast_context_setup_request(broadcast_context_setup_request));
 
     // Handle F1AP Broadcast Context Setup Response/Failure
+    if (not broadcast_context_setup_procedure_outcome.has_value()) {
+      logger.error("{}\" failed to setup broadcast context at DU", name());
+      fail_msg = handle_broadcast_context_setup_failure(broadcast_context_setup_procedure_outcome.error());
+      CORO_EARLY_RETURN(make_unexpected(fail_msg));
+    } else {
+      // NOTE (borieher): This shouldn't return the NGAP response yet
+      //resp_msg = handle_broadcast_context_setup_response(broadcast_context_setup_procedure_outcome.value());
+
+      // NOTE (borieher): Working with the resp_msg created from the E1AP BC Bearer Context Setup Response for now
+    }
   }
 
   // Prepare E1AP BC Bearer Context Modification Request and call E1AP notifier.
@@ -205,8 +226,7 @@ broadcast_session_setup_routine::handle_bc_bearer_context_setup_response(const e
   resp_msg.mbs_session_id = request.mbs_session_id;
 
   // TODO (borieher): Fill MBS Session Setup Response Transfer (O).
-  // TODO (borieher): Fill MBS Session TNL Information NG-RAN (O).
-  if (msg.bc_bearer_context_to_setup_response.bc_bearer_context_ngu_tnl_info_at_ng_ran.has_value()) {}
+  // NOTE (borieher): MBS Session TNL Information NG-RAN (O) not being used.
   // TODO (borieher): Fill Criticality Diagnostics (O).
 
   return resp_msg;
@@ -221,6 +241,250 @@ broadcast_session_setup_routine::handle_bc_bearer_context_setup_failure(const e1
   // TODO (borieher): Fill Cause (M).
   // TODO (borieher): Fill Criticality Diagnostics (O).
 
+  return fail_msg;
+}
+
+bool broadcast_session_setup_routine::fill_f1ap_broadcast_context_setup_request(
+    f1ap_broadcast_context_setup_request& f1ap_request)
+{
+  f1ap_request.mbs_index = request.mbs_index;
+
+  // Fill MBS Session ID.
+  f1ap_request.mbs_session_id = request.mbs_session_id;
+
+  // Fill MBS Service Area.
+  // Parse location dependent from request
+  if (request.mbs_service_area.is_locationdependent()) {
+    f1ap_mbs_service_area_location_dependent locationdependent = {};
+
+    for (const auto& locationdependent_item : request.mbs_service_area.get_locationdependent().mbs_service_area_information_list) {
+      f1ap_mbs_service_area_information_item mbs_service_area_information_item;
+
+      mbs_service_area_information_item.mbs_area_session_id = locationdependent_item.mbs_area_session_id;
+
+      mbs_service_area_information_item.mbs_service_area_information.mbs_service_area_cell_list = locationdependent_item.mbs_service_area_information.mbs_service_area_cell_list;
+      mbs_service_area_information_item.mbs_service_area_information.mbs_service_area_tai_list = locationdependent_item.mbs_service_area_information.mbs_service_area_tai_list;
+
+      locationdependent.mbs_service_area_information_list.push_back(mbs_service_area_information_item);
+    }
+
+    f1ap_request.mbs_service_area.emplace(locationdependent);
+
+  // Parse location independent from request
+  } else {
+    f1ap_mbs_service_area_location_independent locationindependent = {};
+    const auto& mbs_service_area_information = request.mbs_service_area.get_locationindependent().mbs_service_area_information;
+
+    locationindependent.mbs_service_area_information.mbs_service_area_cell_list = mbs_service_area_information.mbs_service_area_cell_list;
+    locationindependent.mbs_service_area_information.mbs_service_area_tai_list = mbs_service_area_information.mbs_service_area_tai_list;
+
+    f1ap_request.mbs_service_area.emplace(locationindependent);
+  }
+
+  // Fill MBS CU to DU RRC Information.
+
+  // Grab NR CGI items from the MBS Service Area IE in the NGAP Broadcast Session Setup Request
+  // NOTE (borieher): What happens if the NGAP Request has only the TAI list?
+  // Parse location dependent
+  if (request.mbs_service_area.is_locationdependent()) {
+    for (const auto& locationdependent_item : request.mbs_service_area.get_locationdependent().mbs_service_area_information_list) {
+      // NOTE (borieher): Each MBS Service Area information has a cell list
+      if (!locationdependent_item.mbs_service_area_information.mbs_service_area_cell_list.empty()) {
+        for (const auto& mbs_service_area_cell_item: locationdependent_item.mbs_service_area_information.mbs_service_area_cell_list) {
+          // Check if this gNB has the specific NR CGI configured
+          // TODO (borieher): if (nr_cgi is configured)
+          f1ap_mbs_broadcast_cell_item mbs_broadcast_cell_item;
+          mbs_broadcast_cell_item.nr_cgi = mbs_service_area_cell_item;
+
+          // Fill RRC mtch_neighbour_cell
+          mbs_broadcast_cell_item.mtch_neighbour_cell = get_packed_mtch_neighbour_cell_r17_ie();
+
+          f1ap_request.mbs_cu_to_du_rrc_information.mbs_broadcast_cell_list.push_back(mbs_broadcast_cell_item);
+        }
+      }
+    }
+  // Parse location independent
+  } else {
+    const auto& mbs_service_area_information = request.mbs_service_area.get_locationindependent().mbs_service_area_information;
+    // NOTE (borieher): Each MBS Service Area information item has a cell list
+    if (!mbs_service_area_information.mbs_service_area_cell_list.empty()) {
+      for (const auto& mbs_service_area_cell_item : mbs_service_area_information.mbs_service_area_cell_list) {
+        // Check if this gNB has the specific NR CGI configured
+        // TODO (borieher): if (nr_cgi is configured)
+        f1ap_mbs_broadcast_cell_item mbs_broadcast_cell_item;
+        mbs_broadcast_cell_item.nr_cgi = mbs_service_area_cell_item;
+
+        // Fill RRC mtch_neighbour_cell
+        mbs_broadcast_cell_item.mtch_neighbour_cell = get_packed_mtch_neighbour_cell_r17_ie();
+
+        f1ap_request.mbs_cu_to_du_rrc_information.mbs_broadcast_cell_list.push_back(mbs_broadcast_cell_item);
+      }
+    }
+  }
+
+  // Grab MRB ID items from the BC MRB Setup Response List IE in the E1AP BC Bearer Context Setup Response
+  if (bc_bearer_context_setup_procedure_outcome.has_value()) {
+    e1ap_bc_bearer_context_setup_response bc_bearer_context_setup_response;
+    bc_bearer_context_setup_response = bc_bearer_context_setup_procedure_outcome.value();
+
+    for (const auto& bc_mrb_setup_response_item : bc_bearer_context_setup_response.bc_bearer_context_to_setup_response.bc_mrb_setup_response_list) {
+      f1ap_mbs_broadcast_mrb_item mbs_broadcast_mrb_item;
+      mbs_broadcast_mrb_item.mrb_id = bc_mrb_setup_response_item.mrb_id;
+
+      // Fill the RRC mrb_pdcp_config_broadcast
+      mbs_broadcast_mrb_item.mrb_pdcp_config_broadcast = get_packed_mrb_pdcp_config_broadcast_r17_ie();
+
+      f1ap_request.mbs_cu_to_du_rrc_information.mbs_broadcast_mrb_list.push_back(mbs_broadcast_mrb_item);
+    }
+  }
+
+  // Fill S-NSSAI.
+  f1ap_request.s_nssai = request.s_nssai;
+
+  // Fill Broadcast MRB To Be Setup List.
+  // Grab MRBs from the BC MRB Setup Response List IE in the E1AP BC Bearer Context Setup Response
+  if (bc_bearer_context_setup_procedure_outcome.has_value()) {
+    e1ap_bc_bearer_context_setup_response bc_bearer_context_setup_response;
+    bc_bearer_context_setup_response = bc_bearer_context_setup_procedure_outcome.value();
+
+    for (auto& bc_mrb_setup_response_item : bc_bearer_context_setup_response.bc_bearer_context_to_setup_response.bc_mrb_setup_response_list) {
+      f1ap_broadcast_mrb_to_be_setup_item mbs_mrb_to_be_setup_item;
+
+      mbs_mrb_to_be_setup_item.mrb_id = bc_mrb_setup_response_item.mrb_id;
+
+      // NOTE (borieher): This needs to be checked, both rely on the optional MRB QoS IE,
+      // if they are not present should put the MRB QoS in there
+      // Fill MRB QoS Information IE with the E1AP BC Bearer Context Setup Response Available BC MRB Configuration IE
+      if (bc_bearer_context_setup_response.bc_bearer_context_to_setup_response.available_bc_mrb_configuration.has_value()) {
+        for (const auto& available_bc_mrb_config_item : bc_bearer_context_setup_response.bc_bearer_context_to_setup_response.available_bc_mrb_configuration.value()) {
+          if (available_bc_mrb_config_item.mrb_id == bc_mrb_setup_response_item.mrb_id) {
+            if (available_bc_mrb_config_item.mrb_qos.has_value()) {
+              mbs_mrb_to_be_setup_item.mrb_qos_information.qos_desc = available_bc_mrb_config_item.mrb_qos.value().qos_desc;
+              mbs_mrb_to_be_setup_item.mrb_qos_information.alloc_retention_prio = available_bc_mrb_config_item.mrb_qos.value().ng_ran_alloc_retention;
+
+              if (available_bc_mrb_config_item.mrb_qos.value().gbr_qos_flow_info.has_value()) {
+                mbs_mrb_to_be_setup_item.mrb_qos_information.gbr_qos_info = available_bc_mrb_config_item.mrb_qos.value().gbr_qos_flow_info.value();
+              }
+            }
+          }
+        }
+      } else {
+        // Fill MRB QoS Information IE with the E1AP BC Bearer Context Setup Request BC MRB Setup Configuration IE
+        // Search in the MRB To Setup List of the E1AP BC Bearer Context Setup Request for the MRB ID
+        for (const auto& bc_mrb_to_setup_item : bc_bearer_context_setup_request.bc_bearer_context_to_setup.bc_mrb_to_setup_list) {
+          if (bc_mrb_to_setup_item.mrb_id == bc_mrb_setup_response_item.mrb_id) {
+            if (bc_mrb_to_setup_item.mrb_qos.has_value()) {
+              mbs_mrb_to_be_setup_item.mrb_qos_information.qos_desc = bc_mrb_to_setup_item.mrb_qos.value().qos_desc;
+              mbs_mrb_to_be_setup_item.mrb_qos_information.alloc_retention_prio = bc_mrb_to_setup_item.mrb_qos.value().ng_ran_alloc_retention;
+
+              if (bc_mrb_to_setup_item.mrb_qos.value().gbr_qos_flow_info.has_value()) {
+                mbs_mrb_to_be_setup_item.mrb_qos_information.gbr_qos_info = bc_mrb_to_setup_item.mrb_qos.value().gbr_qos_flow_info.value();
+              }
+            } else {
+              // Only 1 QoS Flow mapped to this MRB
+              if (bc_mrb_to_setup_item.mbs_qos_flow_info_to_be_setup.size() == 1) {
+                mbs_mrb_to_be_setup_item.mrb_qos_information.qos_desc =
+                  bc_mrb_to_setup_item.mbs_qos_flow_info_to_be_setup[0].qos_flow_level_qos_params.qos_desc;
+                mbs_mrb_to_be_setup_item.mrb_qos_information.alloc_retention_prio =
+                  bc_mrb_to_setup_item.mbs_qos_flow_info_to_be_setup[0].qos_flow_level_qos_params.ng_ran_alloc_retention;
+
+                if (bc_mrb_to_setup_item.mbs_qos_flow_info_to_be_setup[0].qos_flow_level_qos_params.gbr_qos_flow_info.has_value()) {
+                  mbs_mrb_to_be_setup_item.mrb_qos_information.gbr_qos_info =
+                    bc_mrb_to_setup_item.mbs_qos_flow_info_to_be_setup[0].qos_flow_level_qos_params.gbr_qos_flow_info.value();
+                }
+              } else {
+                // TODO: Send error, more than 1 QoS Flow mapped to the same MRB and no bc_mrb_to_setup_item.mrb_qos
+              }
+            }
+          }
+        }
+      }
+
+      // Fill MBS QoS Flows Mapped to MRB Item.
+      for (const auto& qos_flow_to_be_mapped_to_mrb : bc_mrb_setup_response_item.mbs_qos_flow_setup_list) {
+        // Grab the QoS Flow ID from the E1AP BC Bearer Context Setup Response and the MRB QoS Information IE from the F1AP BC Bearer Context Setup Request itself
+        f1ap_mbs_qos_flows_mapped_to_mrb_item mbs_qos_flow_mapped_to_mrb;
+
+        mbs_qos_flow_mapped_to_mrb.mbs_qos_flow_id = qos_flow_to_be_mapped_to_mrb.qos_flow_id;
+        mbs_qos_flow_mapped_to_mrb.mbs_qos_flow_level_qos_parameters = mbs_mrb_to_be_setup_item.mrb_qos_information;
+
+        mbs_mrb_to_be_setup_item.mbs_qos_flows_mapped_to_mrb.push_back(mbs_qos_flow_mapped_to_mrb);
+      }
+
+      // Fill BC Bearer Context F1-U TNL Info at CU.
+      // If F1-U TNL Info Added List has value, the BC Bearer Context F1-U TNL Info at CU gets ignored
+      if (!bc_mrb_setup_response_item.f1u_tnl_info_added_list.empty()) {
+        for (auto& e1ap_f1u_tnl_info_added_item : bc_mrb_setup_response_item.f1u_tnl_info_added_list) {
+          // Parse location dependent
+          if (e1ap_f1u_tnl_info_added_item.bc_bearer_context_f1u_tnl_info_at_cu.is_locationdependent()) {
+            f1ap_bc_bearer_ctxt_f1u_tnl_info_location_dependent f1ap_locationdependent;
+            for (const auto& e1ap_locationdependent_item : e1ap_f1u_tnl_info_added_item.bc_bearer_context_f1u_tnl_info_at_cu
+                .get_locationdependent().location_dependent_mbs_f1u_information_at_cu) {
+              f1ap_bc_bearer_ctxt_f1u_tnl_info_location_dependent_item f1ap_locationdependent_item;
+
+              f1ap_locationdependent_item.mbs_area_session_id = e1ap_locationdependent_item.mbs_area_session_id;
+
+              f1ap_locationdependent_item.mbs_f1u_information = up_transport_layer_info(
+                e1ap_locationdependent_item.mbs_f1u_information_at_cu.tp_address, e1ap_locationdependent_item.mbs_f1u_information_at_cu.gtp_teid);
+
+              f1ap_locationdependent.location_dependent_mbs_f1u_information.push_back(f1ap_locationdependent_item);
+            }
+            mbs_mrb_to_be_setup_item.bc_bearer_context_f1u_tnl_info_at_cu = f1ap_locationdependent;
+          // Parse location independent
+          } else {
+            const auto& e1ap_locationindependent = e1ap_f1u_tnl_info_added_item.bc_bearer_context_f1u_tnl_info_at_cu.get_locationindependent();
+            f1ap_bc_bearer_ctxt_f1u_tnl_info_location_independent f1ap_locationindependent;
+
+            f1ap_locationindependent.mbs_f1u_information = up_transport_layer_info(
+                e1ap_locationindependent.mbs_f1u_information_at_cu.tp_address, e1ap_locationindependent.mbs_f1u_information_at_cu.gtp_teid);
+
+            mbs_mrb_to_be_setup_item.bc_bearer_context_f1u_tnl_info_at_cu.get_locationindependent() = f1ap_locationindependent;
+          }
+        }
+      // Grab it from BC Bearer Context F1-U TNL Info at CU
+      } else {
+        // Parse location dependent
+        if (bc_mrb_setup_response_item.bc_bearer_context_f1u_tnl_info_at_cu.is_locationdependent()) {
+          f1ap_bc_bearer_ctxt_f1u_tnl_info_location_dependent f1ap_locationdependent;
+          for (const auto& e1ap_locationdependent_item : bc_mrb_setup_response_item.bc_bearer_context_f1u_tnl_info_at_cu
+                .get_locationdependent().location_dependent_mbs_f1u_information_at_cu) {
+            f1ap_bc_bearer_ctxt_f1u_tnl_info_location_dependent_item f1ap_locationdependent_item;
+
+            f1ap_locationdependent_item.mbs_area_session_id = e1ap_locationdependent_item.mbs_area_session_id;
+
+            f1ap_locationdependent_item.mbs_f1u_information = up_transport_layer_info(
+                e1ap_locationdependent_item.mbs_f1u_information_at_cu.tp_address, e1ap_locationdependent_item.mbs_f1u_information_at_cu.gtp_teid);
+
+            f1ap_locationdependent.location_dependent_mbs_f1u_information.push_back(f1ap_locationdependent_item);
+          }
+          mbs_mrb_to_be_setup_item.bc_bearer_context_f1u_tnl_info_at_cu = f1ap_locationdependent;
+        // Parse location independent
+        } else {
+          const auto& e1ap_locationindependent = bc_mrb_setup_response_item.bc_bearer_context_f1u_tnl_info_at_cu
+            .get_locationindependent().mbs_f1u_information_at_cu;
+          f1ap_bc_bearer_ctxt_f1u_tnl_info_location_independent f1ap_locationindependent;
+
+          f1ap_locationindependent.mbs_f1u_information = up_transport_layer_info(
+              e1ap_locationindependent.tp_address, e1ap_locationindependent.gtp_teid);
+
+          mbs_mrb_to_be_setup_item.bc_bearer_context_f1u_tnl_info_at_cu.get_locationindependent() = f1ap_locationindependent;
+        }
+      }
+
+      f1ap_request.broadcast_mrb_to_be_setup_list.push_back(mbs_mrb_to_be_setup_item);
+    }
+  }
+
+  return true;
+}
+
+ngap_broadcast_session_setup_response
+broadcast_session_setup_routine::handle_broadcast_context_setup_response(const f1ap_broadcast_context_setup_response& msg){
+  return resp_msg;
+}
+
+ngap_broadcast_session_setup_failure
+broadcast_session_setup_routine::handle_broadcast_context_setup_failure(const f1ap_broadcast_context_setup_failure& msg){
   return fail_msg;
 }
 

@@ -26,6 +26,7 @@
 #include "srsran/f1ap/ue_context_management_configs.h"
 #include "srsran/pdcp/pdcp_sn_size.h"
 #include "srsran/ran/nr_cgi.h"
+#include "srsran/f1ap/f1ap_mbs_types.h"
 
 namespace srsran {
 
@@ -100,5 +101,9 @@ f1ap_drb_failed_to_setupmod make_drb_failed_to_setupmod(const asn1::f1ap::drbs_f
 f1ap_drb_failed_to_setupmod
 make_drb_failed_to_setupmod(const asn1::f1ap::drbs_failed_to_be_setup_mod_item_s& asn1_type);
 f1ap_drb_failed_to_setupmod make_drb_failed_to_setupmod(const asn1::f1ap::drbs_failed_to_be_modified_item_s& asn1_type);
+
+/// \brief Conversion helper between Broadcast MRB to be setup common type and respective ASN.1 TS 38.473 type.
+asn1::f1ap::broadcast_m_rbs_to_be_setup_list_l
+make_broadcast_mrb_to_be_setup_list(span<const f1ap_broadcast_mrb_to_be_setup_item> mrb_list);
 
 } // namespace srsran

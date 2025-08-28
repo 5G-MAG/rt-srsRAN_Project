@@ -37,6 +37,7 @@
 #include "routines/ue_context_release_routine.h"
 #include "routines/ue_removal_routine.h"
 #include "routines/ue_transaction_info_release_routine.h"
+#include "routines/broadcast_session_setup_routine.h"
 #include "srsran/cu_cp/cu_cp_types.h"
 #include "srsran/f1ap/cu_cp/f1ap_cu.h"
 #include "srsran/nrppa/nrppa.h"
@@ -864,15 +865,22 @@ mbs_index_t cu_cp_impl::handle_new_ngap_mbs_session(mbs_session_id_t mbs_session
 async_task<expected<ngap_broadcast_session_setup_response, ngap_broadcast_session_setup_failure>>
   cu_cp_impl::handle_broadcast_session_setup_request(const ngap_broadcast_session_setup_request& request)
 {
+  // TODO (borieher): Check the number of sessions here
   cu_cp_mbs_session* mbs_session = mbs_session_mng.find_mbs_session(request.mbs_index);
 
   srsran_assert(mbs_session != nullptr, "Could not find CU-CP MBS Session");
   srsran_assert(cu_up_db.find_cu_up_processor(uint_to_cu_up_index(0)) != nullptr,
                 "cu_up_index={}: could not find CU-UP",
                 uint_to_cu_up_index(0));
+
+  // TODO (borieher): Select the appropiate E1AP and F1AP processors (multiple, due to multiple CU-UP and DUs)
+  //du_index_t du_index = du_db.find_du();
+  //du_db.get_du_processor(du_index).get_f1ap_handler();
+
   return launch_async<broadcast_session_setup_routine>(
       request,
       cu_up_db.find_cu_up_processor(uint_to_cu_up_index(0))->get_e1ap_mbs_session_context_manager(),
+      du_db.get_du_processor(uint_to_du_index(0)).get_f1ap_handler(),
       logger);
 }
 

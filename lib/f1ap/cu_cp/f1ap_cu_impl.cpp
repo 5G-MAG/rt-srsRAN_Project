@@ -32,6 +32,7 @@
 #include "procedures/ue_context_modification_procedure.h"
 #include "procedures/ue_context_release_procedure.h"
 #include "procedures/ue_context_setup_procedure.h"
+#include "procedures/broadcast_context_setup_procedure.h"
 #include "srsran/asn1/f1ap/f1ap.h"
 #include "srsran/cu_cp/cu_cp_types.h"
 #include "srsran/f1ap/f1ap_message.h"
@@ -129,6 +130,13 @@ bool f1ap_cu_impl::handle_ue_id_update(ue_index_t ue_index, ue_index_t old_ue_in
                 "GNB-DU-UE-F1AP-ID should be valid");
   ue_ctxt_list[ue_index].pending_old_ue_id = *ue_ctxt_list[old_ue_index].ue_ids.du_ue_f1ap_id;
   return true;
+}
+
+async_task<expected<f1ap_broadcast_context_setup_response, f1ap_broadcast_context_setup_failure>>
+f1ap_cu_impl::handle_broadcast_context_setup_request(const f1ap_broadcast_context_setup_request& request)
+{
+  return launch_async<broadcast_context_setup_procedure>(
+      cfg, request, mbs_session_ctxt_list, tx_pdu_notifier, logger);
 }
 
 void f1ap_cu_impl::handle_paging(const cu_cp_paging_message& msg)

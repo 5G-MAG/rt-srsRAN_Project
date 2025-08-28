@@ -1155,7 +1155,7 @@ fill_e1ap_bc_bearer_context_setup_response(e1ap_bc_bearer_context_setup_response
         asn1_to_bc_bearer_context_f1u_tnl_info_at_cu(asn1_bc_mrb_setup_response_item.bc_bearer_context_f1_u_tnl_infoat_cu);
 
     // Extension IEs (O).
-    if (asn1_bc_mrb_setup_response_item.ext) {
+    if (asn1_bc_mrb_setup_response_item.ie_exts.size() > 0) {
       for (const auto& asn1_bc_mrb_to_setup_item_ext_ie : asn1_bc_mrb_setup_response_item.ie_exts) {
         switch (asn1_bc_mrb_to_setup_item_ext_ie.value().type()) {
           // F1-U TNL Info Added List <0..1>.

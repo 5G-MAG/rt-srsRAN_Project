@@ -720,3 +720,69 @@ srsran::make_drb_failed_to_setupmod(const asn1::f1ap::drbs_failed_to_be_modified
   fill_failed_drb(drb_item, asn1_type);
   return drb_item;
 }
+
+static bc_bearer_context_f1_u_tnl_info_c
+bc_bearer_context_f1u_tnl_info_to_f1ap_asn1(f1ap_bc_bearer_context_f1u_tnl_info bc_bearer_context_f1u_tnl_info){
+  bc_bearer_context_f1_u_tnl_info_c asn1_bc_bearer_context_f1u_tnl_info;
+
+  // Fill location dependent
+  if (bc_bearer_context_f1u_tnl_info.is_locationdependent()) {
+    asn1_bc_bearer_context_f1u_tnl_info.set_locationdependent();
+    for (const auto& locationdependent_item : bc_bearer_context_f1u_tnl_info.get_locationdependent().location_dependent_mbs_f1u_information) {
+      location_dependent_mbsf1_u_info_item_s asn1_locationdependent_item;
+
+      // Fill MBS Area Session ID (M).
+      asn1_locationdependent_item.mbs_area_session_id = area_session_id_to_uint(locationdependent_item.mbs_area_session_id);
+
+      // Fill MBS F1-U Information (M).
+      up_transport_layer_info_to_asn1(asn1_locationdependent_item.mbs_f1u_info_at_cu, locationdependent_item.mbs_f1u_information);
+
+      //asn1_locationdependent.push_back(asn1_locationdependent_item);
+      asn1_bc_bearer_context_f1u_tnl_info.locationdependent().push_back(asn1_locationdependent_item);
+    }
+
+  // Fill location independent
+  } else {
+    // NOTE (borieher): Weird misspell here
+    auto& asn1_locationindependent = asn1_bc_bearer_context_f1u_tnl_info.set_locationindpendent();
+    const auto& locationindependent = bc_bearer_context_f1u_tnl_info.get_locationindependent();
+
+    // Fill MBS F1-U Information (M).
+    up_transport_layer_info_to_asn1(asn1_locationindependent.mbs_f1u_info, locationindependent.mbs_f1u_information);
+  }
+
+  return asn1_bc_bearer_context_f1u_tnl_info;
+}
+
+void fill_broadcast_mrb_to_be_setup_item(asn1::f1ap::broadcast_m_rbs_to_be_setup_item_s& asn1_type, const f1ap_broadcast_mrb_to_be_setup_item& mrb_to_be_setup_item)
+{
+  // Fill MRB ID.
+  asn1_type.mrb_id = mrb_id_to_uint(mrb_to_be_setup_item.mrb_id);
+
+  // Fill MRB QoS Information.
+  asn1_type.mrb_qos_info = qos_flow_level_qos_params_to_f1ap_asn1(mrb_to_be_setup_item.mrb_qos_information);
+
+  // Fill MBS QoS Flows Mapped to MRB.
+  for (const auto& mbs_qos_flow_mapped_to_mrb : mrb_to_be_setup_item.mbs_qos_flows_mapped_to_mrb) {
+    mbs_flows_mapped_to_mrb_item_s asn1_mbs_qos_flow_mapped_to_mrb;
+    asn1_mbs_qos_flow_mapped_to_mrb.mbs_qos_flow_id = qos_flow_id_to_uint(mbs_qos_flow_mapped_to_mrb.mbs_qos_flow_id);
+    asn1_mbs_qos_flow_mapped_to_mrb.mbs_qos_flow_level_qos_params =
+      qos_flow_level_qos_params_to_f1ap_asn1(mbs_qos_flow_mapped_to_mrb.mbs_qos_flow_level_qos_parameters);
+    asn1_type.mbs_flows_mapped_to_mrb_list.push_back(asn1_mbs_qos_flow_mapped_to_mrb);
+  }
+
+  // Fill BC Bearer Context F1-U TNL Info at CU.
+  asn1_type.bc_bearer_ctxt_f1_u_tnl_infoat_cu = bc_bearer_context_f1u_tnl_info_to_f1ap_asn1(mrb_to_be_setup_item.bc_bearer_context_f1u_tnl_info_at_cu);
+}
+
+
+broadcast_m_rbs_to_be_setup_list_l
+srsran::make_broadcast_mrb_to_be_setup_list(span<const f1ap_broadcast_mrb_to_be_setup_item> mrb_list)
+{
+  broadcast_m_rbs_to_be_setup_list_l list(mrb_list.size());
+  for (unsigned i = 0; i != mrb_list.size(); ++i) {
+    list[i].load_info_obj(ASN1_F1AP_ID_BROADCAST_M_RBS_TO_BE_SETUP_ITEM);
+    fill_broadcast_mrb_to_be_setup_item(list[i]->broadcast_m_rbs_to_be_setup_item(), mrb_list[i]);
+  }
+  return list;
+}

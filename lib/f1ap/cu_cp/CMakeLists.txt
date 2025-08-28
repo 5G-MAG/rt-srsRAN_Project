@@ -29,6 +29,7 @@ add_library(srsran_f1ap_cu
         procedures/ue_context_setup_procedure.cpp
         procedures/ue_context_modification_procedure.cpp
         procedures/ue_context_release_procedure.cpp
+        procedures/broadcast_context_setup_procedure.cpp
         ue_context/f1ap_cu_ue_context.cpp
         ue_context/ue_ul_bearer_manager.cpp)
 

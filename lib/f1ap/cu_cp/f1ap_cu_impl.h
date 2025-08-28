@@ -67,6 +67,10 @@ public:
 
   bool handle_ue_id_update(ue_index_t ue_index, ue_index_t old_ue_index) override;
 
+  // f1ap_mbs_session_context_manager functions.
+  async_task<expected<f1ap_broadcast_context_setup_response, f1ap_broadcast_context_setup_failure>>
+  handle_broadcast_context_setup_request(const f1ap_broadcast_context_setup_request& request) override;
+
   // f1ap_paging_handler functions.
   void handle_paging(const cu_cp_paging_message& msg) override;
 
@@ -97,6 +101,7 @@ public:
   f1ap_message_handler&              get_f1ap_message_handler() override { return *this; }
   f1ap_rrc_message_handler&          get_f1ap_rrc_message_handler() override { return *this; }
   f1ap_ue_context_manager&           get_f1ap_ue_context_manager() override { return *this; }
+  f1ap_mbs_session_context_manager&  get_f1ap_mbs_session_context_manager() override { return *this; }
   f1ap_statistics_handler&           get_f1ap_statistics_handler() override { return *this; }
   f1ap_paging_manager&               get_f1ap_paging_manager() override { return *this; }
   f1ap_ue_context_removal_handler&   get_f1ap_ue_context_removal_handler() override { return *this; }

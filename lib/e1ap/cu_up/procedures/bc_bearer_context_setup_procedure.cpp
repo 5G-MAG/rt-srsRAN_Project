@@ -140,14 +140,12 @@ bool bc_bearer_context_setup_procedure::fill_e1ap_bc_bearer_context_setup_respon
     response.bc_bearer_context_to_setup_response.bc_mrb_setup_response_list.push_back(bc_mrb_setup_response_item);
   }
 
-  // Fill BC MRB Failed List <0..maxnoofMRBs>.
-  // TODO (borieher)
+  // TODO (borieher): Fill BC MRB Failed List <0..maxnoofMRBs>.
 
   // Fill Available BC MRB Configuration (O).
   // NOTE (borieher): Not being used for now, to simplify.
 
-  // Fill Criticality Diagnostics (O).
-  // TODO (borieher)
+  // TODO (borieher): Fill Criticality Diagnostics (O).
   return true;
 }
 

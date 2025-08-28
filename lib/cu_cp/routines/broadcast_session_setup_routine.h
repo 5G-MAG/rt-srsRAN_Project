@@ -24,6 +24,7 @@
 
 #include "srsran/ngap/ngap_broadcast_session_setup.h"
 #include "srsran/e1ap/cu_cp/e1ap_cu_cp.h"
+#include "srsran/f1ap/cu_cp/f1ap_cu.h"
 #include "srsran/support/async/async_task.h"
 #include "srsran/adt/expected.h"
 
@@ -36,6 +37,7 @@ class broadcast_session_setup_routine
 public:
   broadcast_session_setup_routine(const ngap_broadcast_session_setup_request& request_,
                                   e1ap_mbs_session_context_manager&           e1ap_mbs_session_ctxt_mng_,
+                                  f1ap_mbs_session_context_manager&           f1ap_mbs_session_ctxt_mng_,
                                   srslog::basic_logger&                       logger_);
 
   void operator()(
@@ -47,6 +49,7 @@ private:
   ngap_broadcast_session_setup_request request;
 
   e1ap_mbs_session_context_manager&    e1ap_mbs_session_ctxt_mng;
+  f1ap_mbs_session_context_manager&    f1ap_mbs_session_ctxt_mng;
   srslog::basic_logger&                logger;
 
   bool fill_e1ap_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& e1ap_request);
@@ -57,15 +60,25 @@ private:
   ngap_broadcast_session_setup_failure
   handle_bc_bearer_context_setup_failure(const e1ap_bc_bearer_context_setup_failure& msg);
 
+  bool fill_f1ap_broadcast_context_setup_request(f1ap_broadcast_context_setup_request& f1ap_request);
+
+  ngap_broadcast_session_setup_response
+  handle_broadcast_context_setup_response(const f1ap_broadcast_context_setup_response& msg);
+
+  ngap_broadcast_session_setup_failure
+  handle_broadcast_context_setup_failure(const f1ap_broadcast_context_setup_failure& msg);
+
   // RRC helpers
   byte_buffer get_packed_mtch_neighbour_cell_r17_ie();
   byte_buffer get_packed_mrb_pdcp_config_broadcast_r17_ie();
 
   // (sub-)routine requests
   e1ap_bc_bearer_context_setup_request bc_bearer_context_setup_request;
+  f1ap_broadcast_context_setup_request broadcast_context_setup_request;
 
   // (sub-)routine results
   expected<e1ap_bc_bearer_context_setup_response, e1ap_bc_bearer_context_setup_failure> bc_bearer_context_setup_procedure_outcome;
+  expected<f1ap_broadcast_context_setup_response, f1ap_broadcast_context_setup_failure> broadcast_context_setup_procedure_outcome;
 
   // final routine result
   ngap_broadcast_session_setup_response resp_msg;
