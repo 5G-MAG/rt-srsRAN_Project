@@ -48,6 +48,7 @@ f1ap_cu_impl::f1ap_cu_impl(const f1ap_configuration&   f1ap_cfg_,
   cfg(f1ap_cfg_),
   logger(srslog::fetch_basic_logger("CU-CP-F1")),
   ue_ctxt_list(timer_factory{timers_, ctrl_exec_}, logger),
+  mbs_session_ctxt_list(timer_factory{timers_, ctrl_exec_}, logger),
   du_processor_notifier(f1ap_du_processor_notifier_),
   ctrl_exec(ctrl_exec_),
   tx_pdu_notifier(*this, tx_pdu_notifier_),
@@ -433,6 +434,22 @@ void f1ap_cu_impl::handle_successful_outcome(const asn1::f1ap::successful_outcom
     return ue_ctxt;
   };
 
+  auto get_mbs_session_ctxt_in_mbs_msg = [this](const asn1::f1ap::successful_outcome_s& outcome_) -> f1ap_mbs_session_context* {
+    std::optional<gnb_cu_mbs_f1ap_id_t> cu_mbs_id = get_gnb_cu_mbs_f1ap_id(outcome_);
+    // The gNB-CU MBS F1AP ID field is mandatory in all MBS associated successful messages.
+    srsran_assert(cu_mbs_id,
+                  "Discarding received \"{}\". Cause: gNB-CU MBS F1AP ID field is mandatory",
+                  outcome_.value.type().to_string());
+
+    f1ap_mbs_session_context* mbs_session_ctxt = mbs_session_ctxt_list.find(*cu_mbs_id);
+    if (mbs_session_ctxt == nullptr) {
+      logger.warning("Discarding received \"{}\". Cause: MBS Session was not found.",
+                     outcome_.value.type().to_string());
+      return nullptr;
+    }
+    return mbs_session_ctxt;
+  };
+
   std::optional<uint8_t> transaction_id = std::nullopt;
 
   switch (outcome.value.type().value) {
@@ -449,6 +466,11 @@ void f1ap_cu_impl::handle_successful_outcome(const asn1::f1ap::successful_outcom
     case asn1::f1ap::f1ap_elem_procs_o::successful_outcome_c::types_opts::ue_context_mod_resp:
       if (auto* ue_ctxt = get_ue_ctxt_in_ue_assoc_msg(outcome)) {
         ue_ctxt->ev_mng.context_modification_outcome.set(outcome.value.ue_context_mod_resp());
+      }
+      break;
+    case asn1::f1ap::f1ap_elem_procs_o::successful_outcome_c::types_opts::broadcast_context_setup_resp:
+      if (auto* mbs_session_ctxt = get_mbs_session_ctxt_in_mbs_msg(outcome)) {
+        mbs_session_ctxt->ev_mng.broadcast_context_setup_outcome.set(outcome.value.broadcast_context_setup_resp());
       }
       break;
     case asn1::f1ap::f1ap_elem_procs_o::successful_outcome_c::types_opts::trp_info_resp:
@@ -516,6 +538,22 @@ void f1ap_cu_impl::handle_unsuccessful_outcome(const asn1::f1ap::unsuccessful_ou
     return ue_ctxt;
   };
 
+  auto get_mbs_session_ctxt_in_mbs_msg = [this](const asn1::f1ap::unsuccessful_outcome_s& outcome_) -> f1ap_mbs_session_context* {
+    std::optional<gnb_cu_mbs_f1ap_id_t> cu_mbs_id = get_gnb_cu_mbs_f1ap_id(outcome_);
+    // The gNB-CU MBS F1AP ID field is mandatory in all MBS associated failure messages.
+    srsran_assert(cu_mbs_id,
+                  "Discarding received \"{}\". Cause: gNB-CU MBS F1AP ID field is mandatory",
+                  outcome_.value.type().to_string());
+
+    f1ap_mbs_session_context* mbs_session_ctxt = mbs_session_ctxt_list.find(*cu_mbs_id);
+    if (mbs_session_ctxt == nullptr) {
+      logger.warning("Discarding received \"{}\". Cause: MBS Session was not found.",
+                     outcome_.value.type().to_string());
+      return nullptr;
+    }
+    return mbs_session_ctxt;
+  };
+
   std::optional<uint8_t> transaction_id = std::nullopt;
 
   switch (outcome.value.type().value) {
@@ -527,6 +565,11 @@ void f1ap_cu_impl::handle_unsuccessful_outcome(const asn1::f1ap::unsuccessful_ou
     case asn1::f1ap::f1ap_elem_procs_o::unsuccessful_outcome_c::types_opts::ue_context_mod_fail:
       if (auto* ue_ctxt = get_ue_ctxt_in_ue_assoc_msg(outcome)) {
         ue_ctxt->ev_mng.context_modification_outcome.set(outcome.value.ue_context_mod_fail());
+      }
+      break;
+    case asn1::f1ap::f1ap_elem_procs_o::unsuccessful_outcome_c::types_opts::broadcast_context_setup_fail:
+      if (auto* mbs_session_ctxt = get_mbs_session_ctxt_in_mbs_msg(outcome)) {
+        mbs_session_ctxt->ev_mng.broadcast_context_setup_outcome.set(outcome.value.broadcast_context_setup_fail());
       }
       break;
     case asn1::f1ap::f1ap_elem_procs_o::unsuccessful_outcome_c::types_opts::trp_info_fail:

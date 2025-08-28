@@ -24,6 +24,7 @@
 
 #include "procedures/f1ap_cu_event_manager.h"
 #include "ue_context/f1ap_cu_ue_context.h"
+#include "mbs_session_context/f1ap_cu_mbs_session_context.h"
 #include "srsran/asn1/f1ap/f1ap.h"
 #include "srsran/f1ap/cu_cp/f1ap_configuration.h"
 #include "srsran/f1ap/cu_cp/f1ap_cu.h"
@@ -163,6 +164,9 @@ private:
 
   // Repository of UE Contexts.
   f1ap_ue_context_list ue_ctxt_list;
+
+  /// Repository of MBS Session Contexts.
+  f1ap_mbs_session_context_list mbs_session_ctxt_list;
 
   // Nofifiers and handles.
   f1ap_du_processor_notifier& du_processor_notifier;

@@ -26,6 +26,7 @@
 #include "srsran/asn1/f1ap/f1ap.h"
 #include "srsran/asn1/f1ap/f1ap_pdu_contents.h"
 #include "srsran/f1ap/f1ap_ue_id_types.h"
+#include "srsran/f1ap/f1ap_mbs_types.h"
 #include "srsran/ran/paging_information.h"
 #include "srsran/support/error_handling.h"
 
@@ -355,6 +356,132 @@ inline std::optional<gnb_cu_ue_f1ap_id_t> get_gnb_cu_ue_f1ap_id(const asn1::f1ap
       return get_gnb_cu_ue_f1ap_id(pdu.successful_outcome());
     case f1ap_pdu_c::types_opts::unsuccessful_outcome:
       return get_gnb_cu_ue_f1ap_id(pdu.unsuccessful_outcome());
+    default:
+      break;
+  }
+  return std::nullopt;
+}
+
+// Same functions but for the gNB-CU MBS ID and gNB-DU MBS ID.
+
+// gNB-CU MBS ID
+inline std::optional<gnb_cu_mbs_f1ap_id_t>
+get_gnb_cu_mbs_f1ap_id(const asn1::f1ap::init_msg_s& init_msg)
+{
+  using namespace asn1::f1ap;
+  using init_msg_types = f1ap_elem_procs_o::init_msg_c::types_opts;
+
+  switch (init_msg.value.type().value) {
+    case init_msg_types::broadcast_context_setup_request:
+      return (gnb_cu_mbs_f1ap_id_t)init_msg.value.broadcast_context_setup_request()->gnb_cu_mbs_f1ap_id;
+    default:
+      break;
+  }
+  return std::nullopt;
+}
+
+inline std::optional<gnb_cu_mbs_f1ap_id_t>
+get_gnb_cu_mbs_f1ap_id(const asn1::f1ap::successful_outcome_s& success_outcome)
+{
+  using namespace asn1::f1ap;
+  using success_types = f1ap_elem_procs_o::successful_outcome_c::types_opts;
+
+  switch (success_outcome.value.type().value) {
+    case success_types::broadcast_context_setup_resp:
+      return (gnb_cu_mbs_f1ap_id_t)success_outcome.value.broadcast_context_setup_resp()->gnb_cu_mbs_f1ap_id;
+    default:
+      break;
+  }
+  return std::nullopt;
+}
+
+inline std::optional<gnb_cu_mbs_f1ap_id_t>
+get_gnb_cu_mbs_f1ap_id(const asn1::f1ap::unsuccessful_outcome_s& unsuccess_outcome)
+{
+  using namespace asn1::f1ap;
+  using unsuccess_types = f1ap_elem_procs_o::unsuccessful_outcome_c::types_opts;
+
+  switch (unsuccess_outcome.value.type().value) {
+    case unsuccess_types::broadcast_context_setup_fail:
+      return (gnb_cu_mbs_f1ap_id_t)unsuccess_outcome.value.broadcast_context_setup_fail()->gnb_cu_mbs_f1ap_id;
+    default:
+      break;
+  }
+  return std::nullopt;
+}
+
+inline std::optional<gnb_cu_mbs_f1ap_id_t>
+get_gnb_cu_mbs_f1ap_id(const asn1::f1ap::f1ap_pdu_c& pdu)
+{
+  using namespace asn1::f1ap;
+  switch (pdu.type().value) {
+    case f1ap_pdu_c::types_opts::init_msg:
+      return get_gnb_cu_mbs_f1ap_id(pdu.init_msg());
+    case f1ap_pdu_c::types_opts::successful_outcome:
+      return get_gnb_cu_mbs_f1ap_id(pdu.successful_outcome());
+    case f1ap_pdu_c::types_opts::unsuccessful_outcome:
+      return get_gnb_cu_mbs_f1ap_id(pdu.unsuccessful_outcome());
+    default:
+      break;
+  }
+  return std::nullopt;
+}
+
+// gNB-DU MBS ID
+inline std::optional<gnb_du_mbs_f1ap_id_t>
+get_gnb_du_mbs_f1ap_id(const asn1::f1ap::init_msg_s& init_msg)
+{
+  using namespace asn1::f1ap;
+  //using init_msg_types = f1ap_elem_procs_o::init_msg_c::types_opts;
+
+  switch (init_msg.value.type().value) {
+    default:
+      break;
+  }
+  return std::nullopt;
+}
+
+inline std::optional<gnb_du_mbs_f1ap_id_t>
+get_gnb_du_mbs_f1ap_id(const asn1::f1ap::successful_outcome_s& success_outcome)
+{
+  using namespace asn1::f1ap;
+  using success_types = f1ap_elem_procs_o::successful_outcome_c::types_opts;
+
+  switch (success_outcome.value.type().value) {
+    case success_types::broadcast_context_setup_resp:
+      return (gnb_du_mbs_f1ap_id_t)success_outcome.value.broadcast_context_setup_resp()->gnb_du_mbs_f1ap_id;
+    default:
+      break;
+  }
+  return std::nullopt;
+}
+
+inline std::optional<gnb_du_mbs_f1ap_id_t>
+get_gnb_du_mbs_f1ap_id(const asn1::f1ap::unsuccessful_outcome_s& unsuccess_outcome)
+{
+  using namespace asn1::f1ap;
+  using unsuccess_types = f1ap_elem_procs_o::unsuccessful_outcome_c::types_opts;
+
+  switch (unsuccess_outcome.value.type().value) {
+    case unsuccess_types::broadcast_context_setup_fail:
+      return (gnb_du_mbs_f1ap_id_t)unsuccess_outcome.value.broadcast_context_setup_fail()->gnb_du_mbs_f1ap_id;
+    default:
+      break;
+  }
+  return std::nullopt;
+}
+
+inline std::optional<gnb_du_mbs_f1ap_id_t>
+get_gnb_du_mbs_f1ap_id(const asn1::f1ap::f1ap_pdu_c& pdu)
+{
+  using namespace asn1::f1ap;
+  switch (pdu.type().value) {
+    case f1ap_pdu_c::types_opts::init_msg:
+      return get_gnb_du_mbs_f1ap_id(pdu.init_msg());
+    case f1ap_pdu_c::types_opts::successful_outcome:
+      return get_gnb_du_mbs_f1ap_id(pdu.successful_outcome());
+    case f1ap_pdu_c::types_opts::unsuccessful_outcome:
+      return get_gnb_du_mbs_f1ap_id(pdu.unsuccessful_outcome());
     default:
       break;
   }
