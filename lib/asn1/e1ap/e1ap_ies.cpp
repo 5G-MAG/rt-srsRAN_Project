@@ -6838,6 +6838,9 @@ void bcmrb_setup_cfg_item_s::to_json(json_writer& j) const
   }
   if (ie_exts.size() > 0) {
     j.write_fieldname("iE-Extensions");
+    for (const auto& ie_ext : ie_exts) {
+      ie_ext.to_json(j);
+    }
   }
   j.end_obj();
 }
@@ -8806,6 +8809,9 @@ void bcmrb_setup_resp_list_item_s::to_json(json_writer& j) const
   bc_bearer_context_f1_u_tnl_infoat_cu.to_json(j);
   if (ie_exts.size() > 0) {
     j.write_fieldname("iE-Extensions");
+    for (const auto& ie_ext : ie_exts) {
+      ie_ext.to_json(j);
+    }
   }
   j.end_obj();
 }
