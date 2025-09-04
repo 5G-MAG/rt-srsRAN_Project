@@ -25,6 +25,7 @@ set(SOURCES
         cu_up_manager_impl.cpp
         ue_manager.cpp
         mbs_session_manager/mbs_session_manager.cpp
+        mbs_session_manager/mbs_session_context.cpp
         pdu_session_manager_impl.cpp
         ngu_session_manager_impl.cpp
         routines/initial_cu_up_setup_routine.cpp

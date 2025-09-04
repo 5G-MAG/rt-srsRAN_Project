@@ -63,10 +63,12 @@ public:
   using mbs_session_db_t       = std::unordered_map<mbs_index_t, std::unique_ptr<mbs_session_context>>;
   const mbs_session_db_t& get_mbs_sessions() const { return mbs_session_db; }
 
-  async_task<void> stop()                                                               override;
-  mbs_session_context* add_mbs_session(const mbs_session_context_cfg& mbs_session_cfg)  override;
-  void remove_mbs_session(mbs_index_t mbs_index)                                        override;
-  mbs_session_context* find_mbs_session(mbs_index_t mbs_index)                          override;
+  async_task<void> stop()                                                                      override;
+  mbs_session_context*
+  add_mbs_session(const mbs_session_context_cfg& mbs_session_cfg,
+      const mbs_session_id_t mbs_session_id, std::optional<area_session_id_t> area_session_id) override;
+  void remove_mbs_session(mbs_index_t mbs_index)                                               override;
+  mbs_session_context* find_mbs_session(mbs_index_t mbs_index)                                 override;
   size_t               get_nof_mbs_sessions() const override { return mbs_session_db.size(); }
 
   /// \brief Schedule an MBS Session associated task.

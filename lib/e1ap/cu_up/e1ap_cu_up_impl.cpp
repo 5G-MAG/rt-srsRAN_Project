@@ -343,7 +343,7 @@ void e1ap_cu_up_impl::handle_bc_bearer_context_setup_request(const asn1::e1ap::b
 
   // Create new CU-UP MBS Session object
   mbs_index_t mbs_index;
-  mbs_index = cu_up_notifier.on_new_e1ap_mbs_session(bc_bearer_context_setup_req.gnb_cu_cp_mbs_e1ap_id);
+  mbs_index = cu_up_notifier.on_bc_bearer_context_setup_request(bc_bearer_context_setup_req);
 
   if (mbs_index == mbs_index_t::invalid) {
     logger.warning("E1AP MBS Session creation failed");

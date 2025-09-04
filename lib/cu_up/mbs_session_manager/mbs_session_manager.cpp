@@ -76,7 +76,9 @@ mbs_session_context* mbs_session_manager::add_mbs_session(const mbs_session_cont
 
   // Create CU-UP MBS Session object
   std::unique_ptr<mbs_session_context> new_mbs_session_ctxt = std::make_unique<mbs_session_context>(new_mbs_index,
-                                                                                                    mbs_session_cfg);
+                                                                                                    mbs_session_cfg,
+                                                                                                    mbs_session_id,
+                                                                                                    area_session_id);
 
   // Add to DB
   mbs_session_db.emplace(new_mbs_index, std::move(new_mbs_session_ctxt));

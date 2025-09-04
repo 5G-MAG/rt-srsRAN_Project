@@ -71,14 +71,14 @@ public:
     return cu_up_handler->handle_bearer_context_release_command(msg);
   }
 
-  mbs_index_t on_new_e1ap_mbs_session(const gnb_cu_cp_mbs_e1ap_id_t cu_cp_mbs_e1ap_id) override
+  mbs_index_t on_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& request) override
   {
     if (cu_up_handler == nullptr) {
       logger.warning("Could not handle BC Bearer Context Setup command, no CU-UP handler present");
       return {}; // return BC Bearer Context Setup Failure
     }
 
-    return cu_up_handler->handle_new_e1ap_mbs_session();
+    return cu_up_handler->handle_bc_bearer_context_setup_request(request);
   }
 
   bool on_schedule_mbs_task(async_task<void> task) override

@@ -20,28 +20,19 @@
  *
  */
 
-#pragma once
-
 #include "mbs_session_context.h"
-#include "srsran/support/async/async_task.h"
 
-namespace srsran {
+using namespace srsran;
+using namespace srs_cu_up;
 
-namespace srs_cu_up {
-
-class mbs_session_manager_ctrl
+mbs_session_context::mbs_session_context(mbs_index_t                      mbs_index_,
+                                         mbs_session_context_cfg          cfg_,
+                                         mbs_session_id_t                 mbs_session_id_,
+                                         std::optional<area_session_id_t> area_session_id_) :
+  mbs_index(mbs_index_),
+  cfg(cfg_),
+  mbs_session_id(mbs_session_id_),
+  area_session_id(area_session_id_)
 {
-public:
-  virtual ~mbs_session_manager_ctrl() = default;
-
-  virtual async_task<void> stop()                                                               = 0;
-  virtual mbs_session_context* add_mbs_session(const mbs_session_context_cfg& mbs_session_cfg,
-      const mbs_session_id_t mbs_session_id, std::optional<area_session_id_t> area_session_id)  = 0;
-  virtual void remove_mbs_session(mbs_index_t mbs_index)                                        = 0;
-  virtual mbs_session_context* find_mbs_session(mbs_index_t mbs_index)                          = 0;
-  virtual size_t               get_nof_mbs_sessions() const                                     = 0;
-};
-
-} // namespace srs_cu_up
-
-} // namespace srsran
+}
+}

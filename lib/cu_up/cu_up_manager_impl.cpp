@@ -182,18 +182,35 @@ cu_up_manager_impl::handle_bearer_context_release_command(const e1ap_bearer_cont
   return ue_mng->remove_ue(msg.ue_index);
 }
 
-mbs_index_t cu_up_manager_impl::handle_new_e1ap_mbs_session()
+mbs_index_t
+cu_up_manager_impl::handle_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& msg)
 {
+  // Extract Area Session ID.
+  std::optional<area_session_id_t> mbs_area_session_id = std::nullopt;
+  if (msg.bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_info_at_5gc.has_value()) {
+    if (msg.bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_info_at_5gc.value().is_locationdependent()) {
+      for (const auto& locationdependent_item : msg.bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_info_at_5gc.value()
+          .get_locationdependent().location_dependent_mbs_ngu_info_at_5gc) {
+        // TODO (borieher): Hack for now
+        // Get MBS Area Session ID in case of location dependent
+        mbs_area_session_id = locationdependent_item.mbs_area_session_id;
+      }
+    }
+  }
+
   // Create a new MBS session in the MBS manager.
   mbs_session_context_cfg mbs_session_cfg = {};
   mbs_session_cfg.qos                     = qos;
-  mbs_session_context* mbs_session = mbs_session_mng->add_mbs_session(mbs_session_cfg);
+  mbs_session_context* mbs_session = mbs_session_mng->add_mbs_session(mbs_session_cfg, msg.global_mbs_session_id, mbs_area_session_id);
 
   if (mbs_session->get_index() == mbs_index_t::invalid) {
     logger.warning("Failed to create CU-UP MBS Session");
   } else {
     logger.debug("Created new CU-UP MBS Session");
   }
+
+  // NOTE (borieher): Temporary place for it
+  mbs_session->setup_mbs_broadcast_session(msg.bc_bearer_context_to_setup);
 
   return mbs_session->get_index();
 }

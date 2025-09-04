@@ -71,7 +71,7 @@ public:
 
   async_task<void> handle_bearer_context_release_command(const e1ap_bearer_context_release_command& msg) override;
 
-  mbs_index_t handle_new_e1ap_mbs_session() override;
+  mbs_index_t handle_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& msg) override;
 
   void schedule_cu_up_async_task(async_task<void> task);
   void schedule_ue_async_task(srs_cu_up::ue_index_t ue_index, async_task<void> task) override;
