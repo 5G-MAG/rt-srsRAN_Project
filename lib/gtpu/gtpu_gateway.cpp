@@ -84,6 +84,8 @@ public:
 
   bool get_bind_address(std::string& ip_address) const override { return udp_gw->get_bind_address(ip_address); }
 
+  bool join_multicast_group(const std::string& multicast_ip_address) override { return udp_gw->join_multicast_group(multicast_ip_address); }
+
   std::optional<uint16_t> get_bind_port() const override { return udp_gw->get_bind_port(); }
 
 private:
@@ -148,6 +150,8 @@ public:
   std::optional<uint16_t> get_bind_port() const override { return std::nullopt; }
 
   bool get_bind_address(std::string& ip_address) const override { return false; }
+
+  bool join_multicast_group(const std::string& multicast_ip_address) override { return false; }
 };
 
 /// Implementation of the NG-U gateway for the case a local UPF stub is used.

@@ -147,7 +147,8 @@ bool udp_network_gateway_impl::create_and_bind()
   // support ipv4, ipv6 and hostnames
   hints.ai_family    = AF_UNSPEC;
   hints.ai_socktype  = SOCK_DGRAM;
-  hints.ai_flags     = 0;
+  //hints.ai_flags     = 0;
+  hints.ai_flags     = AI_PASSIVE;
   hints.ai_protocol  = IPPROTO_UDP;
   hints.ai_canonname = nullptr;
   hints.ai_addr      = nullptr;
@@ -156,7 +157,8 @@ bool udp_network_gateway_impl::create_and_bind()
   std::string      bind_port = std::to_string(config.bind_port);
   struct addrinfo* results;
 
-  int ret = getaddrinfo(config.bind_address.c_str(), bind_port.c_str(), &hints, &results);
+  //int ret = getaddrinfo(config.bind_address.c_str(), bind_port.c_str(), &hints, &results);
+  int ret = getaddrinfo(nullptr, bind_port.c_str(), &hints, &results);
   if (ret != 0) {
     logger.error("Getaddrinfo error: {} - {}", config.bind_address, gai_strerror(ret));
     return false;
@@ -499,6 +501,64 @@ bool udp_network_gateway_impl::set_dscp()
   }
   logger.error("Unknown socket familly when setting DSCP");
   return false;
+}
+
+bool udp_network_gateway_impl::join_multicast_group(const std::string& multicast_ip_address)
+{
+  if (not sock_fd.is_open()) {
+    logger.error("Socket of UDP network gateway not initialized.");
+    return false;
+  }
+
+  sockaddr_storage gw_addr_storage;
+  sockaddr*        gw_addr     = (sockaddr*)&gw_addr_storage;
+  socklen_t        gw_addr_len = sizeof(gw_addr_storage);
+
+  int ret = getsockname(sock_fd.value(), gw_addr, &gw_addr_len);
+  if (ret != 0) {
+    logger.error("Failed `getsockname` in join_multicast_group with sock_fd={}: {}", sock_fd.value(), strerror(errno));
+    return false;
+  }
+
+  // IPv4
+  if (gw_addr->sa_family == AF_INET) {
+    // NOTE (borieher): Use struct ip_mreq_source to implement SSM
+    // mreq_source.imr_sourceaddr.s_addr = inet_addr(source_ip.c_str());
+
+    logger.warning("Trying to join to the following multicast address {}", multicast_ip_address);
+
+    struct ip_mreq mreq;
+
+    in_addr addr{};
+    if (inet_aton(multicast_ip_address.c_str(), &addr) == 0) {
+      logger.error("Invalid multicast address: {}", multicast_ip_address);
+      return false;
+    }
+
+    // TODO (borieher): Verify the multicast_ip_address is IPv4 too
+    // multicast group ip address
+    mreq.imr_multiaddr.s_addr = addr.s_addr;
+    // ip address of the interface
+    mreq.imr_interface = ((sockaddr_in*)gw_addr)->sin_addr;
+
+    // join using IGMP
+    if (setsockopt(sock_fd.value(), IPPROTO_IP, IP_ADD_MEMBERSHIP, (const char*)&mreq, sizeof mreq)) {
+      logger.error("Couldn't join IGMP group in socket: {}", strerror(errno));
+      return false;
+    }
+
+  // TODO (borieher): IPv6
+  // Unhandled address family
+  } else {
+    logger.error("Unhandled address family when joining multicast group sock_fd={}, family={}",
+                 sock_fd.value(),
+                 gw_addr->sa_family);
+    return false;
+  }
+
+  logger.info("Joined multicast group in socket. multicast_group: {}", multicast_ip_address);
+
+  return true;
 }
 
 bool udp_network_gateway_impl::close_socket()

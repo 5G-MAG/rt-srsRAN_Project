@@ -47,6 +47,11 @@ public:
   /// this function can be used to get the actual IP address in string form.
   virtual bool get_bind_address(std::string& ip_address) const = 0;
 
+  /// \brief Join a multicast group using the gateway's socket
+  ///
+  /// For N3mb traffic reception in MBS scenarios.
+  virtual bool join_multicast_group(const std::string& multicast_ip_address) = 0;
+
   /// Get bind port currently being used by the GTP-U TNL session for the reception of PDUs.
   /// \return If a UDP link is being used, returns the respective bind port. If the connection is local, it returns
   /// std::nullopt.

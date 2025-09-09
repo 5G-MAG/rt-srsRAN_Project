@@ -80,6 +80,11 @@ public:
   /// this function can be used to get the actual IP address in string form.
   virtual bool get_bind_address(std::string& ip_address) const = 0;
 
+  /// \brief Join a multicast group using the gateway's socket
+  ///
+  /// For N3mb traffic reception in MBS scenarios.
+  virtual bool join_multicast_group(const std::string& multicast_ip_address) = 0;
+
   /// \brief Register the UDP gateway in the IO broker for automatic handling of notifications.
   virtual bool subscribe_to(io_broker& broker) = 0;
 };
