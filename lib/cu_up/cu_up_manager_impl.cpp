@@ -52,14 +52,16 @@ static ue_manager_dependencies generate_ue_manager_dependencies(const cu_up_mana
 }
 
 static mbs_session_manager_config generate_mbs_session_manager_config(const n3_interface_config&  n3_config,
+                                                                      const cu_up_test_mode_config& test_mode_config,
                                                                       const mbs_config&           mbs_config)
 {
-  return {n3_config, mbs_config};
+  return {n3_config, test_mode_config, mbs_config};
 }
 
-static mbs_session_manager_dependencies generate_mbs_session_manager_dependencies()
+static mbs_session_manager_dependencies generate_mbs_session_manager_dependencies(const cu_up_manager_impl_dependencies& dependencies)
 {
-  return {};
+  return {dependencies.ngu_session_mngr, dependencies.f1u_gateway, dependencies.ngu_demux, dependencies.f1u_teid_allocator,
+          dependencies.timers, dependencies.exec_mapper, dependencies.gtpu_pcap};
 }
 
 cu_up_manager_impl::cu_up_manager_impl(const cu_up_manager_impl_config&       config,
@@ -78,8 +80,8 @@ cu_up_manager_impl::cu_up_manager_impl(const cu_up_manager_impl_config&       co
                                         generate_ue_manager_dependencies(dependencies, logger));
 
   /// > Create MBS Session manager
-  mbs_session_mng = std::make_unique<mbs_session_manager>(generate_mbs_session_manager_config(n3_cfg, mbs_cfg),
-                                                          generate_mbs_session_manager_dependencies());
+  mbs_session_mng = std::make_unique<mbs_session_manager>(generate_mbs_session_manager_config(n3_cfg, test_mode_cfg, mbs_cfg),
+                                                          generate_mbs_session_manager_dependencies(dependencies));
 }
 
 async_task<void> cu_up_manager_impl::stop()
@@ -201,6 +203,9 @@ cu_up_manager_impl::handle_bc_bearer_context_setup_request(e1ap_bc_bearer_contex
   // Create a new MBS session in the MBS manager.
   mbs_session_context_cfg mbs_session_cfg = {};
   mbs_session_cfg.qos                     = qos;
+  mbs_session_cfg.n3_config               = n3_cfg;
+  mbs_session_cfg.test_mode_cfg           = test_mode_cfg;
+  mbs_session_cfg.mbs_session_dl_ambr     = 1000000000; // 1 Gbps in bps
   mbs_session_context* mbs_session = mbs_session_mng->add_mbs_session(mbs_session_cfg, msg.global_mbs_session_id, mbs_area_session_id);
 
   if (mbs_session->get_index() == mbs_index_t::invalid) {

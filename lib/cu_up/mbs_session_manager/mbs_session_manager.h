@@ -25,6 +25,8 @@
 #include "mbs_session_manager_interfaces.h"
 #include "srsran/ran/mbs.h"
 #include "srsran/cu_up/cu_up_config.h"
+#include "srsran/f1u/cu_up/f1u_gateway.h"
+#include "srsran/gtpu/gtpu_teid_pool.h"
 #include "srsran/srslog/srslog.h"
 #include "srsran/support/async/fifo_async_task_scheduler.h"
 
@@ -49,11 +51,20 @@ private:
 /// MBS Session manager configuration.
 struct mbs_session_manager_config {
   const n3_interface_config&    n3_config;
+  cu_up_test_mode_config        test_mode_config;
   const srsran::mbs_config&     mbs_config;
 };
 
 /// MBS Session manager dependencies.
-struct mbs_session_manager_dependencies {};
+struct mbs_session_manager_dependencies {
+  ngu_session_manager&   ngu_session_mngr;
+  f1u_cu_up_gateway&     f1u_gw;
+  gtpu_demux_ctrl&       gtpu_rx_demux;
+  gtpu_teid_pool&        f1u_teid_allocator;
+  timer_manager&         timers;
+  cu_up_executor_mapper& exec_pool;
+  dlt_pcap&              gtpu_pcap;
+};
 
 class mbs_session_manager : public mbs_session_manager_ctrl
 {
@@ -82,10 +93,19 @@ private:
   mbs_index_t get_next_mbs_index();
 
   const n3_interface_config&    n3_config;
+  cu_up_test_mode_config        test_mode_config;
   const unsigned                max_nof_mbs_sessions;
+  uint64_t                      mbs_session_dl_ambr;
+  ngu_session_manager&          ngu_session_mngr;
+  f1u_cu_up_gateway&            f1u_gw;
+  gtpu_demux_ctrl&              gtpu_rx_demux;
+  gtpu_teid_pool&               f1u_teid_allocator;
   // Common task scheduler for MBS Sessions.
   mbs_common_task_scheduler     mbs_common_task_sched;
   mbs_session_db_t              mbs_session_db;
+  timer_manager&                timers;
+  cu_up_executor_mapper&        exec_pool;
+  dlt_pcap&                     gtpu_pcap;
   srslog::basic_logger&         logger = srslog::fetch_basic_logger("CU-UP-MBSMNG");
 };
 
