@@ -140,6 +140,7 @@ protected:
                              pdu_len);
       }
     }
+    // NOTE (borieher): 5MBS traffic comes without PDU Session Container, leaving this log as a reminder, but skipping the return
     if (!have_pdu_session_info) {
       logger.log_warning(
           "Incomplete PDU at NG-U interface: missing or invalid PDU session container. pdu_len={} teid={}",
@@ -147,7 +148,7 @@ protected:
           teid);
       // As per TS 29.281 Sec. 5.2.2.7 the (...) PDU Session Container (...) shall be transmitted in a G-PDU over the
       // N3 and N9 user plane interfaces (...).
-      return;
+      //return;
     }
 
     logger.log_debug(pdu.buf.begin(), pdu.buf.end(), "RX PDU. pdu_len={} {}", pdu_len, st);
@@ -155,7 +156,15 @@ protected:
     if (!pdu.hdr.flags.seq_number || config.t_reordering.count() == 0) {
       // Forward this SDU straight away.
       byte_buffer      rx_sdu      = gtpu_extract_msg(std::move(pdu)); // header is invalidated after extraction
-      gtpu_rx_sdu_info rx_sdu_info = {std::move(rx_sdu), pdu_session_info.qos_flow_id};
+      // NOTE (borieher): rx_sdu_info for both PDU Session and MBS Session cases
+      gtpu_rx_sdu_info rx_sdu_info = {};
+      if (have_pdu_session_info) {
+         rx_sdu_info = {std::move(rx_sdu), pdu_session_info.qos_flow_id};
+      } else {
+        // NOTE (borieher): 5MBS case, for now no way to know which QFI it should go
+        //                  so hardcoding QFI1 for testing purposes
+        rx_sdu_info = {std::move(rx_sdu), qos_flow_id_t{0x01}};
+      }
       deliver_sdu(rx_sdu_info);
       return;
     }
@@ -176,7 +185,13 @@ protected:
                              nof_log_sn_out_of_window);
         }
       }
-      gtpu_rx_sdu_info rx_sdu_info = {std::move(rx_sdu), pdu_session_info.qos_flow_id, sn};
+      gtpu_rx_sdu_info rx_sdu_info = {};
+      if (have_pdu_session_info) {
+         rx_sdu_info = {std::move(rx_sdu), pdu_session_info.qos_flow_id, sn};
+      } else {
+        // NOTE (borieher): 5MBS case, hardcoded as mentioned
+        rx_sdu_info = {std::move(rx_sdu), qos_flow_id_t{0x01}, sn};
+      }
       deliver_sdu(rx_sdu_info);
       return;
     }
@@ -184,7 +199,13 @@ protected:
     // Check late SN
     if (rx_mod_base(sn) < rx_mod_base(st.rx_deliv)) {
       logger.log_debug("Out-of-order after timeout or duplicate. sn={} pdu_len={} {}", sn, pdu_len, st);
-      gtpu_rx_sdu_info rx_sdu_info = {std::move(rx_sdu), pdu_session_info.qos_flow_id, sn};
+      gtpu_rx_sdu_info rx_sdu_info = {};
+      if (have_pdu_session_info) {
+         rx_sdu_info = {std::move(rx_sdu), pdu_session_info.qos_flow_id, sn};
+      } else {
+        // NOTE (borieher): 5MBS case, hardcoded as mentioned
+        rx_sdu_info = {std::move(rx_sdu), qos_flow_id_t{0x01}, sn};
+      }
       deliver_sdu(rx_sdu_info);
       return;
     }
@@ -194,10 +215,14 @@ protected:
       logger.log_warning("Duplicate PDU dropped. sn={} pdu_len={}", sn, pdu_len);
       return;
     }
-
     gtpu_rx_sdu_info& rx_sdu_info = rx_window.add_sn(sn);
     rx_sdu_info.sdu               = std::move(rx_sdu);
-    rx_sdu_info.qos_flow_id       = pdu_session_info.qos_flow_id;
+    if (have_pdu_session_info) {
+      rx_sdu_info.qos_flow_id       = pdu_session_info.qos_flow_id;
+    } else {
+      // NOTE (borieher): 5MBS case, hardcoded as mentioned
+      rx_sdu_info.qos_flow_id       = qos_flow_id_t{0x01};
+    }
     rx_sdu_info.sn                = sn;
 
     // Update RX_NEXT
