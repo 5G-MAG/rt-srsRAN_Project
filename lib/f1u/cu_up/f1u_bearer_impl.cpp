@@ -26,7 +26,7 @@ using namespace srsran;
 using namespace srs_cu_up;
 
 f1u_bearer_impl::f1u_bearer_impl(uint32_t                       ue_index,
-                                 drb_id_t                       drb_id_,
+                                 rb_id_t                        rb_id_,
                                  const up_transport_layer_info& ul_tnl_info_,
                                  const f1u_config&              config,
                                  f1u_tx_pdu_notifier&           tx_pdu_notifier_,
@@ -36,7 +36,7 @@ f1u_bearer_impl::f1u_bearer_impl(uint32_t                       ue_index,
                                  unique_timer&                  ue_inactivity_timer_,
                                  task_executor&                 dl_exec_,
                                  task_executor&                 ul_exec_) :
-  logger("CU-F1-U", {ue_index, drb_id_, ul_tnl_info_}),
+  logger("CU-F1-U", {ue_index, rb_id_, ul_tnl_info_}),
   cfg(config),
   tx_pdu_notifier(tx_pdu_notifier_),
   rx_delivery_notifier(rx_delivery_notifier_),

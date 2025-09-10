@@ -34,7 +34,7 @@ namespace srsran::srs_cu_up {
 
 /// \brief Creates an F1-U bearer for the CU-UP.
 std::unique_ptr<f1u_bearer> create_f1u_bearer(uint32_t                       ue_index,
-                                              drb_id_t                       drb_id,
+                                              rb_id_t                        rb_id,
                                               const up_transport_layer_info& ul_up_tnl_info,
                                               const f1u_config&              config,
                                               f1u_tx_pdu_notifier&           tx_pdu_notifier,

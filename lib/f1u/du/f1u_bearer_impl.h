@@ -42,7 +42,7 @@ class f1u_bearer_impl final : public f1u_bearer,
 {
 public:
   f1u_bearer_impl(uint32_t                       ue_index,
-                  drb_id_t                       drb_id_,
+                  rb_id_t                        rb_id_,
                   const up_transport_layer_info& dl_tnl_info_,
                   const f1u_config&              config,
                   f1u_rx_sdu_notifier&           rx_sdu_notifier_,

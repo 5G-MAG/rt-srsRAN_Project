@@ -27,7 +27,7 @@ using namespace srsran;
 
 std::unique_ptr<f1u_cu_up_gateway_bearer>
 f1u_local_connector::create_cu_bearer(uint32_t                              ue_index,
-                                      drb_id_t                              drb_id,
+                                      rb_id_t                               rb_id,
                                       five_qi_t                             five_qi,
                                       const srs_cu_up::f1u_config&          config,
                                       const gtpu_teid_t&                    ul_teid,
@@ -40,7 +40,7 @@ f1u_local_connector::create_cu_bearer(uint32_t                              ue_i
                 "Cannot create CU gateway local bearer, UL TEID already exists. ul_teid={}",
                 ul_teid);
   std::unique_ptr<f1u_gateway_cu_bearer> cu_bearer =
-      std::make_unique<f1u_gateway_cu_bearer>(ue_index, drb_id, ul_teid, rx_notifier, ul_exec, *this);
+      std::make_unique<f1u_gateway_cu_bearer>(ue_index, rb_id, ul_teid, rx_notifier, ul_exec, *this);
   cu_map.insert({ul_teid, cu_bearer.get()});
   return cu_bearer;
 }
@@ -109,7 +109,7 @@ void f1u_local_connector::disconnect_cu_bearer(const up_transport_layer_info& ul
 
 std::unique_ptr<srs_du::f1u_du_gateway_bearer>
 f1u_local_connector::create_du_bearer(uint32_t                                   ue_index,
-                                      drb_id_t                                   drb_id,
+                                      rb_id_t                                    rb_id,
                                       five_qi_t                                  five_qi,
                                       srs_du::f1u_config                         config,
                                       const gtpu_teid_t&                         dl_teid,
@@ -129,7 +129,7 @@ f1u_local_connector::create_du_bearer(uint32_t                                  
 
   logger_du.debug("Creating DU F1-U bearer. DL GTP Tunnel={}, UL GTP Tunnel={}", dl_teid, ul_up_tnl_info);
   std::unique_ptr<f1u_gateway_du_bearer> du_bearer =
-      std::make_unique<f1u_gateway_du_bearer>(ue_index, drb_id, dl_teid, &du_rx, ul_up_tnl_info, *this);
+      std::make_unique<f1u_gateway_du_bearer>(ue_index, rb_id, dl_teid, &du_rx, ul_up_tnl_info, *this);
 
   du_bearer->attach_cu_notifier(cu_tun->cu_rx);
 

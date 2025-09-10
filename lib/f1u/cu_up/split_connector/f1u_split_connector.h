@@ -51,7 +51,7 @@ class f1u_split_gateway_cu_bearer final : public f1u_cu_up_gateway_bearer
 {
 public:
   f1u_split_gateway_cu_bearer(uint32_t                              ue_index_,
-                              drb_id_t                              drb_id,
+                              rb_id_t                               rb_id,
                               const up_transport_layer_info&        ul_tnl_info_,
                               f1u_cu_up_gateway_bearer_rx_notifier& cu_rx_,
                               gtpu_tnl_pdu_session&                 udp_session,
@@ -135,7 +135,7 @@ public:
   }
 
   std::unique_ptr<f1u_cu_up_gateway_bearer> create_cu_bearer(uint32_t                              ue_index,
-                                                             drb_id_t                              drb_id,
+                                                             rb_id_t                               rb_id,
                                                              five_qi_t                             five_qi,
                                                              const srs_cu_up::f1u_config&          config,
                                                              const gtpu_teid_t&                    ul_teid,

@@ -108,7 +108,7 @@ class f1u_split_gateway_du_bearer : public f1u_du_gateway_bearer
 {
 public:
   f1u_split_gateway_du_bearer(uint32_t                                   ue_index,
-                              drb_id_t                                   drb_id,
+                              rb_id_t                                    rb_id,
                               const up_transport_layer_info&             dl_tnl_info_,
                               srs_du::f1u_du_gateway_bearer_rx_notifier& du_rx_,
                               const up_transport_layer_info&             ul_up_tnl_info_,
@@ -116,7 +116,7 @@ public:
                               srs_du::f1u_bearer_disconnector&           disconnector_,
                               dlt_pcap&                                  gtpu_pcap,
                               uint16_t                                   peer_port) :
-    logger("DU-F1-U", {ue_index, drb_id, dl_tnl_info_}),
+    logger("DU-F1-U", {ue_index, rb_id, dl_tnl_info_}),
     disconnector(disconnector_),
     dl_tnl_info(dl_tnl_info_),
     ul_tnl_info(ul_up_tnl_info_),
@@ -202,7 +202,7 @@ public:
   }
 
   std::unique_ptr<f1u_du_gateway_bearer> create_du_bearer(uint32_t                                   ue_index,
-                                                          drb_id_t                                   drb_id,
+                                                          rb_id_t                                    rb_id,
                                                           five_qi_t                                  five_qi,
                                                           srs_du::f1u_config                         config,
                                                           const gtpu_teid_t&                         dl_teid,

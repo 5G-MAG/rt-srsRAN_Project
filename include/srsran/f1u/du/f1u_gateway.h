@@ -66,7 +66,7 @@ public:
   f1u_du_gateway& operator=(f1u_du_gateway&&)      = default;
 
   virtual std::unique_ptr<f1u_du_gateway_bearer> create_du_bearer(uint32_t                       ue_index,
-                                                                  drb_id_t                       drb_id,
+                                                                  rb_id_t                        rb_id,
                                                                   five_qi_t                      five_qi,
                                                                   srs_du::f1u_config             config,
                                                                   const gtpu_teid_t&             dl_up_tnl_info,

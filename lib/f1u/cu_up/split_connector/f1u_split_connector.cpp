@@ -91,7 +91,7 @@ private:
 };
 
 f1u_split_gateway_cu_bearer::f1u_split_gateway_cu_bearer(uint32_t                              ue_index_,
-                                                         drb_id_t                              drb_id,
+                                                         rb_id_t                               rb_id,
                                                          const up_transport_layer_info&        ul_tnl_info_,
                                                          f1u_cu_up_gateway_bearer_rx_notifier& cu_rx_,
                                                          gtpu_tnl_pdu_session&                 udp_session_,
@@ -99,7 +99,7 @@ f1u_split_gateway_cu_bearer::f1u_split_gateway_cu_bearer(uint32_t               
                                                          srs_cu_up::f1u_bearer_disconnector&   disconnector_) :
   ul_exec(ul_exec_),
   ue_index(ue_index_),
-  logger("CU-F1-U", {ue_index_, drb_id, ul_tnl_info_}),
+  logger("CU-F1-U", {ue_index_, rb_id, ul_tnl_info_}),
   disconnector(disconnector_),
   ul_tnl_info(ul_tnl_info_),
   udp_session(udp_session_),
@@ -169,7 +169,7 @@ f1u_split_connector::~f1u_split_connector() = default;
 
 std::unique_ptr<f1u_cu_up_gateway_bearer>
 f1u_split_connector::create_cu_bearer(uint32_t                              ue_index,
-                                      drb_id_t                              drb_id,
+                                      rb_id_t                               rb_id,
                                       five_qi_t                             five_qi,
                                       const srs_cu_up::f1u_config&          config,
                                       const gtpu_teid_t&                    ul_teid,
@@ -181,12 +181,12 @@ f1u_split_connector::create_cu_bearer(uint32_t                              ue_i
   // Create UL UP TNL address.
   std::string bind_addr;
   if (not udp_session.get_bind_address(bind_addr)) {
-    logger_cu.error("Could not get bind address for F1-U tunnel. ue={} drb={}", ue_index, drb_id);
+    logger_cu.error("Could not get bind address for F1-U tunnel. ue={} drb={}", ue_index, rb_id);
     return nullptr;
   }
   up_transport_layer_info ul_up_tnl_info{transport_layer_address::create_from_string(bind_addr), ul_teid};
   auto                    cu_bearer = std::make_unique<f1u_split_gateway_cu_bearer>(
-      ue_index, drb_id, ul_up_tnl_info, rx_notifier, udp_session, ul_exec, *this);
+      ue_index, rb_id, ul_up_tnl_info, rx_notifier, udp_session, ul_exec, *this);
   std::unique_lock<std::mutex> lock(map_mutex);
   srsran_assert(cu_map.find(ul_up_tnl_info.gtp_teid) == cu_map.end(),
                 "Cannot create CU gateway local bearer with already existing UL GTP Tunnel={}",

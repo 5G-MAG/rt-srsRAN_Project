@@ -26,14 +26,14 @@ using namespace srsran;
 using namespace srs_du;
 
 f1u_bearer_impl::f1u_bearer_impl(uint32_t                       ue_index,
-                                 drb_id_t                       drb_id_,
+                                 rb_id_t                        rb_id_,
                                  const up_transport_layer_info& dl_tnl_info_,
                                  const f1u_config&              config,
                                  f1u_rx_sdu_notifier&           rx_sdu_notifier_,
                                  f1u_tx_pdu_notifier&           tx_pdu_notifier_,
                                  timer_factory                  timers,
                                  task_executor&                 ue_executor_) :
-  logger("DU-F1-U", {ue_index, drb_id_, dl_tnl_info_}),
+  logger("DU-F1-U", {ue_index, rb_id_, dl_tnl_info_}),
   cfg(config),
   dl_tnl_info(dl_tnl_info_),
   buffering(cfg.buffer_ul_on_startup),

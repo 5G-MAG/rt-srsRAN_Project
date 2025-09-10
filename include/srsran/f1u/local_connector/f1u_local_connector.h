@@ -43,13 +43,13 @@ class f1u_gateway_cu_bearer : public f1u_cu_up_gateway_bearer
 {
 public:
   f1u_gateway_cu_bearer(uint32_t                              ue_index,
-                        drb_id_t                              drb_id,
+                        rb_id_t                               rb_id,
                         const gtpu_teid_t&                    ul_teid_,
                         f1u_cu_up_gateway_bearer_rx_notifier& cu_rx_,
                         task_executor&                        ul_exec_,
                         srs_cu_up::f1u_bearer_disconnector&   disconnector_) :
     ul_tnl_info(transport_layer_address::create_from_string(ul_ip_addr), ul_teid_),
-    logger("CU-F1-U", {ue_index, drb_id, ul_tnl_info}),
+    logger("CU-F1-U", {ue_index, rb_id, ul_tnl_info}),
     disconnector(disconnector_),
     cu_rx(cu_rx_),
     ul_exec(ul_exec_)
@@ -122,7 +122,7 @@ class f1u_gateway_du_bearer : public srs_du::f1u_du_gateway_bearer
 {
 public:
   f1u_gateway_du_bearer(uint32_t                                   ue_index,
-                        drb_id_t                                   drb_id,
+                        rb_id_t                                    rb_id,
                         const gtpu_teid_t&                         dl_teid_,
                         srs_du::f1u_du_gateway_bearer_rx_notifier* f1u_rx_,
                         const up_transport_layer_info&             ul_up_tnl_info_,
@@ -130,7 +130,7 @@ public:
     f1u_rx(f1u_rx_),
     ul_up_tnl_info(ul_up_tnl_info_),
     dl_tnl_info(transport_layer_address::create_from_string(dl_ip_addr), dl_teid_),
-    logger("DU-F1-U", {ue_index, drb_id, dl_tnl_info}),
+    logger("DU-F1-U", {ue_index, rb_id, dl_tnl_info}),
     disconnector(disconnector_)
   {
   }
@@ -201,7 +201,7 @@ public:
   f1u_cu_up_gateway*      get_f1u_cu_up_gateway() { return this; }
 
   std::unique_ptr<f1u_cu_up_gateway_bearer> create_cu_bearer(uint32_t                              ue_index,
-                                                             drb_id_t                              drb_id,
+                                                             rb_id_t                               rb_id,
                                                              five_qi_t                             five_qi,
                                                              const srs_cu_up::f1u_config&          config,
                                                              const gtpu_teid_t&                    ul_teid,
@@ -214,7 +214,7 @@ public:
   void disconnect_cu_bearer(const up_transport_layer_info& ul_up_tnl_info) override;
 
   std::unique_ptr<srs_du::f1u_du_gateway_bearer> create_du_bearer(uint32_t                       ue_index,
-                                                                  drb_id_t                       drb_id,
+                                                                  rb_id_t                        rb_id,
                                                                   five_qi_t                      five_qi,
                                                                   srs_du::f1u_config             config,
                                                                   const gtpu_teid_t&             dl_up_tnl_info,
