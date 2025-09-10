@@ -34,7 +34,7 @@ namespace srsran {
 namespace srs_cu_up {
 
 /// Maximum number of MBS Sessions supported by CU-UP (implementation-defined).
-const uint64_t MAX_NOF_CU_MBS = 16777215; // 2^24 - 1
+const uint32_t MAX_NOF_CU_MBS = 16777215; // 2^24 - 1
 
 /// Maximum number of UEs supported by CU-UP (implementation-defined).
 enum ue_index_t : uint16_t {
@@ -57,12 +57,12 @@ constexpr bool is_ue_index_valid(ue_index_t ue_idx)
 
 /// \brief mbs_index internally used to identify the MBS Session CU-UP-wide.
 /// \remark The mbs_index is derived from the maximum number E1AP IDs in the CU-UP.
-enum class mbs_index_t : uint64_t { min = 0, max = MAX_NOF_CU_MBS - 1, invalid = MAX_NOF_CU_MBS };
+enum class mbs_index_t : uint32_t { min = 0, max = MAX_NOF_CU_MBS - 1, invalid = MAX_NOF_CU_MBS };
 
 /// Convert mbs_index type to integer.
-inline uint64_t mbs_index_to_uint(mbs_index_t index)
+inline uint32_t mbs_index_to_uint(mbs_index_t index)
 {
-  return static_cast<uint64_t>(index);
+  return static_cast<uint32_t>(index);
 }
 
 /// Convert integer to mbs_index type.
