@@ -163,9 +163,42 @@ public:
   rb_id_t(drb_id_t drb_id_) : rb_type(rb_type_t::drb), drb_id(drb_id_) {}
   rb_id_t(mrb_id_t mrb_id_) : rb_type(rb_type_t::mrb), mrb_id(mrb_id_) {}
 
-  bool is_srb() { return rb_type == rb_type_t::srb; }
-  bool is_drb() { return rb_type == rb_type_t::drb; }
-  bool is_mrb() { return rb_type == rb_type_t::mrb; }
+  // Copy constructor
+  rb_id_t(const rb_id_t& other) : rb_type(other.rb_type) {
+    switch (rb_type) {
+      case rb_type_t::srb: srb_id = other.srb_id; break;
+      case rb_type_t::drb: drb_id = other.drb_id; break;
+      case rb_type_t::mrb: mrb_id = other.mrb_id; break;
+    }
+  }
+
+  // Assignment operator
+  rb_id_t& operator=(const rb_id_t& other) {
+    if (this != &other) {
+      rb_type = other.rb_type;
+      switch (rb_type) {
+        case rb_type_t::srb: srb_id = other.srb_id; break;
+        case rb_type_t::drb: drb_id = other.drb_id; break;
+        case rb_type_t::mrb: mrb_id = other.mrb_id; break;
+      }
+    }
+    return *this;
+  }
+
+  // Equality operator
+  bool operator==(const rb_id_t& other) const {
+    if (rb_type != other.rb_type) return false;
+    switch (rb_type) {
+      case rb_type_t::srb: return srb_id == other.srb_id;
+      case rb_type_t::drb: return drb_id == other.drb_id;
+      case rb_type_t::mrb: return mrb_id == other.mrb_id;
+    }
+    return false;
+  }
+
+  bool is_srb() const { return rb_type == rb_type_t::srb; }
+  bool is_drb() const { return rb_type == rb_type_t::drb; }
+  bool is_mrb() const { return rb_type == rb_type_t::mrb; }
 
   srb_id_t get_srb_id() const { return srb_id; }
   drb_id_t get_drb_id() const { return drb_id; }
@@ -268,3 +301,24 @@ struct formatter<srsran::rb_id_t> {
 };
 
 } // namespace fmt
+
+// rb_id_t hash function
+namespace std {
+template <>
+struct hash<srsran::rb_id_t> {
+  std::size_t operator()(const srsran::rb_id_t& rb) const noexcept {
+    using srsran::rb_type_t;
+    if (rb.is_srb()) {
+      return std::hash<int>()(static_cast<int>(rb_type_t::srb) ^ static_cast<int>(rb.get_srb_id()));
+    }
+    if (rb.is_drb()) {
+      return std::hash<int>()(static_cast<int>(rb_type_t::drb) ^ static_cast<int>(rb.get_drb_id()));
+    }
+    if (rb.is_mrb()) {
+      return std::hash<int>()(static_cast<int>(rb_type_t::mrb) ^ static_cast<int>(rb.get_mrb_id()));
+    }
+    return 0;
+  }
+};
+
+} // namespace std
