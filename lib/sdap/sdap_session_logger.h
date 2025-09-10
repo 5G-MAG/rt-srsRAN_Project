@@ -35,14 +35,14 @@ public:
   sdap_session_trx_log_prefix(uint32_t                     ue_index,
                               pdu_session_id_t             psi,
                               std::optional<qos_flow_id_t> qfi,
-                              drb_id_t                     drb_id,
+                              rb_id_t                      rb_id,
                               const char*                  dir)
   {
     fmt::memory_buffer buffer;
     if (qfi.has_value()) {
-      fmt::format_to(std::back_inserter(buffer), "ue={} {} {} {} {}: ", ue_index, psi, qfi.value(), drb_id, dir);
+      fmt::format_to(std::back_inserter(buffer), "ue={} {} {} {} {}: ", ue_index, psi, qfi.value(), rb_id, dir);
     } else {
-      fmt::format_to(std::back_inserter(buffer), "ue={} {} {} {}: ", ue_index, psi, drb_id, dir);
+      fmt::format_to(std::back_inserter(buffer), "ue={} {} {} {}: ", ue_index, psi, rb_id, dir);
     }
     prefix = srsran::to_c_str(buffer);
   }

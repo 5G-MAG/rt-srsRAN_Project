@@ -35,9 +35,9 @@ public:
   sdap_entity_rx_impl(uint32_t              ue_index,
                       pdu_session_id_t      psi,
                       qos_flow_id_t         qfi_,
-                      drb_id_t              drb_id_,
+                      rb_id_t               rb_id_,
                       sdap_rx_sdu_notifier& sdu_notifier_) :
-    logger("SDAP", {ue_index, psi, qfi_, drb_id_, "UL"}), qfi(qfi_), drb_id(drb_id_), sdu_notifier(sdu_notifier_)
+    logger("SDAP", {ue_index, psi, qfi_, rb_id_, "UL"}), qfi(qfi_), rb_id(rb_id_), sdu_notifier(sdu_notifier_)
   {
   }
 
@@ -48,12 +48,24 @@ public:
     sdu_notifier.on_new_sdu(std::move(pdu), qfi);
   }
 
-  drb_id_t get_drb_id() const { return drb_id; }
+  drb_id_t get_drb_id() {
+    if (rb_id.is_drb()) {
+      return rb_id.get_drb_id();
+    }
+    return drb_id_t::invalid;
+  }
+
+  mrb_id_t get_mrb_id() {
+    if (rb_id.is_mrb()) {
+      return rb_id.get_mrb_id();
+    }
+    return mrb_id_t::invalid;
+  }
 
 private:
   sdap_session_trx_logger logger;
   qos_flow_id_t           qfi;
-  drb_id_t                drb_id;
+  rb_id_t                 rb_id;
   sdap_rx_sdu_notifier&   sdu_notifier;
 };
 
