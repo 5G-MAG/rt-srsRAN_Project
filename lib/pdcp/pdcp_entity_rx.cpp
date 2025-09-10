@@ -582,7 +582,8 @@ void pdcp_entity_rx::configure_security(security::sec_128_as_config sec_cfg,
                                         security::ciphering_enabled ciphering_enabled_)
 {
   srsran_assert((is_srb() && sec_cfg.domain == security::sec_domain::rrc) ||
-                    (is_drb() && sec_cfg.domain == security::sec_domain::up),
+                    (is_drb() && sec_cfg.domain == security::sec_domain::up) ||
+                    (is_mrb() && sec_cfg.domain == security::sec_domain::up),
                 "Invalid sec_domain={} for {} in {}",
                 sec_cfg.domain,
                 rb_type,

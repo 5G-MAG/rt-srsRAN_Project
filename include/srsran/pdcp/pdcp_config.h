@@ -33,7 +33,7 @@ namespace srsran {
 class pdcp_metrics_notifier;
 
 /// PDCP NR SRB or DRB information.
-enum class pdcp_rb_type { srb, drb };
+enum class pdcp_rb_type { srb, drb, mrb };
 
 /// PDCP NR RLC mode information.
 enum class pdcp_rlc_mode { um, am };
