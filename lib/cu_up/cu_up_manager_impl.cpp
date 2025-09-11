@@ -184,7 +184,7 @@ cu_up_manager_impl::handle_bearer_context_release_command(const e1ap_bearer_cont
   return ue_mng->remove_ue(msg.ue_index);
 }
 
-mbs_index_t
+mbs_broadcast_session_setup_result
 cu_up_manager_impl::handle_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& msg)
 {
   // Extract Area Session ID.
@@ -214,10 +214,14 @@ cu_up_manager_impl::handle_bc_bearer_context_setup_request(e1ap_bc_bearer_contex
     logger.debug("Created new CU-UP MBS Session");
   }
 
-  // NOTE (borieher): Temporary place for it
+  // Get the result of the setup of MRBs and QoS flows
+  mbs_broadcast_session_setup_result result =
   mbs_session->setup_mbs_broadcast_session(msg.bc_bearer_context_to_setup);
 
-  return mbs_session->get_index();
+  // Add the created MBS index to the result
+  result.mbs_index = mbs_session->get_index();
+
+  return result;
 }
 
 async_task<void> cu_up_manager_impl::enable_test_mode()

@@ -42,30 +42,6 @@ namespace srsran::srs_cu_up {
 /// 3GPP TS 37.483 clause 9.3.1.114 - BC MRB Setup Configuration: maxnoofMRBs
 #define MAX_NUM_MRBS_PER_MBS_SESSION (32)
 
-// Result when creating a new QoS flow.
-struct mbs_qos_flow_setup_result {
-  bool          success     = false;
-  qos_flow_id_t qos_flow_id = qos_flow_id_t::invalid;
-  e1ap_cause_t  cause; // Cause if setup was unsuccessful.
-};
-
-// Result when creating a new MRB containing QoS flow results.
-struct mrb_setup_result {
-  bool                                   success = false;
-  mrb_id_t                               mrb_id  = mrb_id_t::invalid;
-  e1ap_cause_t                           cause; // Cause if setup was unsuccessful.
-  up_transport_layer_info                gtp_tunnel;
-  std::vector<mbs_qos_flow_setup_result> mbs_qos_flow_results;
-};
-
-// Final result when creating a Broadcast MBS Session with all MRBs and QoS flow results.
-struct mbs_broadcast_session_setup_result {
-  bool                          success        = false; // True if Broadcast MBS session could be set up.
-  e1ap_cause_t                  cause;
-  up_transport_layer_info       gtp_tunnel;
-  std::vector<mrb_setup_result> mrb_setup_results;
-};
-
 /// \brief MBS Session context setup configuration
 struct mbs_session_context_cfg {
   std::map<five_qi_t, srs_cu_up::cu_up_qos_config> qos;

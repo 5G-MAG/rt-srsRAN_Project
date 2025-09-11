@@ -342,10 +342,10 @@ void e1ap_cu_up_impl::handle_bc_bearer_context_setup_request(const asn1::e1ap::b
   }
 
   // Create new CU-UP MBS Session object
-  mbs_index_t mbs_index;
-  mbs_index = cu_up_notifier.on_bc_bearer_context_setup_request(bc_bearer_context_setup_req);
+  mbs_broadcast_session_setup_result result =
+      cu_up_notifier.on_bc_bearer_context_setup_request(bc_bearer_context_setup_req);
 
-  if (mbs_index == mbs_index_t::invalid) {
+  if (result.mbs_index == mbs_index_t::invalid) {
     logger.warning("E1AP MBS Session creation failed");
     //return make_unexpected(rrc->get_rrc_reject());
     return;
@@ -361,17 +361,17 @@ void e1ap_cu_up_impl::handle_bc_bearer_context_setup_request(const asn1::e1ap::b
   }
 
   // Add new E1AP MBS Session context
-  if (mbs_session_ctxt_list.add_mbs_session_context(mbs_index, cu_up_mbs_e1ap_id,
+  if (mbs_session_ctxt_list.add_mbs_session_context(result.mbs_index, cu_up_mbs_e1ap_id,
       bc_bearer_context_setup_req.gnb_cu_cp_mbs_e1ap_id) == nullptr) {
     logger.warning("E1AP BC Bearer Context Setup failed. Cause: E1AP MBS Session context already exists");
     // send_ngap_broadcast_session_setup_failure?
   }
 
-  e1ap_mbs_session_context& mbs_session_ctxt = mbs_session_ctxt_list[mbs_index];
+  e1ap_mbs_session_context& mbs_session_ctxt = mbs_session_ctxt_list[result.mbs_index];
 
   // Start procedure from the MBS Session task scheduler
   cu_up_notifier.on_schedule_mbs_task(launch_async<bc_bearer_context_setup_procedure>(
-    bc_bearer_context_setup_req, mbs_session_ctxt, *pdu_notifier, logger));
+    bc_bearer_context_setup_req, mbs_session_ctxt, *pdu_notifier, result, logger));
 }
 
 void e1ap_cu_up_impl::handle_successful_outcome(const asn1::e1ap::successful_outcome_s& outcome)

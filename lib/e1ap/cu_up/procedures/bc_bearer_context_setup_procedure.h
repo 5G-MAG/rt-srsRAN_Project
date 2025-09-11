@@ -39,6 +39,7 @@ public:
   bc_bearer_context_setup_procedure(const e1ap_bc_bearer_context_setup_request& request_,
                                     e1ap_mbs_session_context&                   mbs_session_ctxt_,
                                     e1ap_message_notifier&                      pdu_notifier_,
+                                    mbs_broadcast_session_setup_result&         broadcast_session_setup_result_,
                                     srslog::basic_logger&                       logger_);
 
   void operator()(coro_context<async_task<void>>& ctx);
@@ -59,6 +60,7 @@ private:
   e1ap_bc_bearer_context_setup_failure          failure;
   e1ap_mbs_session_context&                     mbs_session_ctxt;
   e1ap_message_notifier&                        pdu_notifier;
+  mbs_broadcast_session_setup_result&           broadcast_session_setup_result;
   srslog::basic_logger&                         logger;
 };
 

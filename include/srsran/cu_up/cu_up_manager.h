@@ -62,9 +62,10 @@ public:
   /// \param[in] msg The original bearer release command.
   virtual async_task<void> handle_bearer_context_release_command(const e1ap_bearer_context_release_command& msg) = 0;
 
-  /// \brief Creates a new MBS Session context.
-  /// \return Returns the MBS index of the created MBS Session.
-  virtual mbs_index_t handle_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& msg) = 0;
+  /// \brief Creates a new MBS Session context and sets up the requested MRBs and QoS flows.
+  /// \return Returns the result of the created MBS Session, including index and MRBs.
+  virtual mbs_broadcast_session_setup_result
+  handle_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& msg) = 0;
 
   /// \brief Get the state of the E1AP connection.
   /// \return True if E1AP is connected, false otherwise.

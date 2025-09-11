@@ -61,5 +61,30 @@ struct e1ap_bc_bearer_context_setup_failure {
   std::optional<e1ap_crit_diagnostics> crit_diagnostics;
 };
 
+// QoS Flow creation result
+struct mbs_qos_flow_setup_result {
+  bool          success     = false;
+  qos_flow_id_t qos_flow_id = qos_flow_id_t::invalid;
+  e1ap_cause_t  cause; // Cause if setup was unsuccessful.
+};
+
+// MRB creation result, including associated QoS flows
+struct mrb_setup_result {
+  bool                                   success = false;
+  mrb_id_t                               mrb_id  = mrb_id_t::invalid;
+  e1ap_cause_t                           cause; // Cause if setup was unsuccessful.
+  up_transport_layer_info                gtp_tunnel;
+  std::vector<mbs_qos_flow_setup_result> mbs_qos_flow_results;
+};
+
+// Broadcast MBS Session creation result, including mbs_index, associated MRBs and their QoS flows
+struct mbs_broadcast_session_setup_result {
+  mbs_index_t                   mbs_index = mbs_index_t::invalid; // Index of the created MBS Session context.
+  bool                          success   = false;                // True if Broadcast MBS session could be set up.
+  e1ap_cause_t                  cause;
+  up_transport_layer_info       gtp_tunnel;
+  std::vector<mrb_setup_result> mrb_setup_results;
+};
+
 } // namespace srs_cu_up
 } // namespace srsran

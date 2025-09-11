@@ -88,8 +88,9 @@ public:
 
   /// \brief Notifies the CU-UP about a new BC Bearer Context Setup Request.
   /// \param[in] request The received BC Bearer Context Setup Request.
-  /// \returns The MBS index for the new E1AP MBS Session.
-  virtual mbs_index_t on_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& request) = 0;
+  /// \returns The Broadcast MBS Session Setup result of the new E1AP MBS Session, including the MBS index.
+  virtual mbs_broadcast_session_setup_result
+  on_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& request) = 0;
 
   /// \brief Schedules async task on UE.
   virtual void on_schedule_ue_async_task(srs_cu_up::ue_index_t ue_index, async_task<void> task) = 0;

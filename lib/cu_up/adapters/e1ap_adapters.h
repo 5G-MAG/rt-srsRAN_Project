@@ -71,7 +71,8 @@ public:
     return cu_up_handler->handle_bearer_context_release_command(msg);
   }
 
-  mbs_index_t on_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& request) override
+  mbs_broadcast_session_setup_result
+  on_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& request) override
   {
     if (cu_up_handler == nullptr) {
       logger.warning("Could not handle BC Bearer Context Setup command, no CU-UP handler present");

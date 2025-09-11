@@ -30,8 +30,9 @@ using namespace asn1::e1ap;
 bc_bearer_context_setup_procedure::bc_bearer_context_setup_procedure(const e1ap_bc_bearer_context_setup_request& request_,
                                                                      e1ap_mbs_session_context&                   mbs_session_ctxt_,
                                                                      e1ap_message_notifier&                      pdu_notifier_,
+                                                                     mbs_broadcast_session_setup_result&         broadcast_session_setup_result_,
                                                                      srslog::basic_logger&                       logger_) :
-request(request_), mbs_session_ctxt(mbs_session_ctxt_), pdu_notifier(pdu_notifier_), logger(logger_)
+request(request_), mbs_session_ctxt(mbs_session_ctxt_), pdu_notifier(pdu_notifier_), broadcast_session_setup_result(broadcast_session_setup_result_), logger(logger_)
 {
 }
 
@@ -40,8 +41,6 @@ void bc_bearer_context_setup_procedure::operator()(coro_context<async_task<void>
   CORO_BEGIN(ctx);
 
   logger.debug("\"{}\" initialized", name());
-
-  // TODO (borieher): Perform Multicast join here with the E1AP information
 
   // Process the E1AP BC Bearer Context Setup Request and create the E1AP BC Bearer Context Setup Response
   fill_e1ap_bc_bearer_context_setup_response();
@@ -63,84 +62,124 @@ bool bc_bearer_context_setup_procedure::fill_e1ap_bc_bearer_context_setup_respon
   // Fill BC Bearer Context To Setup Response (M).
   // NOTE (borieher): BC Bearer Context NG-U TNL Info at NG-RAN (O) not being used.
 
-  // Fill BC MRB Setup Response List <1..maxnoofMRBs>.
-  for (const auto& bc_mrb_to_setup_item : request.bc_bearer_context_to_setup.bc_mrb_to_setup_list) {
-    e1ap_bc_mrb_setup_response_item bc_mrb_setup_response_item;
+  // Fill BC MRB Setup Response List <1..maxnoofMRBs> and BC MRB Failed List <0..maxnoofMRBs>.
+  for (const auto& mrb_setup_result_item : broadcast_session_setup_result.mrb_setup_results) {
+    // Fill BC MRB Setup Response List <1..maxnoofMRBs>.
+    if (mrb_setup_result_item.success) {
+      e1ap_bc_mrb_setup_response_item bc_mrb_setup_response_item;
 
-    // Fill MRB ID (M).
-    bc_mrb_setup_response_item.mrb_id = bc_mrb_to_setup_item.mrb_id;
+      // Fill MRB ID (M).
+      bc_mrb_setup_response_item.mrb_id = mrb_setup_result_item.mrb_id;
 
-    // Fill MBS QoS Flow Setup List (M).
-    for (const auto& bc_mrb_to_setup_qos_flows_info_item : bc_mrb_to_setup_item.mbs_qos_flow_info_to_be_setup) {
-      e1ap_qos_flow_item mbs_qos_flow_setup_item;
+      // Fill MBS QoS Flow Setup List (M) and MBS QoS Flow Failed List (O).
+      for (const auto& mrb_qos_flow_item : mrb_setup_result_item.mbs_qos_flow_results) {
+        // Fill MBS QoS Flow Setup List (M).
+        if (mrb_qos_flow_item.success) {
+          e1ap_qos_flow_item mbs_qos_flow_setup_item;
 
-      // Fill QoS Flow Identifier (M).
-      mbs_qos_flow_setup_item.qos_flow_id = bc_mrb_to_setup_qos_flows_info_item.qos_flow_id;
+          // Fill QoS Flow Identifier (M).
+          mbs_qos_flow_setup_item.qos_flow_id = mrb_qos_flow_item.qos_flow_id;
 
-      bc_mrb_setup_response_item.mbs_qos_flow_setup_list.push_back(mbs_qos_flow_setup_item);
-    }
+          bc_mrb_setup_response_item.mbs_qos_flow_setup_list.push_back(mbs_qos_flow_setup_item);
 
-    // TODO (borieher): Fill MBS QoS Flow Failed List (O).
-
-    // NOTE (borieher): Right now filling BC Bearer Context F1-U TNL Info at CU (M) with the last value.
-    // Fill BC Bearer Context F1-U TNL Info at CU (M).
-    // Fill F1-U TNL Info Added List <0..1>.
-    if (!bc_mrb_to_setup_item.f1u_tnl_info_to_add_list.empty()) {
-      for (const auto& f1u_tnl_info_to_add_item : bc_mrb_to_setup_item.f1u_tnl_info_to_add_list) {
-        e1ap_f1u_tnl_info_added_item f1u_tnl_info_added_item;
-
-        f1u_tnl_info_added_item.bc_f1u_context_reference_e1 = f1u_tnl_info_to_add_item;
-
-        // NOTE (borieher): Extracting the information from the BC Bearer Context NG-U TNL Info at 5GC (O)
-        if (request.bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_info_at_5gc.has_value()) {
-          // Parse location dependent from request
-          if (request.bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_info_at_5gc.value().is_locationdependent()) {
-            e1ap_bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent locationdependent = {};
-
-            for (const auto& locationdependent_item : request.bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_info_at_5gc.value()
-                .get_locationdependent().location_dependent_mbs_ngu_info_at_5gc) {
-              e1ap_bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item;
-
-              bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item.mbs_area_session_id = locationdependent_item.mbs_area_session_id;
-
-              // TODO (borieher): Remove hardcoded values
-              up_transport_layer_info mbs_f1u_information_at_cu;
-              mbs_f1u_information_at_cu.tp_address = transport_layer_address::create_from_string("1.1.1.1");
-              mbs_f1u_information_at_cu.gtp_teid = int_to_gtpu_teid(1111);
-
-              bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item.mbs_f1u_information_at_cu = mbs_f1u_information_at_cu;
-
-              locationdependent.location_dependent_mbs_f1u_information_at_cu.push_back(bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item);
-            }
-
-            f1u_tnl_info_added_item.bc_bearer_context_f1u_tnl_info_at_cu = locationdependent;
-
-          // Parse location independent from request
-          } else {
-            e1ap_bc_bearer_ctxt_f1u_tnl_at_cu_location_independent locationindependent = {};
-
-            // TODO (borieher): Remove hardcoded values
-            up_transport_layer_info mbs_f1u_information_at_cu;
-            mbs_f1u_information_at_cu.tp_address = transport_layer_address::create_from_string("1.1.1.1");
-            mbs_f1u_information_at_cu.gtp_teid = int_to_gtpu_teid(1111);
-
-            locationindependent.mbs_f1u_information_at_cu = mbs_f1u_information_at_cu;
-
-            f1u_tnl_info_added_item.bc_bearer_context_f1u_tnl_info_at_cu = locationindependent;
+        // Fill MBS QoS Flow Failed List (O).
+        } else if (!mrb_qos_flow_item.success) {
+          // Initialize MBS QoS Flow Failed List (O) if not already done
+          if (!bc_mrb_setup_response_item.mbs_qos_flow_failed_list.has_value()) {
+            bc_mrb_setup_response_item.mbs_qos_flow_failed_list.emplace();
           }
+          e1ap_qos_flow_failed_item mbs_qos_flow_failed_item;
+
+          // Fill QoS Flow Identifier (M).
+          mbs_qos_flow_failed_item.qos_flow_id = mrb_qos_flow_item.qos_flow_id;
+
+          // Fill Cause (M).
+          mbs_qos_flow_failed_item.cause = mrb_qos_flow_item.cause;
+
+          bc_mrb_setup_response_item.mbs_qos_flow_failed_list->push_back(mbs_qos_flow_failed_item);
         }
-
-        bc_mrb_setup_response_item.f1u_tnl_info_added_list.push_back(f1u_tnl_info_added_item);
-
-        // NOTE (borieher): Hack to fill the BC Bearer Context F1-U TNL Info at CU (M).
-        bc_mrb_setup_response_item.bc_bearer_context_f1u_tnl_info_at_cu = f1u_tnl_info_added_item.bc_bearer_context_f1u_tnl_info_at_cu;
       }
+
+      // NOTE (borieher): Right now filling BC Bearer Context F1-U TNL Info at CU (M) with the last value.
+      // Fill BC Bearer Context F1-U TNL Info at CU (M) and F1-U TNL Info Added List <0..1>.
+      // NOTE (borieher): Iterating over the request to find the matching MRB to setup item and extracting needed IEs.
+      for (const auto& bc_mrb_to_setup_item : request.bc_bearer_context_to_setup.bc_mrb_to_setup_list) {
+        // Check if the MRB IDs match
+        if (bc_mrb_to_setup_item.mrb_id == mrb_setup_result_item.mrb_id) {
+          // Fill F1-U TNL Info Added List <0..1>.
+          if (!bc_mrb_to_setup_item.f1u_tnl_info_to_add_list.empty()) {
+            for (const auto& f1u_tnl_info_to_add_item : bc_mrb_to_setup_item.f1u_tnl_info_to_add_list) {
+              e1ap_f1u_tnl_info_added_item f1u_tnl_info_added_item;
+
+              f1u_tnl_info_added_item.bc_f1u_context_reference_e1 = f1u_tnl_info_to_add_item;
+
+              // NOTE (borieher): Extracting the information from the BC Bearer Context NG-U TNL Info at 5GC (O)
+              if (request.bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_info_at_5gc.has_value()) {
+                // Parse location dependent from request
+                if (request.bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_info_at_5gc.value().is_locationdependent()) {
+                  e1ap_bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent locationdependent = {};
+
+                  for (const auto& locationdependent_item : request.bc_bearer_context_to_setup.bc_bearer_context_ngu_tnl_info_at_5gc.value()
+                        .get_locationdependent().location_dependent_mbs_ngu_info_at_5gc) {
+                    e1ap_bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item;
+
+                    bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item.mbs_area_session_id = locationdependent_item.mbs_area_session_id;
+
+                    up_transport_layer_info mbs_f1u_information_at_cu;
+                    mbs_f1u_information_at_cu.tp_address =
+                        transport_layer_address::create_from_string(mrb_setup_result_item.gtp_tunnel.tp_address.to_string());
+                    mbs_f1u_information_at_cu.gtp_teid =
+                        int_to_gtpu_teid(mrb_setup_result_item.gtp_tunnel.gtp_teid.value());
+                    bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item.mbs_f1u_information_at_cu = mbs_f1u_information_at_cu;
+
+                    locationdependent.location_dependent_mbs_f1u_information_at_cu.push_back(bc_bearer_ctxt_f1u_tnl_at_cu_location_dependent_item);
+                  }
+
+                  f1u_tnl_info_added_item.bc_bearer_context_f1u_tnl_info_at_cu = locationdependent;
+
+                // Parse location independent from request
+                } else {
+                  e1ap_bc_bearer_ctxt_f1u_tnl_at_cu_location_independent locationindependent = {};
+
+                  up_transport_layer_info mbs_f1u_information_at_cu;
+                  mbs_f1u_information_at_cu.tp_address =
+                      transport_layer_address::create_from_string(mrb_setup_result_item.gtp_tunnel.tp_address.to_string());
+                  mbs_f1u_information_at_cu.gtp_teid =
+                      int_to_gtpu_teid(mrb_setup_result_item.gtp_tunnel.gtp_teid.value());
+
+                  locationindependent.mbs_f1u_information_at_cu = mbs_f1u_information_at_cu;
+
+                  f1u_tnl_info_added_item.bc_bearer_context_f1u_tnl_info_at_cu = locationindependent;
+                }
+              }
+
+              bc_mrb_setup_response_item.f1u_tnl_info_added_list.push_back(f1u_tnl_info_added_item);
+
+              // NOTE (borieher): Hack to fill the BC Bearer Context F1-U TNL Info at CU (M) copying the last item.
+              bc_mrb_setup_response_item.bc_bearer_context_f1u_tnl_info_at_cu = f1u_tnl_info_added_item.bc_bearer_context_f1u_tnl_info_at_cu;
+            }
+          }
+        // MRB IDs do not match
+        } else if (bc_mrb_to_setup_item.mrb_id != mrb_setup_result_item.mrb_id) {
+          continue;
+        }
+      }
+
+      response.bc_bearer_context_to_setup_response.bc_mrb_setup_response_list.push_back(bc_mrb_setup_response_item);
+
+    // Fill BC MRB Failed List <0..maxnoofMRBs>.
+    } else if (!mrb_setup_result_item.success) {
+      e1ap_bc_mrb_failed_item bc_mrb_failed_item;
+
+      // Fill MRB ID (M).
+      bc_mrb_failed_item.mrb_id = mrb_setup_result_item.mrb_id;
+
+      // Fill Cause (M).
+      bc_mrb_failed_item.cause = mrb_setup_result_item.cause;
+
+      response.bc_bearer_context_to_setup_response.bc_mrb_failed_list.push_back(bc_mrb_failed_item);
     }
-
-    response.bc_bearer_context_to_setup_response.bc_mrb_setup_response_list.push_back(bc_mrb_setup_response_item);
   }
-
-  // TODO (borieher): Fill BC MRB Failed List <0..maxnoofMRBs>.
 
   // Fill Available BC MRB Configuration (O).
   // NOTE (borieher): Not being used for now, to simplify.
