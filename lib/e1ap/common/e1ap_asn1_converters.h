@@ -1681,4 +1681,84 @@ inline e1ap_bc_bearer_context_f1u_tnl_info_at_cu asn1_to_bc_bearer_context_f1u_t
   return bc_bearer_context_f1u_tnl_info_at_cu;
 }
 
+/// \brief Convert \c e1ap_bc_bearer_context_f1u_tnl_info_at_du type to E1AP ASN.1 BC Bearer Context F1-U TNL Info at DU.
+/// \param bc_bearer_context_f1u_tnl_info_at_du The e1ap_bc_bearer_context_f1u_tnl_info_at_du type.
+/// \return The E1AP ASN.1 BC Bearer Context F1-U TNL Info at DU.
+inline asn1::e1ap::bc_bearer_context_f1_u_tnl_infoat_du_c bc_bearer_context_f1u_tnl_info_at_du_to_asn1(e1ap_bc_bearer_context_f1u_tnl_info_at_du bc_bearer_context_f1u_tnl_info_at_du)
+{
+  asn1::e1ap::bc_bearer_context_f1_u_tnl_infoat_du_c asn1_bc_bearer_context_f1u_tnl_info_at_du;
+
+  // Fill location dependent
+  if (bc_bearer_context_f1u_tnl_info_at_du.is_locationdependent()) {
+    asn1_bc_bearer_context_f1u_tnl_info_at_du.set_locationdependent();
+    for (const auto& locationdependent_item : bc_bearer_context_f1u_tnl_info_at_du.get_locationdependent().location_dependent_mbs_f1u_information_at_du) {
+      asn1::e1ap::location_dependent_mbsf1_u_info_at_du_item_s asn1_locationdependent_item;
+
+      // Fill MBS Area Session ID (M).
+      asn1_locationdependent_item.mbs_area_session_id = area_session_id_to_uint(locationdependent_item.mbs_area_session_id);
+
+      // Fill MBS F1-U Information at DU (M).
+      // NOTE (borieher): GTP Tunnel is the only option in the spec
+      up_transport_layer_info_to_asn1(asn1_locationdependent_item.mbs_f1u_info_at_du, locationdependent_item.mbs_f1u_information_at_du);
+
+      asn1_bc_bearer_context_f1u_tnl_info_at_du.locationdependent().push_back(asn1_locationdependent_item);
+    }
+  // Fill location independent
+  } else {
+    auto& asn1_locationindependent = asn1_bc_bearer_context_f1u_tnl_info_at_du.set_locationindependent();
+    const auto& locationindependent = bc_bearer_context_f1u_tnl_info_at_du.get_locationindependent();
+
+    // Fill MBS F1-U Information at DU (M).
+    // NOTE (borieher): GTP Tunnel is the only option in the spec
+    up_transport_layer_info_to_asn1(asn1_locationindependent.mbs_f1u_info_at_du, locationindependent.mbs_f1u_information_at_du);
+  }
+
+  return asn1_bc_bearer_context_f1u_tnl_info_at_du;
+}
+
+/// \brief Converts E1AP ASN.1 type to an \c e1ap_bc_bearer_context_f1u_tnl_info_at_du type.
+/// \param asn1_bc_bearer_context_f1u_tnl_info_at_du E1AP ASN.1 object.
+/// \return The e1ap_bc_bearer_context_f1u_tnl_info_at_du object where the result of the conversion is stored.
+inline e1ap_bc_bearer_context_f1u_tnl_info_at_du asn1_to_bc_bearer_context_f1u_tnl_info_at_du(asn1::e1ap::bc_bearer_context_f1_u_tnl_infoat_du_c asn1_bc_bearer_context_f1u_tnl_info_at_du)
+{
+  // Fill BC Bearer Context F1-U TNL Info at DU (M).
+  e1ap_bc_bearer_context_f1u_tnl_info_at_du bc_bearer_context_f1u_tnl_info_at_du;
+
+  // Fill location dependent
+  if (asn1_bc_bearer_context_f1u_tnl_info_at_du.type() ==
+      asn1::e1ap::bc_bearer_context_f1_u_tnl_infoat_du_c::types::locationdependent) {
+    const auto& asn1_locationdependent = asn1_bc_bearer_context_f1u_tnl_info_at_du.locationdependent();
+    e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_dependent locationdependent = {};
+
+    for (const auto& asn1_locationdependent_item : asn1_locationdependent) {
+      e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_dependent_item locationdependent_item;
+
+      // Fill MBS Area Session ID (M).
+      locationdependent_item.mbs_area_session_id = uint_to_area_session_id(asn1_locationdependent_item.mbs_area_session_id);
+
+      // Fill MBS F1-U Information at DU (M).
+      locationdependent_item.mbs_f1u_information_at_du =
+          asn1_to_up_transport_layer_info(asn1_locationdependent_item.mbs_f1u_info_at_du);
+
+      locationdependent.location_dependent_mbs_f1u_information_at_du.push_back(locationdependent_item);
+
+      bc_bearer_context_f1u_tnl_info_at_du = e1ap_bc_bearer_context_f1u_tnl_info_at_du{locationdependent};
+    }
+
+  // Fill location independent
+  } else if (asn1_bc_bearer_context_f1u_tnl_info_at_du.type() ==
+             asn1::e1ap::bc_bearer_context_f1_u_tnl_infoat_du_c::types::locationindependent) {
+    const auto& asn1_locationindependent = asn1_bc_bearer_context_f1u_tnl_info_at_du.set_locationindependent();
+    e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_independent locationindependent = {};
+
+    // Fill MBS F1-U Information at DU (M).
+    locationindependent.mbs_f1u_information_at_du =
+      asn1_to_up_transport_layer_info(asn1_locationindependent.mbs_f1u_info_at_du);
+
+    bc_bearer_context_f1u_tnl_info_at_du = e1ap_bc_bearer_context_f1u_tnl_info_at_du{locationindependent};
+  }
+
+  return bc_bearer_context_f1u_tnl_info_at_du;
+}
+
 } // namespace srsran
