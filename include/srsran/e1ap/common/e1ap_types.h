@@ -510,6 +510,53 @@ struct e1ap_f1u_tnl_info_added_item {
   e1ap_bc_bearer_context_f1u_tnl_info_at_cu bc_bearer_context_f1u_tnl_info_at_cu;
 };
 
+struct e1ap_f1u_tnl_info_added_or_modified_item {
+  //bc_f1u_context_reference_e1 (M)
+  e1ap_bc_f1u_context_reference_e1 bc_f1u_context_reference_e1;
+  //bc_bearer_context_f1u_tnl_info_at_cu (O)
+  std::optional<e1ap_bc_bearer_context_f1u_tnl_info_at_cu> bc_bearer_context_f1u_tnl_info_at_cu;
+};
+
+struct e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_dependent_item {
+  //mbs_area_session_id (M)
+  area_session_id_t mbs_area_session_id;
+  //mbs_f1u_information_at_du (M)
+  up_transport_layer_info mbs_f1u_information_at_du;
+};
+
+struct e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_independent {
+  //mbs_f1u_information_at_du (M)
+  up_transport_layer_info mbs_f1u_information_at_du;
+};
+
+struct e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_dependent {
+  //location_dependent_mbs_f1u_information_at_du (1..maxnoofMBSAreaSessionIDs)
+  std::vector<e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_dependent_item> location_dependent_mbs_f1u_information_at_du;
+};
+
+/// \brief BC Bearer Context F1-U TNL Info at DU.
+/// \remark See TS 37.483, 9.3.1.119 - BC Bearer Context F1-U TNL Info at DU.
+struct e1ap_bc_bearer_context_f1u_tnl_info_at_du {
+  e1ap_bc_bearer_context_f1u_tnl_info_at_du() : choice(e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_dependent{}) {}
+  e1ap_bc_bearer_context_f1u_tnl_info_at_du(const e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_independent& val) : choice(val) {}
+  e1ap_bc_bearer_context_f1u_tnl_info_at_du(const e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_dependent& val) : choice(val) {}
+
+  bool is_locationdependent() const { return std::holds_alternative<e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_dependent>(choice); }
+
+  e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_independent get_locationindependent() { return std::get<e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_independent>(choice); }
+  e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_dependent get_locationdependent() { return std::get<e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_dependent>(choice); }
+
+private:
+  std::variant<e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_independent, e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_dependent> choice;
+};
+
+struct e1ap_f1u_tnl_info_to_add_or_modify_item {
+  //bc_f1u_context_reference_e1 (M)
+  e1ap_bc_f1u_context_reference_e1 bc_f1u_context_reference_e1;
+  //bc_bearer_context_f1u_tnl_info_at_du (O)
+  std::optional<e1ap_bc_bearer_context_f1u_tnl_info_at_du> bc_bearer_context_f1u_tnl_info_at_du;
+};
+
 struct e1ap_bc_mrb_setup_response_item {
   //mrb_id (M)
   mrb_id_t mrb_id = mrb_id_t::invalid;
@@ -577,6 +624,65 @@ struct e1ap_bc_bearer_context_to_setup_response {
   std::optional<e1ap_bc_bearer_context_ngu_tnl_info_at_ng_ran> bc_bearer_context_ngu_tnl_info_at_ng_ran;
   //bc_mrb_setup_response_list (1..maxnoofMRBs)
   std::vector<e1ap_bc_mrb_setup_response_item> bc_mrb_setup_response_list;
+  //bc_mrb_failed_list (0..maxnoofMRBs)
+  std::vector<e1ap_bc_mrb_failed_item> bc_mrb_failed_list;
+  //available_bc_mrb_configuration (O)
+  std::optional<std::vector<e1ap_bc_mrb_setup_config>> available_bc_mrb_configuration;
+};
+
+struct e1ap_bc_mrb_to_modify_item {
+  //mrb_id (M)
+  mrb_id_t mrb_id = mrb_id_t::invalid;
+  //bc_bearer_context_f1u_tnl_info_at_du (O)
+  std::optional<e1ap_bc_bearer_context_f1u_tnl_info_at_du> bc_bearer_context_f1u_tnl_info_at_du;
+  //mbs_pdcp_configuration (O)
+  std::optional<e1ap_pdcp_config> mbs_pdcp_cfg;
+  //mbs_qos_flows_information_to_be_setup (O)
+  std::optional<std::vector<e1ap_qos_flow_qos_param_item>> mbs_qos_flow_info_to_be_setup;
+  //mrb_qos (O)
+  std::optional<e1ap_qos_flow_level_qos_params> mrb_qos;
+  //f1u_tnl_info_to_add_or_modify_list (0..1)
+  std::vector<e1ap_f1u_tnl_info_to_add_or_modify_item> f1u_tnl_info_to_add_or_modify_list;
+  //f1u_tnl_info_to_release_list (0..1)
+  std::vector<e1ap_bc_f1u_context_reference_e1> f1u_tnl_info_to_release_list;
+};
+
+struct e1ap_bc_mrb_to_remove_item {
+  //mrb_id (M)
+  mrb_id_t mrb_id = mrb_id_t::invalid;
+};
+
+/// See TS 37.483 Section 9.3.3.28: BC Bearer Context To Modify
+struct e1ap_bc_bearer_context_to_modify {
+  //bc_bearer_context_ngu_tnl_info_at_5gc_to_setup_or_modify (O)
+  std::optional<e1ap_bc_bearer_context_ngu_tnl_info_at_5gc> bc_bearer_context_ngu_tnl_info_at_5gc_to_setup_or_modify;
+  //bc_mrb_to_setup_list (O)
+  std::optional<std::vector<e1ap_bc_mrb_setup_config>> bc_mrb_to_setup_list;
+  //bc_mrb_to_modify_list (0..maxnoofMRBs)
+  std::vector<e1ap_bc_mrb_to_modify_item> bc_mrb_to_modify_list;
+  //bc_mrb_to_remove_list (0..maxnoofMRBs)
+  std::vector<e1ap_bc_mrb_to_remove_item> bc_mrb_to_remove_list;
+};
+
+struct e1ap_bc_mrb_setup_or_modify_response_item {
+  //mrb_id (M)
+  mrb_id_t mrb_id = mrb_id_t::invalid;
+  //mbs_qos_flow_setup_list (O)
+  std::optional<std::vector<e1ap_qos_flow_item>> mbs_qos_flow_setup_list;
+  //mbs_qos_flow_failed_list (O)
+  std::optional<std::vector<e1ap_qos_flow_failed_item>> mbs_qos_flow_failed_list;
+  //bc_bearer_context_f1u_tnl_info_at_cu (M)
+  e1ap_bc_bearer_context_f1u_tnl_info_at_cu bc_bearer_context_f1u_tnl_info_at_cu;
+  //f1u_tnl_info_added_or_modified_list (0..1)
+  std::vector<e1ap_f1u_tnl_info_added_or_modified_item> f1u_tnl_info_added_or_modified_list;
+};
+
+/// See TS 37.483 Section 9.3.3.29: BC Bearer Context To Modify Response
+struct e1ap_bc_bearer_context_to_modify_response {
+  //bc_bearer_context_ngu_tnl_info_at_ng_ran (O)
+  std::optional<e1ap_bc_bearer_context_ngu_tnl_info_at_ng_ran> bc_bearer_context_ngu_tnl_info_at_ng_ran;
+  //bc_mrb_setup_or_modify_response_list (1..maxnoofMRBs)
+  std::vector<e1ap_bc_mrb_setup_or_modify_response_item> bc_mrb_setup_or_modify_response_list;
   //bc_mrb_failed_list (0..maxnoofMRBs)
   std::vector<e1ap_bc_mrb_failed_item> bc_mrb_failed_list;
   //available_bc_mrb_configuration (O)
