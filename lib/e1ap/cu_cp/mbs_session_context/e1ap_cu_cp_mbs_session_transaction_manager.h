@@ -35,18 +35,24 @@ class e1ap_cu_cp_mbs_session_transaction_manager
 {
 public:
   e1ap_cu_cp_mbs_session_transaction_manager(timer_factory timers) :
-  bc_bearer_context_setup_outcome(timers)
+  bc_bearer_context_setup_outcome(timers),
+  bc_bearer_context_modification_outcome(timers)
   {
   }
 
   void cancel_all()
   {
     bc_bearer_context_setup_outcome.stop();
+    bc_bearer_context_modification_outcome.stop();
   }
 
   /// E1AP BC Bearer Context Setup Response/Failure Event Source.
   protocol_transaction_event_source<asn1::e1ap::bc_bearer_context_setup_resp_s, asn1::e1ap::bc_bearer_context_setup_fail_s>
       bc_bearer_context_setup_outcome;
+
+  /// E1AP BC Bearer Context Modification Response/Failure Event Source.
+  protocol_transaction_event_source<asn1::e1ap::bc_bearer_context_mod_resp_s, asn1::e1ap::bc_bearer_context_mod_fail_s>
+      bc_bearer_context_modification_outcome;
 };
 
 } // namespace srs_cu_cp
