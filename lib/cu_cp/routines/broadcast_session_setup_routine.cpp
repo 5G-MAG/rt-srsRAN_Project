@@ -89,7 +89,7 @@ void broadcast_session_setup_routine::operator()(
       CORO_EARLY_RETURN(make_unexpected(fail_msg));
     } else {
       // NOTE (borieher): This shouldn't return the NGAP response yet
-      //resp_msg = handle_broadcast_context_setup_response(broadcast_context_setup_procedure_outcome.value());
+      resp_msg = handle_broadcast_context_setup_response(broadcast_context_setup_procedure_outcome.value());
 
       // NOTE (borieher): Working with the resp_msg created from the E1AP BC Bearer Context Setup Response for now
     }
@@ -97,9 +97,26 @@ void broadcast_session_setup_routine::operator()(
 
   // Prepare E1AP BC Bearer Context Modification Request and call E1AP notifier.
   {
+    if (!fill_e1ap_bc_bearer_context_modification_request(bc_bearer_context_modification_request)) {
+      logger.error("{}\" failed to fill E1AP BC Bearer Context Modification Request", name());
+      CORO_EARLY_RETURN(make_unexpected(fail_msg));
+    }
+
     // TODO (borieher): Send E1AP BC Bearer Context Modification Request to each CU-UP involved
+    CORO_AWAIT_VALUE(bc_bearer_context_modification_procedure_outcome,
+        e1ap_mbs_session_ctxt_mng.handle_bc_bearer_context_modification_request(bc_bearer_context_modification_request));
 
     // Handle E1AP BC Bearer Context Modification Response/Failure
+    if (not bc_bearer_context_modification_procedure_outcome.has_value()) {
+      logger.error("\"{}\" failed to modify BC Bearer at CU-CP", name());
+      fail_msg = handle_bc_bearer_context_modification_failure(bc_bearer_context_modification_procedure_outcome.error());
+      CORO_EARLY_RETURN(make_unexpected(fail_msg));
+    } else {
+      // NOTE (borieher): This should return the NGAP response
+      resp_msg = handle_bc_bearer_context_modification_response(bc_bearer_context_modification_procedure_outcome.value());
+
+      // NOTE (borieher): Working with the resp_msg created from the E1AP BC Bearer Context Setup Response for now
+    }
   }
 
   logger.debug("\"{}\" setup broadcast bearer at CU-CP finished", name());
@@ -221,7 +238,8 @@ bool broadcast_session_setup_routine::fill_e1ap_bc_bearer_context_setup_request(
 
 
 ngap_broadcast_session_setup_response
-broadcast_session_setup_routine::handle_bc_bearer_context_setup_response(const e1ap_bc_bearer_context_setup_response& msg) {
+broadcast_session_setup_routine::handle_bc_bearer_context_setup_response(const e1ap_bc_bearer_context_setup_response& msg)
+{
   // Fill MBS Session ID (M).
   resp_msg.mbs_session_id = request.mbs_session_id;
 
@@ -233,7 +251,8 @@ broadcast_session_setup_routine::handle_bc_bearer_context_setup_response(const e
 }
 
 ngap_broadcast_session_setup_failure
-broadcast_session_setup_routine::handle_bc_bearer_context_setup_failure(const e1ap_bc_bearer_context_setup_failure& msg) {
+broadcast_session_setup_routine::handle_bc_bearer_context_setup_failure(const e1ap_bc_bearer_context_setup_failure& msg)
+{
   // Fill MBS Session ID (M).
   fail_msg.mbs_session_id = request.mbs_session_id;
 
@@ -479,12 +498,107 @@ bool broadcast_session_setup_routine::fill_f1ap_broadcast_context_setup_request(
 }
 
 ngap_broadcast_session_setup_response
-broadcast_session_setup_routine::handle_broadcast_context_setup_response(const f1ap_broadcast_context_setup_response& msg){
+broadcast_session_setup_routine::handle_broadcast_context_setup_response(const f1ap_broadcast_context_setup_response& msg)
+{
   return resp_msg;
 }
 
 ngap_broadcast_session_setup_failure
-broadcast_session_setup_routine::handle_broadcast_context_setup_failure(const f1ap_broadcast_context_setup_failure& msg){
+broadcast_session_setup_routine::handle_broadcast_context_setup_failure(const f1ap_broadcast_context_setup_failure& msg)
+{
+  return fail_msg;
+}
+
+bool broadcast_session_setup_routine::fill_e1ap_bc_bearer_context_modification_request(
+    e1ap_bc_bearer_context_modification_request& e1ap_request){
+
+  // Fill gNB-CU-CP MBS E1AP ID (M).
+  e1ap_request.gnb_cu_cp_mbs_e1ap_id = bc_bearer_context_setup_request.gnb_cu_cp_mbs_e1ap_id;
+
+  // Fill gNB-CU-UP MBS E1AP ID (M).
+  // Grab gNB-CU-UP MBS E1AP ID from the E1AP BC Bearer Context Setup Response
+  if (bc_bearer_context_setup_procedure_outcome.has_value()) {
+    e1ap_request.gnb_cu_up_mbs_e1ap_id = bc_bearer_context_setup_procedure_outcome.value().gnb_cu_up_mbs_e1ap_id;
+  }
+
+  // Fill BC Bearer Context To Modify (M).
+  // TODO (borieher): Fill BC Bearer Context NGU TNL Info at 5GC To Setup or Modify (O).
+
+  // TODO (borieher): Fill BC MRB To Setup List (O).
+  // NOTE (borieher): For now, no more MRBs to setup.
+
+  // Fill BC MRB To Modify List (0..maxnoofMRBs).
+  // NOTE (borieher): Modify the MRBs set up in the F1AP Broadcast Context Setup Response
+  if (broadcast_context_setup_procedure_outcome.has_value()) {
+    for (auto& broadcast_context_setup_item : broadcast_context_setup_procedure_outcome.value().broadcast_mrb_setup_list) {
+      e1ap_bc_mrb_to_modify_item mrb_to_modify_item;
+
+      // Fill MRB ID (M).
+      mrb_to_modify_item.mrb_id = broadcast_context_setup_item.mrb_id;
+
+      // Fill BC Bearer Context F1-U TNL Info at DU (O).
+      // NOTE (borieher): Grab this from the F1AP Broadcast Context Setup Response
+      // Parse location dependent
+      if (broadcast_context_setup_item.bc_bearer_context_f1u_tnl_info_at_du.is_locationdependent()) {
+        e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_dependent locationdependent;
+
+        for (const auto& locationdependent_item : broadcast_context_setup_item.bc_bearer_context_f1u_tnl_info_at_du
+            .get_locationdependent().location_dependent_mbs_f1u_information) {
+          e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_dependent_item e1ap_locationdependent_item;
+
+          e1ap_locationdependent_item.mbs_area_session_id = locationdependent_item.mbs_area_session_id;
+
+          e1ap_locationdependent_item.mbs_f1u_information_at_du = locationdependent_item.mbs_f1u_information;
+
+          locationdependent.location_dependent_mbs_f1u_information_at_du.push_back(e1ap_locationdependent_item);
+        }
+
+        mrb_to_modify_item.bc_bearer_context_f1u_tnl_info_at_du.emplace(locationdependent);
+
+      // Parse location independent
+      } else {
+        e1ap_bc_bearer_ctxt_f1u_tnl_at_du_location_independent e1ap_locationindependent;
+
+        const auto& locationdependent = broadcast_context_setup_item.bc_bearer_context_f1u_tnl_info_at_du
+          .get_locationindependent().mbs_f1u_information;
+
+        e1ap_locationindependent.mbs_f1u_information_at_du = locationdependent;
+
+        mrb_to_modify_item.bc_bearer_context_f1u_tnl_info_at_du.emplace(e1ap_locationindependent);
+      }
+
+      // Fill MBS PDCP Configuration (O).
+      // NOTE (borieher): For now, no MBS PDCP Configuration to modify.
+
+      // Fill MBS QoS Flows Information To Be Setup (O).
+      // NOTE (borieher): For now, no more QoS Flows to setup.
+
+      // Fill MRB QoS (O).
+      // NOTE (borieher): For now, no MRB QoS to modify.
+
+      // Fill F1-U TNL Info to Add or Modify List (0..1).
+      // NOTE (borieher): Not sure for now how to update this based on F1AP information
+
+      // TODO (borieher): Fill F1-U TNL Info to Release List (0..1).
+      // NOTE (borieher): For now, no F1-U TNL Info to release.
+    }
+  }
+
+  // TODO (borieher): Fill BC MRB To Remove List (0..maxnoofMRBs).
+  // NOTE (borieher): For now, no MRBs to remove.
+
+  return true;
+}
+
+ngap_broadcast_session_setup_response
+broadcast_session_setup_routine::handle_bc_bearer_context_modification_response(const e1ap_bc_bearer_context_modification_response& msg)
+{
+  return resp_msg;
+}
+
+ngap_broadcast_session_setup_failure
+broadcast_session_setup_routine::handle_bc_bearer_context_modification_failure(const e1ap_bc_bearer_context_modification_failure& msg) 
+{
   return fail_msg;
 }
 

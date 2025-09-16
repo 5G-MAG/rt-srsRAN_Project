@@ -61,6 +61,8 @@ public:
   // e1ap_mbs_session_context_manager functions
   virtual async_task<expected<e1ap_bc_bearer_context_setup_response, e1ap_bc_bearer_context_setup_failure>>
   handle_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& request) override;
+  virtual async_task<expected<e1ap_bc_bearer_context_modification_response, e1ap_bc_bearer_context_modification_failure>>
+  handle_bc_bearer_context_modification_request(e1ap_bc_bearer_context_modification_request& request) override;
 
   // e1ap_message_handler functions
   void handle_message(const e1ap_message& msg) override;

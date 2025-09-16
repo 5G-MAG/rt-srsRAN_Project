@@ -105,6 +105,11 @@ private:
   /// \param[in] msg The BC Bearer Context Setup message.
   void handle_bc_bearer_context_setup_request(const asn1::e1ap::bc_bearer_context_setup_request_s& msg);
 
+  /// \brief Notify about the reception of a BC Bearer Context Modification Request message.
+  /// This starts the MBS Session context modification at the MBS manager and E1AP CU-UP.
+  /// \param[in] msg The BC Bearer Context Modification message.
+  void handle_bc_bearer_context_modification_request(const asn1::e1ap::bc_bearer_context_mod_request_s& msg);
+
   /// \brief Notify about the reception of an successful outcome.
   /// \param[in] msg The received successful outcome message.
   void handle_successful_outcome(const asn1::e1ap::successful_outcome_s& outcome);

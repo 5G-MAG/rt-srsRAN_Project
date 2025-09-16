@@ -27,6 +27,7 @@
 #include "srsran/e1ap/common/e1ap_common.h"
 #include "srsran/e1ap/cu_cp/e1ap_cu_cp_bearer_context_update.h"
 #include "srsran/e1ap/cu_cp/e1ap_cu_cp_bc_bearer_context_setup.h"
+#include "srsran/e1ap/cu_cp/e1ap_cu_cp_bc_bearer_context_modification.h"
 #include "srsran/support/async/async_task.h"
 
 namespace srsran {
@@ -80,6 +81,12 @@ public:
   /// \return The BC Bearer Context Setup Response or the BC Bearer Context Setup Failure.
   virtual async_task<expected<e1ap_bc_bearer_context_setup_response, e1ap_bc_bearer_context_setup_failure>>
   handle_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& request) = 0;
+
+  /// \brief Initiates the BC Bearer Context Modification procedure as per TS 37.483 section 8.6.1.2.
+  /// \param[in] request The BC Bearer Context Setup Modification message to transmit.
+  /// \return The BC Bearer Context Modification Response or the BC Bearer Context Modification Failure.
+  virtual async_task<expected<e1ap_bc_bearer_context_modification_response, e1ap_bc_bearer_context_modification_failure>>
+  handle_bc_bearer_context_modification_request(e1ap_bc_bearer_context_modification_request& request) = 0;
 };
 
 struct bearer_creation_complete_message {

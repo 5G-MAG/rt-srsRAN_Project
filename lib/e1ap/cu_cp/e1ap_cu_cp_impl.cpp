@@ -28,6 +28,7 @@
 #include "procedures/bearer_context_release_procedure.h"
 #include "procedures/bearer_context_setup_procedure.h"
 #include "procedures/bc_bearer_context_setup_procedure.h"
+#include "procedures/bc_bearer_context_modification_procedure.h"
 #include "srsran/asn1/e1ap/e1ap.h"
 #include "srsran/ran/cause/e1ap_cause.h"
 
@@ -234,6 +235,36 @@ e1ap_cu_cp_impl::handle_bc_bearer_context_setup_request(e1ap_bc_bearer_context_s
       e1ap_cfg, e1ap_msg, mbs_session_ctxt.mbs_session_ev_mng, mbs_session_ctxt_list, pdu_notifier, logger);
 }
 
+async_task<expected<e1ap_bc_bearer_context_modification_response, e1ap_bc_bearer_context_modification_failure>>
+e1ap_cu_cp_impl::handle_bc_bearer_context_modification_request(e1ap_bc_bearer_context_modification_request& request)
+{
+  if (!mbs_session_ctxt_list.contains(request.gnb_cu_cp_mbs_e1ap_id)) {
+    logger.warning("Dropping BC Bearer Context Modification Request. BC Bearer context does not exist");
+    return launch_async([](coro_context<async_task<expected<e1ap_bc_bearer_context_modification_response, e1ap_bc_bearer_context_modification_failure>>>& ctx) mutable {
+      CORO_BEGIN(ctx);
+      e1ap_bc_bearer_context_modification_failure fail{};
+      fail.cause   = cause_misc_t::unspecified;
+      CORO_RETURN(make_unexpected(fail));
+    });
+  }
+
+  // Get MBS Session context
+  e1ap_mbs_session_context& mbs_session_ctxt = mbs_session_ctxt_list[request.gnb_cu_cp_mbs_e1ap_id];
+
+  e1ap_message e1ap_msg;
+  e1ap_msg.pdu.set_init_msg();
+  e1ap_msg.pdu.init_msg().load_info_obj(ASN1_E1AP_ID_BC_BEARER_CONTEXT_MOD);
+
+  auto& bc_bearer_context_mod_request                  = e1ap_msg.pdu.init_msg().value.bc_bearer_context_mod_request();
+  bc_bearer_context_mod_request->gnb_cu_cp_mbs_e1ap_id = gnb_cu_cp_mbs_e1ap_id_to_uint(mbs_session_ctxt.mbs_ids.cu_cp_mbs_e1ap_id);
+  bc_bearer_context_mod_request->gnb_cu_up_mbs_e1ap_id = gnb_cu_up_mbs_e1ap_id_to_uint(mbs_session_ctxt.mbs_ids.cu_up_mbs_e1ap_id);
+
+  fill_asn1_bc_bearer_context_modification_request(bc_bearer_context_mod_request, request);
+
+  return launch_async<bc_bearer_context_modification_procedure>(
+      e1ap_cfg, e1ap_msg, mbs_session_ctxt.mbs_session_ev_mng, pdu_notifier, logger);
+}
+
 void e1ap_cu_cp_impl::handle_message(const e1ap_message& msg)
 {
   // Run E1AP protocols in Control executor.
@@ -396,6 +427,10 @@ void e1ap_cu_cp_impl::handle_successful_outcome(const asn1::e1ap::successful_out
       mbs_session_ctxt_list[*cu_mbs_id].mbs_session_ev_mng.bc_bearer_context_setup_outcome.set(
           outcome.value.bc_bearer_context_setup_resp());
     } break;
+    case successful_types::bc_bearer_context_mod_resp: {
+      mbs_session_ctxt_list[*cu_mbs_id].mbs_session_ev_mng.bc_bearer_context_modification_outcome.set(
+          outcome.value.bc_bearer_context_mod_resp());
+    } break;
     default:
       // Handle successful outcomes with transaction id
       std::optional<uint8_t> transaction_id = get_transaction_id(outcome);
@@ -444,6 +479,10 @@ void e1ap_cu_cp_impl::handle_unsuccessful_outcome(const asn1::e1ap::unsuccessful
     case unsuccessful_types::bc_bearer_context_setup_fail: {
       mbs_session_ctxt_list[*cu_mbs_id].mbs_session_ev_mng.bc_bearer_context_setup_outcome.set(
           outcome.value.bc_bearer_context_setup_fail());
+    } break;
+    case unsuccessful_types::bc_bearer_context_mod_fail: {
+      mbs_session_ctxt_list[*cu_mbs_id].mbs_session_ev_mng.bc_bearer_context_modification_outcome.set(
+          outcome.value.bc_bearer_context_mod_fail());
     } break;
     default:
       // Handle unsuccessful outcomes with transaction id

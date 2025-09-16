@@ -29,6 +29,7 @@
 #include "srsran/e1ap/common/e1ap_types.h"
 #include "srsran/e1ap/cu_up/e1ap_cu_up_bearer_context_update.h"
 #include "srsran/e1ap/cu_up/e1ap_cu_up_bc_bearer_context_setup.h"
+#include "srsran/e1ap/cu_up/e1ap_cu_up_bc_bearer_context_modification.h"
 #include "srsran/support/async/async_task.h"
 
 namespace srsran {

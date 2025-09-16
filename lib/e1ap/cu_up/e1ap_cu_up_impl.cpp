@@ -180,6 +180,9 @@ void e1ap_cu_up_impl::handle_initiating_message(const asn1::e1ap::init_msg_s& ms
     case asn1::e1ap::e1ap_elem_procs_o::init_msg_c::types_opts::options::bc_bearer_context_setup_request: {
       handle_bc_bearer_context_setup_request(msg.value.bc_bearer_context_setup_request());
     } break;
+    case asn1::e1ap::e1ap_elem_procs_o::init_msg_c::types_opts::options::bc_bearer_context_mod_request: {
+      handle_bc_bearer_context_modification_request(msg.value.bc_bearer_context_mod_request());
+    } break;
     default:
       logger.error("Initiating message of type {} is not supported", msg.value.type().to_string());
   }
@@ -372,6 +375,44 @@ void e1ap_cu_up_impl::handle_bc_bearer_context_setup_request(const asn1::e1ap::b
   // Start procedure from the MBS Session task scheduler
   cu_up_notifier.on_schedule_mbs_task(launch_async<bc_bearer_context_setup_procedure>(
     bc_bearer_context_setup_req, mbs_session_ctxt, *pdu_notifier, result, logger));
+}
+
+void e1ap_cu_up_impl::handle_bc_bearer_context_modification_request(const asn1::e1ap::bc_bearer_context_mod_request_s& msg)
+{
+  logger.info("Received BC Bearer Context Modification Request on the CU-UP");
+
+  // Convert to common type
+  e1ap_bc_bearer_context_modification_request bc_bearer_context_modification_req;
+  if (!fill_e1ap_bc_bearer_context_modification_request(bc_bearer_context_modification_req, msg)) {
+    logger.error("Conversion of BC Bearer Context Modification Request failed");
+    // Send response.
+    //pdu_notifier->on_new_message(e1ap_msg);
+    return;
+  }
+
+  // Check if E1AP MBS Session context already exists
+  if (!mbs_session_ctxt_list.contains(bc_bearer_context_modification_req.gnb_cu_cp_mbs_e1ap_id)) {
+    logger.warning("Dropping BC Bearer Context Session Modification Request. E1AP MBS Session context not available");
+    //send_error_indication(tx_pdu_notifier, logger, {}, {}, ngap_cause_radio_network_t::unspecified);
+    return;
+  }
+
+  //e1ap_mbs_session_context& mbs_session_ctxt = mbs_session_ctxt_list[bc_bearer_context_modification_req.gnb_cu_up_mbs_e1ap_id];
+
+  // TODO (borieher): Create failure message for early returns?
+
+  // cu_up_notifier.on_schedule_mbs_task(launch_async<bearer_context_modification_procedure>(
+  //   ue_ctxt, msg, *pdu_notifier, cu_up_notifier, metrics));
+
+  // NOTE (borieher): Create quick response here
+  e1ap_message e1ap_msg;
+  e1ap_msg.pdu.set_successful_outcome();
+  e1ap_msg.pdu.successful_outcome().load_info_obj(ASN1_E1AP_ID_BC_BEARER_CONTEXT_MOD);
+  e1ap_msg.pdu.successful_outcome().value.bc_bearer_context_mod_resp()->gnb_cu_cp_mbs_e1ap_id= msg->gnb_cu_cp_mbs_e1ap_id;
+  e1ap_msg.pdu.successful_outcome().value.bc_bearer_context_mod_resp()->gnb_cu_up_mbs_e1ap_id = msg->gnb_cu_up_mbs_e1ap_id;
+
+  // Send response.
+  pdu_notifier->on_new_message(e1ap_msg);
 }
 
 void e1ap_cu_up_impl::handle_successful_outcome(const asn1::e1ap::successful_outcome_s& outcome)

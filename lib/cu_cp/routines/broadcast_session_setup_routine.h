@@ -31,7 +31,7 @@
 namespace srsran {
 namespace srs_cu_cp {
 
-/// \brief Handles the setup of an MBS Broadcast Session.
+/// \brief Handles the setup of an MBS Broadcast Session as in 3GPP TS 38.401 section 8.15.1.1.
 class broadcast_session_setup_routine
 {
 public:
@@ -68,17 +68,27 @@ private:
   ngap_broadcast_session_setup_failure
   handle_broadcast_context_setup_failure(const f1ap_broadcast_context_setup_failure& msg);
 
+  bool fill_e1ap_bc_bearer_context_modification_request(e1ap_bc_bearer_context_modification_request& e1ap_request);
+
+  ngap_broadcast_session_setup_response
+  handle_bc_bearer_context_modification_response(const e1ap_bc_bearer_context_modification_response& msg);
+
+  ngap_broadcast_session_setup_failure
+  handle_bc_bearer_context_modification_failure(const e1ap_bc_bearer_context_modification_failure& msg);
+
   // RRC helpers
   byte_buffer get_packed_mtch_neighbour_cell_r17_ie();
   byte_buffer get_packed_mrb_pdcp_config_broadcast_r17_ie();
 
   // (sub-)routine requests
-  e1ap_bc_bearer_context_setup_request bc_bearer_context_setup_request;
-  f1ap_broadcast_context_setup_request broadcast_context_setup_request;
+  e1ap_bc_bearer_context_setup_request        bc_bearer_context_setup_request;
+  f1ap_broadcast_context_setup_request        broadcast_context_setup_request;
+  e1ap_bc_bearer_context_modification_request bc_bearer_context_modification_request;
 
   // (sub-)routine results
-  expected<e1ap_bc_bearer_context_setup_response, e1ap_bc_bearer_context_setup_failure> bc_bearer_context_setup_procedure_outcome;
-  expected<f1ap_broadcast_context_setup_response, f1ap_broadcast_context_setup_failure> broadcast_context_setup_procedure_outcome;
+  expected<e1ap_bc_bearer_context_setup_response, e1ap_bc_bearer_context_setup_failure>               bc_bearer_context_setup_procedure_outcome;
+  expected<f1ap_broadcast_context_setup_response, f1ap_broadcast_context_setup_failure>               broadcast_context_setup_procedure_outcome;
+  expected<e1ap_bc_bearer_context_modification_response, e1ap_bc_bearer_context_modification_failure> bc_bearer_context_modification_procedure_outcome;
 
   // final routine result
   ngap_broadcast_session_setup_response resp_msg;
