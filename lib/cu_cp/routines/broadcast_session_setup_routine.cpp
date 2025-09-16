@@ -30,10 +30,12 @@ using namespace srsran::srs_cu_cp;
 
 broadcast_session_setup_routine::broadcast_session_setup_routine(
     const ngap_broadcast_session_setup_request& request_,
+    mbs_session_manager&                        mbs_session_mng_,
     e1ap_mbs_session_context_manager&           e1ap_mbs_session_ctxt_mng_,
     f1ap_mbs_session_context_manager&           f1ap_mbs_session_ctxt_mng_,
     srslog::basic_logger&                       logger_) :
     request(request_),
+    mbs_session_mng(mbs_session_mng_),
     e1ap_mbs_session_ctxt_mng(e1ap_mbs_session_ctxt_mng_),
     f1ap_mbs_session_ctxt_mng(f1ap_mbs_session_ctxt_mng_),
     logger(logger_)
@@ -186,7 +188,8 @@ bool broadcast_session_setup_routine::fill_e1ap_bc_bearer_context_setup_request(
     // Fill MRB ID.
     // TODO: Remove this hardcoded MRB ID value
     // Check the QoS Flows and map them to available MRBs
-    bc_mrb_to_setup_item.mrb_id = mrb_id_t::mrb1;
+    //bc_mrb_to_setup_item.mrb_id = mrb_id_t::mrb1;
+    bc_mrb_to_setup_item.mrb_id = mbs_session_mng.get_next_mrb_id();
 
     // Fill MBS PDCP Configuration.
     // PDCP configuration extracted from 3GPP TS 38.331 clause 9.1.1.7 - MTCH configuration for MBS broadcast
@@ -597,7 +600,7 @@ broadcast_session_setup_routine::handle_bc_bearer_context_modification_response(
 }
 
 ngap_broadcast_session_setup_failure
-broadcast_session_setup_routine::handle_bc_bearer_context_modification_failure(const e1ap_bc_bearer_context_modification_failure& msg) 
+broadcast_session_setup_routine::handle_bc_bearer_context_modification_failure(const e1ap_bc_bearer_context_modification_failure& msg)
 {
   return fail_msg;
 }

@@ -85,8 +85,13 @@ public:
     return mbs_common_task_sched.schedule_async_task(std::move(task));
   }
 
+  /// \brief Get the next available MRB ID.
+  /// \return The MRB ID.
+  mrb_id_t get_next_mrb_id();
+
 protected:
   mbs_index_t next_mbs_index = mbs_index_t::min;
+  mrb_id_t    next_mrb_id    = mrb_id_t::mrb1;
 
 private:
   /// \brief Get the next available MBS index.
@@ -103,6 +108,17 @@ private:
       next_mbs_index = uint_to_mbs_index(mbs_index_to_uint(next_mbs_index) + 1);
     }
   }
+
+  inline void increase_next_mrb_id()
+  {
+    if (next_mrb_id == mrb_id_t::mrb512) {
+      logger.error("No more MRB IDs available");
+      next_mrb_id = mrb_id_t::invalid;
+    } else {
+      next_mrb_id = static_cast<mrb_id_t>(static_cast<int>(next_mrb_id) + 1);
+    }
+  }
+
   srslog::basic_logger& logger = srslog::fetch_basic_logger("CU-CP-MBSMNG");
   const unsigned        max_nof_mbs_sessions;
 

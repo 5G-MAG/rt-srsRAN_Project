@@ -879,6 +879,7 @@ async_task<expected<ngap_broadcast_session_setup_response, ngap_broadcast_sessio
 
   return launch_async<broadcast_session_setup_routine>(
       request,
+      mbs_session_mng,
       cu_up_db.find_cu_up_processor(uint_to_cu_up_index(0))->get_e1ap_mbs_session_context_manager(),
       du_db.get_du_processor(uint_to_du_index(0)).get_f1ap_handler(),
       logger);

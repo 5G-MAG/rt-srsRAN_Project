@@ -27,6 +27,7 @@
 #include "srsran/f1ap/cu_cp/f1ap_cu.h"
 #include "srsran/support/async/async_task.h"
 #include "srsran/adt/expected.h"
+#include "../mbs_session_manager/mbs_session_manager_impl.h"
 
 namespace srsran {
 namespace srs_cu_cp {
@@ -36,6 +37,7 @@ class broadcast_session_setup_routine
 {
 public:
   broadcast_session_setup_routine(const ngap_broadcast_session_setup_request& request_,
+                                  mbs_session_manager&                        mbs_session_mng_,
                                   e1ap_mbs_session_context_manager&           e1ap_mbs_session_ctxt_mng_,
                                   f1ap_mbs_session_context_manager&           f1ap_mbs_session_ctxt_mng_,
                                   srslog::basic_logger&                       logger_);
@@ -48,6 +50,7 @@ public:
 private:
   ngap_broadcast_session_setup_request request;
 
+  mbs_session_manager&                 mbs_session_mng;
   e1ap_mbs_session_context_manager&    e1ap_mbs_session_ctxt_mng;
   f1ap_mbs_session_context_manager&    f1ap_mbs_session_ctxt_mng;
   srslog::basic_logger&                logger;

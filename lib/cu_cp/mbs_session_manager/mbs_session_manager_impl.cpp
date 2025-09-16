@@ -135,6 +135,13 @@ mbs_index_t mbs_session_manager::add_mbs_session(mbs_session_id_t mbs_session_id
   return new_mbs_index;
 }
 
+mrb_id_t mbs_session_manager::get_next_mrb_id()
+{
+  mrb_id_t ret = next_mrb_id;
+  increase_next_mrb_id();
+  return ret;
+}
+
 // private functions
 
 mbs_index_t mbs_session_manager::allocate_mbs_index()
