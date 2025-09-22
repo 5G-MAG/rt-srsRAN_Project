@@ -31,8 +31,14 @@ using namespace asn1::f1ap;
 /// \brief Convert the Broadcast Context Setup Request from common type to ASN.1.
 /// \param[out] asn1_request The ASN.1 Broadcast Context Setup Request.
 /// \param[in] request The common type Broadcast Context Setup Request.
-static void fill_asn1_broadcast_context_setup_request(broadcast_context_setup_request_s&          asn1_request,
-                                                      f1ap_broadcast_context_setup_request&       request);
+static void fill_asn1_broadcast_context_setup_request(broadcast_context_setup_request_s&      asn1_request,
+                                                      f1ap_broadcast_context_setup_request&   request);
+
+/// \brief Convert the Broadcast Context Setup Response from ASN.1 to common type.
+/// \param[out] response  The common type Broadcast Context Setup Response.
+/// \param[in] asn1_response The ASN.1 Broadcast Context Setup Response.
+static void fill_f1ap_broadcast_context_setup_response(f1ap_broadcast_context_setup_response& response,
+                                                       const broadcast_context_setup_resp_s&  asn1_response);
 
 // ---- Broadcast Context Setup Procedure ----
 
@@ -118,13 +124,23 @@ expected<f1ap_broadcast_context_setup_response, f1ap_broadcast_context_setup_fai
   if (transaction_sink.successful()) {
     logger.info("Received Broadcast Context Setup Response on the CU");
     f1ap_broadcast_context_setup_response response;
-    response.gnb_cu_mbs_f1ap_id = mbs_session_ctxt->mbs_ids.cu_mbs_f1ap_id;
-    response.gnb_du_mbs_f1ap_id = mbs_session_ctxt->mbs_ids.du_mbs_f1ap_id.value();
+    const asn1::f1ap::broadcast_context_setup_resp_s& asn1_resp = transaction_sink.response();
+
+    fill_f1ap_broadcast_context_setup_response(response, asn1_resp);
+
+    logger.debug("\"{}\" finalized", name());
+
     return response;
   } else {
     logger.info("Received Broadcast Context Setup Failure on the CU");
     f1ap_broadcast_context_setup_failure failure;
+    //const asn1::f1ap::broadcast_context_setup_fail_s& asn1_fail = transaction_sink.failure();
+
+    //fill_f1ap_broadcast_context_setup_failure(failure, asn1_fail);
     failure.gnb_cu_mbs_f1ap_id = mbs_session_ctxt->mbs_ids.cu_mbs_f1ap_id;
+
+    logger.error("\"{}\" failed", name());
+
     return make_unexpected(failure);
   }
 }
@@ -257,3 +273,38 @@ static void fill_asn1_broadcast_context_setup_request(broadcast_context_setup_re
   // Fill Broadcast MRB To Be Setup List.
   asn1_request->broadcast_m_rbs_to_be_setup_list = make_broadcast_mrb_to_be_setup_list(request.broadcast_mrb_to_be_setup_list);
 }
+
+static void fill_f1ap_broadcast_context_setup_response(f1ap_broadcast_context_setup_response& response,
+                                                       const broadcast_context_setup_resp_s&  asn1_response)
+{
+  // Fill gNB-CU MBS F1AP ID (M).
+  response.gnb_cu_mbs_f1ap_id = uint_to_gnb_cu_mbs_f1ap_id(asn1_response->gnb_cu_mbs_f1ap_id);
+
+  // Fill gNB-DU MBS F1AP ID (M).
+  response.gnb_du_mbs_f1ap_id = uint_to_gnb_du_mbs_f1ap_id(asn1_response->gnb_du_mbs_f1ap_id);
+
+  // Fill Broadcast MRB Setup List (1).
+  for (const auto& asn1_mrb_setup_item_ies : asn1_response->broadcast_m_rbs_setup_list) {
+    auto& asn1_mrb_setup_item = asn1_mrb_setup_item_ies.value().broadcast_m_rbs_setup_item();
+
+    response.broadcast_mrb_setup_list.push_back(make_mrb_setup(asn1_mrb_setup_item));
+  }
+
+  // Fill Broadcast MRB Failed To Be Setup List (0..1).
+  if (asn1_response->broadcast_m_rbs_failed_to_be_setup_list_present) {
+    for (const auto& asn1_mrb_failed_to_be_setup_item_ies : asn1_response->broadcast_m_rbs_failed_to_be_setup_list) {
+      auto& asn1_mrb_failed_to_be_setup_item = asn1_mrb_failed_to_be_setup_item_ies.value().broadcast_m_rbs_failed_to_be_setup_item();
+      f1ap_broadcast_mrb_failed_to_be_setup_item mrb_failed_to_be_setup_item;
+
+      // Fill MRB ID (M).
+      mrb_failed_to_be_setup_item.mrb_id = uint_to_mrb_id(asn1_mrb_failed_to_be_setup_item.mrb_id);
+
+      // Fill Cause (O).
+      mrb_failed_to_be_setup_item.cause = asn1_to_cause(asn1_mrb_failed_to_be_setup_item.cause);
+    }
+  }
+
+  // TODO (borieher): Fill Broadcast Area Scope (O).
+  // TODO (borieher): Fill Criticality Diagnostics (O).
+}
+

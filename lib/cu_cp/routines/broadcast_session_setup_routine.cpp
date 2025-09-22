@@ -186,9 +186,6 @@ bool broadcast_session_setup_routine::fill_e1ap_bc_bearer_context_setup_request(
     e1ap_bc_mrb_setup_config bc_mrb_to_setup_item;
 
     // Fill MRB ID.
-    // TODO: Remove this hardcoded MRB ID value
-    // Check the QoS Flows and map them to available MRBs
-    //bc_mrb_to_setup_item.mrb_id = mrb_id_t::mrb1;
     bc_mrb_to_setup_item.mrb_id = mbs_session_mng.get_next_mrb_id();
 
     // Fill MBS PDCP Configuration.

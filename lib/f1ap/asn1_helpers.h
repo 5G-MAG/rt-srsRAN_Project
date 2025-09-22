@@ -105,5 +105,6 @@ f1ap_drb_failed_to_setupmod make_drb_failed_to_setupmod(const asn1::f1ap::drbs_f
 /// \brief Conversion helper between Broadcast MRB to be setup common type and respective ASN.1 TS 38.473 type.
 asn1::f1ap::broadcast_m_rbs_to_be_setup_list_l
 make_broadcast_mrb_to_be_setup_list(span<const f1ap_broadcast_mrb_to_be_setup_item> mrb_list);
+f1ap_broadcast_mrb_setup_item make_mrb_setup(const asn1::f1ap::broadcast_m_rbs_setup_item_s& asn1_type);
 
 } // namespace srsran

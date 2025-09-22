@@ -754,7 +754,46 @@ bc_bearer_context_f1u_tnl_info_to_f1ap_asn1(f1ap_bc_bearer_context_f1u_tnl_info 
   return asn1_bc_bearer_context_f1u_tnl_info;
 }
 
-void fill_broadcast_mrb_to_be_setup_item(asn1::f1ap::broadcast_m_rbs_to_be_setup_item_s& asn1_type, const f1ap_broadcast_mrb_to_be_setup_item& mrb_to_be_setup_item)
+static f1ap_bc_bearer_context_f1u_tnl_info
+asn1_to_f1ap_bc_bearer_context_f1u_tnl_info(bc_bearer_context_f1_u_tnl_info_c asn1_bc_bearer_context_f1u_tnl_info)
+{
+  f1ap_bc_bearer_context_f1u_tnl_info bc_bearer_context_f1u_tnl_info;
+
+  // Fill location dependent
+  if (asn1_bc_bearer_context_f1u_tnl_info.type() ==
+      asn1::f1ap::bc_bearer_context_f1_u_tnl_info_c::types::locationdependent) {
+    f1ap_bc_bearer_ctxt_f1u_tnl_info_location_dependent locationdependent = {};
+
+    for (const auto& asn1_locationdependent_item : asn1_bc_bearer_context_f1u_tnl_info.locationdependent()) {
+      f1ap_bc_bearer_ctxt_f1u_tnl_info_location_dependent_item locationdependent_item = {};
+
+      // Fill MBS Area Session ID (M).
+      locationdependent_item.mbs_area_session_id = uint_to_area_session_id(asn1_locationdependent_item.mbs_area_session_id);
+
+      // Fill MBS F1-U Information (M).
+      locationdependent_item.mbs_f1u_information = asn1_to_up_transport_layer_info(asn1_locationdependent_item.mbs_f1u_info_at_cu);
+
+      locationdependent.location_dependent_mbs_f1u_information.push_back(locationdependent_item);
+    }
+
+    bc_bearer_context_f1u_tnl_info = f1ap_bc_bearer_ctxt_f1u_tnl_info_location_dependent{locationdependent};
+
+  // Fill location independent
+  } else if (asn1_bc_bearer_context_f1u_tnl_info.type() ==
+              asn1::f1ap::bc_bearer_context_f1_u_tnl_info_c::types::locationindpendent) {
+    f1ap_bc_bearer_ctxt_f1u_tnl_info_location_independent locationindependent = {};
+    const auto& asn1_locationindependent = asn1_bc_bearer_context_f1u_tnl_info.locationindpendent();
+
+    // Fill MBS F1-U Information (M).
+    locationindependent.mbs_f1u_information = asn1_to_up_transport_layer_info(asn1_locationindependent.mbs_f1u_info);
+
+    bc_bearer_context_f1u_tnl_info = f1ap_bc_bearer_ctxt_f1u_tnl_info_location_independent{locationindependent};
+  }
+
+  return bc_bearer_context_f1u_tnl_info;
+}
+
+static void fill_broadcast_mrb_to_be_setup_item(asn1::f1ap::broadcast_m_rbs_to_be_setup_item_s& asn1_type, const f1ap_broadcast_mrb_to_be_setup_item& mrb_to_be_setup_item)
 {
   // Fill MRB ID.
   asn1_type.mrb_id = mrb_id_to_uint(mrb_to_be_setup_item.mrb_id);
@@ -785,4 +824,19 @@ srsran::make_broadcast_mrb_to_be_setup_list(span<const f1ap_broadcast_mrb_to_be_
     fill_broadcast_mrb_to_be_setup_item(list[i]->broadcast_m_rbs_to_be_setup_item(), mrb_list[i]);
   }
   return list;
+}
+
+f1ap_broadcast_mrb_setup_item
+srsran::make_mrb_setup(const asn1::f1ap::broadcast_m_rbs_setup_item_s& asn1_type)
+{
+  f1ap_broadcast_mrb_setup_item mrb_setup_item;
+
+  // Fill MRB ID (M).
+  mrb_setup_item.mrb_id = uint_to_mrb_id(asn1_type.mrb_id);
+
+  // Fill BC Bearer Context F1-U TNL Info at DU (M).
+  mrb_setup_item.bc_bearer_context_f1u_tnl_info_at_du =
+    asn1_to_f1ap_bc_bearer_context_f1u_tnl_info(asn1_type.bc_bearer_ctxt_f1_u_tnl_infoat_du);
+
+  return mrb_setup_item;
 }
