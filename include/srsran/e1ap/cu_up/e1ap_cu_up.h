@@ -93,6 +93,12 @@ public:
   virtual mbs_broadcast_session_setup_result
   on_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& request) = 0;
 
+  /// \brief Notifies the CU-UP about a new BC Bearer Context Modification Request.
+  /// \param[in] request The received BC Bearer Context Modification Request.
+  /// \returns The Broadcast MBS Session Modification result of the E1AP MBS Session.
+  virtual mbs_broadcast_session_modification_result
+  on_bc_bearer_context_modification_request(e1ap_bc_bearer_context_modification_request& request) = 0;
+
   /// \brief Schedules async task on UE.
   virtual void on_schedule_ue_async_task(srs_cu_up::ue_index_t ue_index, async_task<void> task) = 0;
 

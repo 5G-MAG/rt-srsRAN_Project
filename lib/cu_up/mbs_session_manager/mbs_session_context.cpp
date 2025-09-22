@@ -180,7 +180,6 @@ mbs_session_context::setup_mbs_broadcast_session(e1ap_bc_bearer_context_to_setup
   }
   dispatch_queue = std::move(expected_dispatch_queue.value());
 
-  // TODO (borieher): Handle MRB setup
   for (const auto& mrb_to_setup_item : bc_bearer_context_to_setup.bc_mrb_to_setup_list) {
     mrb_setup_result mrb_result = handle_mrb_to_setup_item(mrb_to_setup_item);
     broadcast_session_setup_result.mrb_setup_results.push_back(mrb_result);
@@ -369,6 +368,111 @@ mbs_session_context::handle_mrb_to_setup_item(const e1ap_bc_mrb_setup_config& mr
 
   // Add result
   mrb_result.success = true;
+
+  return mrb_result;
+}
+
+mbs_broadcast_session_modification_result
+mbs_session_context::modify_mbs_broadcast_session(e1ap_bc_bearer_context_to_modify& bc_bearer_context_to_modify)
+{
+  mbs_broadcast_session_modification_result broadcast_session_modification_result = {};
+  broadcast_session_modification_result.success                  = false;
+  broadcast_session_modification_result.cause                    = e1ap_cause_radio_network_t::unspecified;
+
+  // TODO (borieher): Apply BC MRB To Setup List
+
+  // Apply BC MRB To Modify List
+  // NOTE (borieher): Only applying the MRB modifications for now
+  for (auto& mrb_to_modify_item : bc_bearer_context_to_modify.bc_mrb_to_modify_list) {
+    mrb_modification_result mrb_result = handle_mrb_to_modify_item(mrb_to_modify_item);
+    broadcast_session_modification_result.mrb_modification_results.push_back(mrb_result);
+  }
+
+  // TODO (borieher): Apply BC MRB To Remove List
+
+  return broadcast_session_modification_result;
+}
+
+mrb_modification_result
+mbs_session_context::handle_mrb_to_modify_item(e1ap_bc_mrb_to_modify_item& mrb_to_modify_item)
+{
+  // Prepare MRB modification result
+  mrb_modification_result mrb_result = {};
+  mrb_result.success          = false;
+  mrb_result.cause            = e1ap_cause_radio_network_t::unspecified;
+  mrb_result.mrb_id           = mrb_to_modify_item.mrb_id;
+
+  // Find MRB in MBS Session
+  auto mrb_iter = mrbs.find(mrb_to_modify_item.mrb_id);
+  if (mrb_iter == mrbs.end()) {
+    logger.warning("Cannot modify {}, MRB not found", mrb_to_modify_item.mrb_id);
+    return mrb_result;
+  }
+  srsran_assert(mrb_to_modify_item.mrb_id == mrb_iter->second->mrb_id,
+                "Query for {} provided {}",
+                mrb_to_modify_item.mrb_id,
+                mrb_iter->second->mrb_id);
+
+  std::unique_ptr<mrb_context>& mrb = mrb_iter->second;
+
+  // TODO (borieher): Apply MBS PDCP Configuration
+
+  // TODO (borieher): Apply MBS QoS Flows Information To Be Setup
+
+  // TODO (borieher): Apply F1-U TNL Info To Add or Modify List
+
+  // TODO (borieher): Apply F1-U TNL Info to Release List
+
+  // Apply BC Bearer Context F1-U TNL Info at DU
+  // NOTE (borieher): Only applying the BC Bearer Context F1-U TNL Info at DU for now
+  if (mrb_to_modify_item.bc_bearer_context_f1u_tnl_info_at_du.has_value()) {
+    // Apply location dependent
+    if (mrb_to_modify_item.bc_bearer_context_f1u_tnl_info_at_du.value().is_locationdependent()) {
+      for (const auto& locationdependent_item : mrb_to_modify_item.bc_bearer_context_f1u_tnl_info_at_du.value()
+          .get_locationdependent().location_dependent_mbs_f1u_information_at_du) {
+        // Only check for the configured MBS Area Session ID
+        if (area_session_id.has_value()) {
+          if (locationdependent_item.mbs_area_session_id == area_session_id.value()) {
+            logger.info("Attaching dl_teid={} to F1-U tunnel with ul_teid={}",
+                  locationdependent_item.mbs_f1u_information_at_du,
+                  mrb->f1u_ul_teid);
+            expected<std::string> bind_addr = mrb->f1u_gw_bearer->get_bind_address();
+            if (not bind_addr.has_value()) {
+              logger.error("Could not get bind address for F1-U tunnel");
+              return mrb_result;
+            }
+            // Apply GTPU tunnel modifications with the DU information
+            f1u_gw.attach_dl_teid(up_transport_layer_info(transport_layer_address::create_from_string(bind_addr.value()),
+                mrb->f1u_ul_teid), locationdependent_item.mbs_f1u_information_at_du);
+
+            mrb->pdcp_to_f1u_adapter.connect_f1u(mrb->f1u->get_tx_sdu_handler());
+          }
+        }
+      }
+      mrb_result.success = true;
+    // Apply location independent
+    } else {
+      const auto& locationindependent = mrb_to_modify_item.bc_bearer_context_f1u_tnl_info_at_du.value().get_locationindependent();
+      // Apply GTPU tunnel modifications with the DU information
+      logger.info("Attaching dl_teid={} to F1-U tunnel with ul_teid={}",
+          locationindependent.mbs_f1u_information_at_du,
+          mrb->f1u_ul_teid);
+      expected<std::string> bind_addr = mrb->f1u_gw_bearer->get_bind_address();
+      if (not bind_addr.has_value()) {
+        logger.error("Could not get bind address for F1-U tunnel");
+        return mrb_result;
+      }
+      // Apply GTPU tunnel modifications with the DU information
+      f1u_gw.attach_dl_teid(up_transport_layer_info(transport_layer_address::create_from_string(bind_addr.value()),
+          mrb->f1u_ul_teid), locationindependent.mbs_f1u_information_at_du);
+
+      mrb->pdcp_to_f1u_adapter.connect_f1u(mrb->f1u->get_tx_sdu_handler());
+
+      mrb_result.success = true;
+    }
+
+    logger.info("Modified {}.f1u_teid={}", mrb_to_modify_item.mrb_id, mrb->f1u_ul_teid);
+  }
 
   return mrb_result;
 }

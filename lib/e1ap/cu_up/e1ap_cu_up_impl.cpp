@@ -26,6 +26,7 @@
 #include "cu_up/procedures/bearer_context_release_procedure.h"
 #include "cu_up/procedures/e1ap_cu_up_event_manager.h"
 #include "cu_up/procedures/bc_bearer_context_setup_procedure.h"
+#include "cu_up/procedures/bc_bearer_context_modification_procedure.h"
 #include "e1ap_cu_up_asn1_helpers.h"
 #include "procedures/e1ap_cu_up_setup_procedure.h"
 #include "srsran/e1ap/common/e1ap_message.h"
@@ -350,7 +351,7 @@ void e1ap_cu_up_impl::handle_bc_bearer_context_setup_request(const asn1::e1ap::b
 
   if (result.mbs_index == mbs_index_t::invalid) {
     logger.warning("E1AP MBS Session creation failed");
-    //return make_unexpected(rrc->get_rrc_reject());
+    //return make_unexpected();
     return;
   }
 
@@ -397,22 +398,23 @@ void e1ap_cu_up_impl::handle_bc_bearer_context_modification_request(const asn1::
     return;
   }
 
-  //e1ap_mbs_session_context& mbs_session_ctxt = mbs_session_ctxt_list[bc_bearer_context_modification_req.gnb_cu_up_mbs_e1ap_id];
+  // Add MBS index into the E1AP BC Bearer Context Modification Request to get the MBS Session context in the CU-UP
+  e1ap_mbs_session_context& mbs_session_ctxt = mbs_session_ctxt_list[bc_bearer_context_modification_req.gnb_cu_up_mbs_e1ap_id];
+  bc_bearer_context_modification_req.mbs_index = mbs_session_ctxt.mbs_ids.mbs_index;
 
-  // TODO (borieher): Create failure message for early returns?
+  // Modify the CU-UP MBS Session object
+  mbs_broadcast_session_modification_result result =
+      cu_up_notifier.on_bc_bearer_context_modification_request(bc_bearer_context_modification_req);
 
-  // cu_up_notifier.on_schedule_mbs_task(launch_async<bearer_context_modification_procedure>(
-  //   ue_ctxt, msg, *pdu_notifier, cu_up_notifier, metrics));
+  // if (!result.success) {
+  //   logger.error("E1AP MBS Session modification failed");
+  //   // Send failure.
+  //   //pdu_notifier->on_new_message(e1ap_msg);
+  //   return;
+  // }
 
-  // NOTE (borieher): Create quick response here
-  e1ap_message e1ap_msg;
-  e1ap_msg.pdu.set_successful_outcome();
-  e1ap_msg.pdu.successful_outcome().load_info_obj(ASN1_E1AP_ID_BC_BEARER_CONTEXT_MOD);
-  e1ap_msg.pdu.successful_outcome().value.bc_bearer_context_mod_resp()->gnb_cu_cp_mbs_e1ap_id= msg->gnb_cu_cp_mbs_e1ap_id;
-  e1ap_msg.pdu.successful_outcome().value.bc_bearer_context_mod_resp()->gnb_cu_up_mbs_e1ap_id = msg->gnb_cu_up_mbs_e1ap_id;
-
-  // Send response.
-  pdu_notifier->on_new_message(e1ap_msg);
+  cu_up_notifier.on_schedule_mbs_task(launch_async<bc_bearer_context_modification_procedure>(
+      bc_bearer_context_modification_req, *pdu_notifier, result, logger));
 }
 
 void e1ap_cu_up_impl::handle_successful_outcome(const asn1::e1ap::successful_outcome_s& outcome)

@@ -24,6 +24,7 @@
 
 #include "srsran/e1ap/cu_up/e1ap_cu_up_bearer_context_update.h"
 #include "srsran/e1ap/cu_up/e1ap_cu_up_bc_bearer_context_setup.h"
+#include "srsran/e1ap/cu_up/e1ap_cu_up_bc_bearer_context_modification.h"
 #include "srsran/support/async/async_task.h"
 
 namespace srsran::srs_cu_up {
@@ -66,6 +67,11 @@ public:
   /// \return Returns the result of the created MBS Session, including index and MRBs.
   virtual mbs_broadcast_session_setup_result
   handle_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& msg) = 0;
+
+  /// \brief Modifies an existing MBS Session context updating the requested MRBs and QoS flows.
+  /// \return Returns the result of the modified MBS Session, including index and MRBs.
+  virtual mbs_broadcast_session_modification_result
+  handle_bc_bearer_context_modification_request(e1ap_bc_bearer_context_modification_request& msg) = 0;
 
   /// \brief Get the state of the E1AP connection.
   /// \return True if E1AP is connected, false otherwise.

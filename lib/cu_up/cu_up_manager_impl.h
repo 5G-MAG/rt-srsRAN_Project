@@ -74,6 +74,9 @@ public:
   mbs_broadcast_session_setup_result
   handle_bc_bearer_context_setup_request(e1ap_bc_bearer_context_setup_request& msg) override;
 
+  mbs_broadcast_session_modification_result
+  handle_bc_bearer_context_modification_request(e1ap_bc_bearer_context_modification_request& msg) override;
+
   void schedule_cu_up_async_task(async_task<void> task);
   void schedule_ue_async_task(srs_cu_up::ue_index_t ue_index, async_task<void> task) override;
   bool schedule_mbs_task(async_task<void> task) override;

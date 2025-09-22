@@ -78,7 +78,11 @@ public:
   mrb_setup_result
   handle_mrb_to_setup_item(const e1ap_bc_mrb_setup_config& mrb_to_setup_item);
 
-  // TODO (borieher): Create add_mrb() and remove_mrb() methods
+  mbs_broadcast_session_modification_result
+  modify_mbs_broadcast_session(e1ap_bc_bearer_context_to_modify& bc_bearer_context_to_modify);
+
+  mrb_modification_result
+  handle_mrb_to_modify_item(e1ap_bc_mrb_to_modify_item& mrb_to_modify_item);
 
 private:
   void stop()

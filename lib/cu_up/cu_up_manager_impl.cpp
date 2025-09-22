@@ -224,6 +224,22 @@ cu_up_manager_impl::handle_bc_bearer_context_setup_request(e1ap_bc_bearer_contex
   return result;
 }
 
+mbs_broadcast_session_modification_result
+cu_up_manager_impl::handle_bc_bearer_context_modification_request(e1ap_bc_bearer_context_modification_request& msg)
+{
+  // Retrieve the existing MBS Session context
+  mbs_session_context* mbs_session = mbs_session_mng->find_mbs_session(msg.mbs_index);
+
+  // Get the modification result of the MBS Session
+  mbs_broadcast_session_modification_result result =
+  mbs_session->modify_mbs_broadcast_session(msg.bc_bearer_context_to_modify);
+
+  // Add the MBS index of the modified MBS Session to the result
+  result.mbs_index = mbs_session->get_index();
+
+  return result;
+}
+
 async_task<void> cu_up_manager_impl::enable_test_mode()
 {
   return launch_async<cu_up_enable_test_mode_routine>(test_mode_cfg, *this, ngu_demux);

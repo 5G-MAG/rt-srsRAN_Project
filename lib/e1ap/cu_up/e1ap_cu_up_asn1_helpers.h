@@ -1259,6 +1259,27 @@ inline bool fill_e1ap_bc_bearer_context_modification_request(e1ap_bc_bearer_cont
   return true;
 }
 
+inline void fill_asn1_bc_bearer_context_modification_response(asn1::e1ap::bc_bearer_context_mod_resp_s&     asn1_response,
+                                                              e1ap_bc_bearer_context_modification_response& response)
+{
+  // Fill gNB-CU-CP MBS E1AP ID (M).
+  asn1_response->gnb_cu_cp_mbs_e1ap_id = gnb_cu_cp_mbs_e1ap_id_to_uint(response.gnb_cu_cp_mbs_e1ap_id);
+
+  // Fill gNB-CU-UP MBS E1AP ID (M).
+  asn1_response->gnb_cu_up_mbs_e1ap_id = gnb_cu_up_mbs_e1ap_id_to_uint(response.gnb_cu_up_mbs_e1ap_id);
+
+  // Fill BC Bearer Context To Modify Response (M).
+  // TODO (borieher): Fill BC Bearer Context NG-U TNL Info at NG-RAN (O).
+
+  // Fill BC MRB Setup or Modify Response List <1..maxnoofMRBs>.
+
+  // Fill BC MRB Failed List <0..maxnoofMRBs>.
+
+  // TODO (borieher): Fill Available BC MRB Configuration (O).
+
+  // TODO (borieher): Fill Criticality Diagnostics (O).
+}
+
 
 } // namespace srs_cu_up
 } // namespace srsran

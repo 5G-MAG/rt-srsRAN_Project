@@ -82,6 +82,17 @@ public:
     return cu_up_handler->handle_bc_bearer_context_setup_request(request);
   }
 
+  mbs_broadcast_session_modification_result
+  on_bc_bearer_context_modification_request(e1ap_bc_bearer_context_modification_request& request) override
+  {
+    if (cu_up_handler == nullptr) {
+      logger.warning("Could not handle BC Bearer Context Modification command, no CU-UP handler present");
+      return {}; // return BC Bearer Context Modification Failure
+    }
+
+    return cu_up_handler->handle_bc_bearer_context_modification_request(request);
+  }
+
   bool on_schedule_mbs_task(async_task<void> task) override
   {
     if (cu_up_handler == nullptr) {
