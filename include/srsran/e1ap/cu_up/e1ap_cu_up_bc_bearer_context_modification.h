@@ -30,6 +30,7 @@ namespace srsran {
 namespace srs_cu_up {
 
 struct e1ap_bc_bearer_context_modification_request {
+  mbs_index_t mbs_index = mbs_index_t::invalid;
   // gnb_cu_cp_mbs_e1ap_id (M)
   gnb_cu_cp_mbs_e1ap_id_t gnb_cu_cp_mbs_e1ap_id;
   // gnb_cu_up_mbs_e1ap_id (M)
@@ -60,5 +61,30 @@ struct e1ap_bc_bearer_context_modification_failure {
   std::optional<e1ap_crit_diagnostics> crit_diagnostics;
 };
 
-} // namespace srs_cu_cp
+// QoS Flow modification result
+struct mbs_qos_flow_modification_result {
+  bool          success     = false;
+  qos_flow_id_t qos_flow_id = qos_flow_id_t::invalid;
+  e1ap_cause_t  cause; // Cause if setup was unsuccessful.
+};
+
+// MRB modification result, including associated QoS flows
+struct mrb_modification_result {
+  bool                                          success = false;
+  mrb_id_t                                      mrb_id  = mrb_id_t::invalid;
+  e1ap_cause_t                                  cause; // Cause if setup was unsuccessful.
+  up_transport_layer_info                       gtp_tunnel;
+  std::vector<mbs_qos_flow_modification_result> mbs_qos_flow_results;
+};
+
+// Broadcast MBS Session modification result, including mbs_index, associated MRBs and their QoS flows
+struct mbs_broadcast_session_modification_result {
+  mbs_index_t                          mbs_index = mbs_index_t::invalid; // Index of the modified MBS Session context.
+  bool                                 success   = false;                // True if Broadcast MBS session could be modified.
+  e1ap_cause_t                         cause;
+  up_transport_layer_info              gtp_tunnel;
+  std::vector<mrb_modification_result> mrb_modification_results;
+};
+
+} // namespace srs_cu_up
 } // namespace srsran
