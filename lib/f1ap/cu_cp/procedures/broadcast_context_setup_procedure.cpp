@@ -40,6 +40,13 @@ static void fill_asn1_broadcast_context_setup_request(broadcast_context_setup_re
 static void fill_f1ap_broadcast_context_setup_response(f1ap_broadcast_context_setup_response& response,
                                                        const broadcast_context_setup_resp_s&  asn1_response);
 
+/// \brief Convert the Broadcast Context Setup Failure from ASN.1 to common type.
+/// \param[in] response The common type Broadcast Context Setup Failure.
+/// \param[in] mbs_index MBS index.
+/// \param[in] asn1_failure The ASN.1 Broadcast Context Setup Failure.
+static void fill_f1ap_broadcast_context_setup_failure(f1ap_broadcast_context_setup_failure& response,
+                                                      const broadcast_context_setup_fail_s& asn1_failure);
+
 // ---- Broadcast Context Setup Procedure ----
 
 broadcast_context_setup_procedure::broadcast_context_setup_procedure(const f1ap_configuration&                   f1ap_cfg_,
@@ -134,9 +141,9 @@ expected<f1ap_broadcast_context_setup_response, f1ap_broadcast_context_setup_fai
   } else {
     logger.info("Received Broadcast Context Setup Failure on the CU");
     f1ap_broadcast_context_setup_failure failure;
-    //const asn1::f1ap::broadcast_context_setup_fail_s& asn1_fail = transaction_sink.failure();
+    const asn1::f1ap::broadcast_context_setup_fail_s& asn1_fail = transaction_sink.failure();
 
-    //fill_f1ap_broadcast_context_setup_failure(failure, asn1_fail);
+    fill_f1ap_broadcast_context_setup_failure(failure, asn1_fail);
     failure.gnb_cu_mbs_f1ap_id = mbs_session_ctxt->mbs_ids.cu_mbs_f1ap_id;
 
     logger.error("\"{}\" failed", name());
@@ -308,3 +315,8 @@ static void fill_f1ap_broadcast_context_setup_response(f1ap_broadcast_context_se
   // TODO (borieher): Fill Criticality Diagnostics (O).
 }
 
+static void fill_f1ap_broadcast_context_setup_failure(f1ap_broadcast_context_setup_failure& response,
+                                                      const broadcast_context_setup_fail_s& asn1_failure)
+{
+  return;
+}
