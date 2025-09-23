@@ -180,9 +180,24 @@ mbs_session_context::setup_mbs_broadcast_session(e1ap_bc_bearer_context_to_setup
   }
   dispatch_queue = std::move(expected_dispatch_queue.value());
 
+  // Create MRBs
+  uint32_t nof_mrb_success = 0;
   for (const auto& mrb_to_setup_item : bc_bearer_context_to_setup.bc_mrb_to_setup_list) {
     mrb_setup_result mrb_result = handle_mrb_to_setup_item(mrb_to_setup_item);
     broadcast_session_setup_result.mrb_setup_results.push_back(mrb_result);
+
+    if (mrb_result.success) {
+      nof_mrb_success++;
+    }
+  }
+
+  // If no MRBs could be created, the MBS Session setup fails
+  if (nof_mrb_success == 0) {
+    broadcast_session_setup_result.success = false;
+
+  // If at least 1 MRB could be created, we count the MBS Session setup as success
+  } else {
+    broadcast_session_setup_result.success = true;
   }
 
   return broadcast_session_setup_result;
@@ -383,12 +398,26 @@ mbs_session_context::modify_mbs_broadcast_session(e1ap_bc_bearer_context_to_modi
 
   // Apply BC MRB To Modify List
   // NOTE (borieher): Only applying the MRB modifications for now
+  uint32_t nof_mrb_modification_success = 0;
   for (auto& mrb_to_modify_item : bc_bearer_context_to_modify.bc_mrb_to_modify_list) {
     mrb_modification_result mrb_result = handle_mrb_to_modify_item(mrb_to_modify_item);
     broadcast_session_modification_result.mrb_modification_results.push_back(mrb_result);
+
+    if (mrb_result.success) {
+      nof_mrb_modification_success++;
+    }
   }
 
   // TODO (borieher): Apply BC MRB To Remove List
+
+  // If no MRBs could be modified, the MBS Session modification fails
+  if (nof_mrb_modification_success == 0) {
+    broadcast_session_modification_result.success = false;
+
+  // If at least 1 MRB could be modified, we count the MBS Session modification as success
+  } else {
+    broadcast_session_modification_result.success = true;
+  }
 
   return broadcast_session_modification_result;
 }
