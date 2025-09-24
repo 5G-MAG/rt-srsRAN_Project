@@ -550,6 +550,9 @@ bool broadcast_session_setup_routine::fill_e1ap_bc_bearer_context_modification_r
 
           e1ap_locationdependent_item.mbs_f1u_information_at_du = locationdependent_item.mbs_f1u_information;
 
+          e1ap_locationdependent_item.mbs_f1u_information_at_du = up_transport_layer_info(
+              locationdependent_item.mbs_f1u_information.tp_address, locationdependent_item.mbs_f1u_information.gtp_teid);
+
           locationdependent.location_dependent_mbs_f1u_information_at_du.push_back(e1ap_locationdependent_item);
         }
 
@@ -562,7 +565,8 @@ bool broadcast_session_setup_routine::fill_e1ap_bc_bearer_context_modification_r
         const auto& locationdependent = broadcast_context_setup_item.bc_bearer_context_f1u_tnl_info_at_du
           .get_locationindependent().mbs_f1u_information;
 
-        e1ap_locationindependent.mbs_f1u_information_at_du = locationdependent;
+        e1ap_locationindependent.mbs_f1u_information_at_du = up_transport_layer_info(
+              locationdependent.tp_address, locationdependent.gtp_teid);
 
         mrb_to_modify_item.bc_bearer_context_f1u_tnl_info_at_du.emplace(e1ap_locationindependent);
       }
@@ -581,6 +585,8 @@ bool broadcast_session_setup_routine::fill_e1ap_bc_bearer_context_modification_r
 
       // TODO (borieher): Fill F1-U TNL Info to Release List (0..1).
       // NOTE (borieher): For now, no F1-U TNL Info to release.
+
+      e1ap_request.bc_bearer_context_to_modify.bc_mrb_to_modify_list.push_back(mrb_to_modify_item);
     }
   }
 

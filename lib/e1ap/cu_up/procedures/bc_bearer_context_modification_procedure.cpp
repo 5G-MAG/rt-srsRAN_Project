@@ -133,7 +133,7 @@ bool bc_bearer_context_modification_procedure::fill_e1ap_bc_bearer_context_modif
                 locationdependent.location_dependent_mbs_f1u_information_at_cu.push_back(locationdependent_item);
               }
 
-              bc_mrb_setup_or_modify_response_item.bc_bearer_context_f1u_tnl_info_at_cu = locationdependent;
+              bc_mrb_setup_or_modify_response_item.bc_bearer_context_f1u_tnl_info_at_cu.emplace(locationdependent);
 
             // Parse location independent from request
             } else {
@@ -147,7 +147,7 @@ bool bc_bearer_context_modification_procedure::fill_e1ap_bc_bearer_context_modif
 
               locationindependent.mbs_f1u_information_at_cu = mbs_f1u_information_at_cu;
 
-              bc_mrb_setup_or_modify_response_item.bc_bearer_context_f1u_tnl_info_at_cu = locationindependent;
+              bc_mrb_setup_or_modify_response_item.bc_bearer_context_f1u_tnl_info_at_cu.emplace(locationindependent);
 
             }
           }

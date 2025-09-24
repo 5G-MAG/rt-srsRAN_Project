@@ -1272,8 +1272,30 @@ inline void fill_asn1_bc_bearer_context_modification_response(asn1::e1ap::bc_bea
   // TODO (borieher): Fill BC Bearer Context NG-U TNL Info at NG-RAN (O).
 
   // Fill BC MRB Setup or Modify Response List <1..maxnoofMRBs>.
+  for (const auto& bc_mrb_setup_or_modify_item : response.bc_bearer_context_to_modify_response.bc_mrb_setup_or_modify_response_list) {
+    asn1::e1ap::bcmrb_setup_modify_resp_list_item_s asn1_bc_mrb_setup_or_modify_item;
 
-  // Fill BC MRB Failed List <0..maxnoofMRBs>.
+    // Fill MRB ID (M).
+    asn1_bc_mrb_setup_or_modify_item.mrb_id = mrb_id_to_uint(bc_mrb_setup_or_modify_item.mrb_id);
+
+    // TODO (borieher): Fill MBS QoS Flow Setup List (O).
+
+    // TODO (borieher): Fill MBS QoS Flow Failed List (O).
+
+    // Fill BC Bearer Context F1-U TNL Info at CU (O).
+    if (bc_mrb_setup_or_modify_item.bc_bearer_context_f1u_tnl_info_at_cu.has_value()) {
+      asn1_bc_mrb_setup_or_modify_item.bc_bearer_context_f1_u_tnl_infoat_cu_present = true;
+
+      asn1_bc_mrb_setup_or_modify_item.bc_bearer_context_f1_u_tnl_infoat_cu =
+          bc_bearer_context_f1u_tnl_info_at_cu_to_asn1(bc_mrb_setup_or_modify_item.bc_bearer_context_f1u_tnl_info_at_cu.value());
+    }
+
+    // TODO (borieher): Fill F1-U TNL Info Added or Modified List <0..1>.
+
+    asn1_response->bc_bearer_context_to_modify_resp.bc_mrb_setup_modify_resp_list.push_back(asn1_bc_mrb_setup_or_modify_item);
+  }
+
+  // TODO (borieher): Fill BC MRB Failed List <0..maxnoofMRBs>.
 
   // TODO (borieher): Fill Available BC MRB Configuration (O).
 

@@ -671,8 +671,8 @@ struct e1ap_bc_mrb_setup_or_modify_response_item {
   std::optional<std::vector<e1ap_qos_flow_item>> mbs_qos_flow_setup_list;
   //mbs_qos_flow_failed_list (O)
   std::optional<std::vector<e1ap_qos_flow_failed_item>> mbs_qos_flow_failed_list;
-  //bc_bearer_context_f1u_tnl_info_at_cu (M)
-  e1ap_bc_bearer_context_f1u_tnl_info_at_cu bc_bearer_context_f1u_tnl_info_at_cu;
+  //bc_bearer_context_f1u_tnl_info_at_cu (O)
+  std::optional<e1ap_bc_bearer_context_f1u_tnl_info_at_cu> bc_bearer_context_f1u_tnl_info_at_cu;
   //f1u_tnl_info_added_or_modified_list (0..1)
   std::vector<e1ap_f1u_tnl_info_added_or_modified_item> f1u_tnl_info_added_or_modified_list;
 };

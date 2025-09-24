@@ -475,6 +475,10 @@ mbs_session_context::handle_mrb_to_modify_item(e1ap_bc_mrb_to_modify_item& mrb_t
                 mrb->f1u_ul_teid), locationdependent_item.mbs_f1u_information_at_du);
 
             mrb->pdcp_to_f1u_adapter.connect_f1u(mrb->f1u->get_tx_sdu_handler());
+
+            // Save the GTPU tunnel modification info from the CqU for the E1AP BC Bearer Modification Response
+            mrb_result.gtp_tunnel = up_transport_layer_info(transport_layer_address::create_from_string(bind_addr.value()),
+                mrb->f1u_ul_teid);
           }
         }
       }
@@ -496,6 +500,10 @@ mbs_session_context::handle_mrb_to_modify_item(e1ap_bc_mrb_to_modify_item& mrb_t
           mrb->f1u_ul_teid), locationindependent.mbs_f1u_information_at_du);
 
       mrb->pdcp_to_f1u_adapter.connect_f1u(mrb->f1u->get_tx_sdu_handler());
+
+      // Save the GTPU tunnel modification info from the CU for the E1AP BC Bearer Modification Response
+      mrb_result.gtp_tunnel = up_transport_layer_info(transport_layer_address::create_from_string(bind_addr.value()),
+          mrb->f1u_ul_teid);
 
       mrb_result.success = true;
     }

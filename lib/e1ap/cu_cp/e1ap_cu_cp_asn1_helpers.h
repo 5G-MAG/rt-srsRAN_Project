@@ -1377,6 +1377,8 @@ inline void fill_asn1_bc_bearer_context_modification_request(asn1::e1ap::bc_bear
       asn1_bc_mrb_to_modify_item.ie_exts.f1_u_tnl_info_to_release_list_present = true;
       asn1_bc_mrb_to_modify_item.ie_exts.f1_u_tnl_info_to_release_list = asn1_f1u_tnl_info_to_release_list;
     }
+
+    asn1_request->bc_bearer_context_to_modify.bc_mrb_to_modify_list.push_back(asn1_bc_mrb_to_modify_item);
   }
 
   // Fill BC MRB To Remove List (0..maxnoofMRBs).
