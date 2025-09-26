@@ -83,6 +83,7 @@ inline pdcp_config make_pdcp_drb_config(const e1ap_pdcp_config& e1ap_cfg, const 
 
 inline pdcp_config make_pdcp_mrb_config(const e1ap_pdcp_config& e1ap_cfg)
 {
+  // PDCP configuration extracted from 3GPP TS 38.331 clause 9.1.1.7 - MTCH configuration for MBS broadcast
   pdcp_config cfg = {};
 
   //////////////////////////////
@@ -92,7 +93,8 @@ inline pdcp_config make_pdcp_mrb_config(const e1ap_pdcp_config& e1ap_cfg)
   cfg.rb_type = pdcp_rb_type::mrb;
 
   // RLC mode
-  cfg.rlc_mode = e1ap_cfg.rlc_mod;
+  //e1ap_cfg.rlc_mod;
+  cfg.rlc_mode = pdcp_rlc_mode::um;
 
   // Disable integrity protection
   cfg.integrity_protection_required = false;
@@ -101,9 +103,11 @@ inline pdcp_config make_pdcp_mrb_config(const e1ap_pdcp_config& e1ap_cfg)
   cfg.ciphering_required = false;
 
   // SN size
-  cfg.tx.sn_size = e1ap_cfg.pdcp_sn_size_dl;
+  //e1ap_cfg.pdcp_sn_size_dl;
+  cfg.tx.sn_size = pdcp_sn_size::size18bits;
   // NOTE (borieher): No UL in MBS, but we set it anyway
-  cfg.rx.sn_size = e1ap_cfg.pdcp_sn_size_ul;
+  //e1ap_cfg.pdcp_sn_size_ul;
+  cfg.rx.sn_size = pdcp_sn_size::size18bits;
 
   // Direction
   cfg.tx.direction = pdcp_security_direction::downlink;

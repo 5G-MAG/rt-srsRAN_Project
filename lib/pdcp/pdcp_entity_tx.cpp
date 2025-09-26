@@ -790,7 +790,7 @@ bool pdcp_entity_tx::write_data_pdu_header(byte_buffer& buf, const pdcp_data_pdu
   }
 
   // Set D/C if required
-  if (is_drb()) {
+  if (is_drb() || is_mrb()) {
     // D/C bit field (1).
     *hdr_writer = 0x80;
   } else {
