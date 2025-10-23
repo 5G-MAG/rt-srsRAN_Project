@@ -16,6 +16,16 @@ Community announcements and support - [Discussion board](https://www.github.com/
 
 Features and roadmap - [Features](https://docs.srsran.com/projects/project/en/latest/general/source/2_features_and_roadmap.html).
 
+
+5G-MBS (Multicast-broadcast services)
+-----------------
+This branch contains a modified version of srsRAN_Project which includes the related functions to establish a Broadcast MBS session at the CU (control unit).
+
+The actual implementation handles the NGAP messaging from the 5G core to create and register the requested session from the core. At the moment only the CU MBS funcionality is present.
+
+The implemented functionality corresponds to the signaling described in the document [38.401](https://www.etsi.org/deliver/etsi_ts/138400_138499/138401/17.08.00_60/ts_138401v170800p.pdf) v17.8.0 section 8.15, the steps 1, 2, 3, 7, 8, and 10.
+
+
 Build Preparation
 -----------------
 
@@ -171,3 +181,7 @@ srsRAN Project can be run in two ways:
 For exact details on running srsRAN Project in any configuration, see [the documentation](https://docs.srsran.com/projects/project/en/latest/user_manuals/source/running.html).
 
 For information on configuring and running srsRAN for various different use cases,  check our [tutorials](https://docs.srsran.com/projects/project/en/latest/tutorials/source/index.html).
+
+## Acknowledgements
+
+The reference implementation of the MBS features was funded by the European Union through the [6G-SANDBOX](https://6g-sandbox.eu/) project.
